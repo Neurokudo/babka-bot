@@ -1,4 +1,4 @@
-# main.py — версия без Gemini, с GPT (OpenAI)
+# main.py — GPT версия с историей промтов
 import os
 import logging
 from pathlib import Path
@@ -15,303 +15,199 @@ from telegram.ext import (
     filters,
 )
 
-# ──────────────────────────────────────────────────────────────
-# .env (локально); на Railway берутся Variables
-load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
-
+# ───────────────────────────────
 # Логи
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 log = logging.getLogger("babka-bot")
 
-# ──────────────────────────────────────────────────────────────
-# Пользовательский стейт
-user_state: dict[int, dict] = {}
-DEFAULT_STYLE = os.getenv("DEFAULT_STYLE", "Кино")
+# ───────────────────────────────
+# Переменные окружения
+load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 
-def _ensure_state(uid: int):
-    if uid not in user_state:
-        user_state[uid] = {
-            "mode": None,                   # helper | manual | meme
-            "prompt": None,                 # текущий промт
-            "style": None,                  # стиль
-            "replica": None,                # реплика
-            "awaiting_prompt": False,       # ждём текст сцены
-            "awaiting_replica": False,      # ждём ручную реплику
-            "awaiting_custom_style": False, # ждём ручной стиль
-        }
-
-# ──────────────────────────────────────────────────────────────
-# OpenAI (GPT)
+# ───────────────────────────────
+# OpenAI GPT
 from openai import OpenAI
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-openai_client: Optional[OpenAI] = None
+client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 
-if OPENAI_API_KEY:
-    try:
-        openai_client = OpenAI(api_key=OPENAI_API_KEY)
-        log.info("OpenAI enabled (GPT provider).")
-    except Exception as e:
-        log.error("OpenAI init failed: %s", e)
-        openai_client = None
-else:
-    log.warning("OPENAI_API_KEY is not set. GPT features disabled.")
-
-def _gpt_text(prompt: str, *, temperature: float = 0.7, max_tokens: int = 256) -> Optional[str]:
-    """Единый вызов GPT для короткого текста."""
-    if not openai_client:
+def _gpt_text(prompt: str, *, temperature: float = 0.7, max_tokens: int = 200) -> Optional[str]:
+    if not client:
         return None
     try:
-        resp = openai_client.chat.completions.create(
-            model="gpt-4o-mini",  # быстрый и недорогой; можно заменить на gpt-4o
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system",
-                 "content": "Ты редактор промтов для генерации коротких видеосцен. Пиши ясно и без лишней воды."},
+                 "content": (
+                     "Ты редактор промтов для генерации коротких видеосцен. "
+                     "Никогда не используй кавычки и тире. "
+                     "Пиши 1–2 предложения, добавляй детали камеры/света/движения/настроения."
+                 )},
                 {"role": "user", "content": prompt},
             ],
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        out = (resp.choices[0].message.content or "").strip()
-        return out or None
+        return (resp.choices[0].message.content or "").strip()
     except Exception as e:
         log.error("OpenAI error: %s", e)
         return None
 
-def improve_prompt(user_text: str) -> tuple[str, bool]:
-    """Вернуть улучшенный промт и флаг успеха."""
-    sys = (
-        "Перепиши текст сцены для генерации КОРОТКОГО видео (1–2 предложения). "
-        "Добавь детали камеры/света/движения/настроения. "
-        "Запрещено: любой экранный текст/водяные знаки."
-    )
-    out = _gpt_text(f"{sys}\nИсходный текст: {user_text}", temperature=0.65, max_tokens=140)
-    return (out, True) if out else (user_text, False)
+def improve_prompt(user_text: str, mode="normal") -> str:
+    sys = {
+        "normal": "Сделай сцену кинематографичной.",
+        "absurd": "Сделай сцену максимально абсурдной и смешной.",
+        "simple": "Сделай сцену проще и реалистичнее, как будто бытовое видео.",
+    }
+    text = _gpt_text(f"{sys.get(mode,'normal')}\nИсходный текст: {user_text}")
+    return text or user_text
 
-def suggest_replica(prompt_text: str) -> Optional[str]:
-    """Одна короткая реплика героя (4–10 слов), без кавычек и комментариев."""
-    sys = "Придумай ОДНУ короткую реплику персонажа (4–10 слов) к сцене. Только фраза, без кавычек."
-    return _gpt_text(f"{sys}\nСцена: {prompt_text}", temperature=0.9, max_tokens=40)
+# ───────────────────────────────
+# Состояние пользователя
+user_state: dict[int, dict] = {}
 
-# ──────────────────────────────────────────────────────────────
-# Veo клиент (оставляем как есть)
-from veo_client import generate_video_sync
+def _ensure(uid: int):
+    if uid not in user_state:
+        user_state[uid] = {
+            "mode": None,
+            "prompt": None,
+            "style": None,
+            "replica": None,
+            "awaiting_prompt": False,
+            "history": [],       # список всех промтов
+            "history_index": -1  # позиция в истории
+        }
 
-# ──────────────────────────────────────────────────────────────
+# ───────────────────────────────
 # Клавиатуры
 def kb_main():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎬 Создание видео с помощником", callback_data="menu_make")],
-        [InlineKeyboardButton("🖼️ Оживление изображения", callback_data="menu_alive")],
-        [InlineKeyboardButton("📚 Гайды / Оплата", callback_data="menu_guides")],
-        [InlineKeyboardButton("⚙️ Профиль / Баланс", callback_data="menu_profile")],
-    ])
-
-def kb_modes():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🧠✨ Умный помощник", callback_data="mode_helper")],
-        [InlineKeyboardButton("✍️ Я сам напишу промт", callback_data="mode_manual")],
+        [InlineKeyboardButton("🎬 Создание видео", callback_data="menu_make")],
         [InlineKeyboardButton("🎲 Мемный режим", callback_data="mode_meme")],
-        [InlineKeyboardButton("⬅️ Назад в меню", callback_data="back_main")],
+        [InlineKeyboardButton("📚 Гайды", callback_data="menu_guides")],
     ])
 
 def kb_after_prompt():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎬 Выбрать стиль", callback_data="choose_style")],
-        [InlineKeyboardButton("💬 Придумать реплику", callback_data="replica_menu")],
-        [InlineKeyboardButton("🚀 Сгенерировать сейчас", callback_data="generate_now")],
-        [InlineKeyboardButton("⬅️ Назад к режимам", callback_data="back_modes")],
+        [InlineKeyboardButton("🤪 Абсурднее", callback_data="prompt_absurd"),
+         InlineKeyboardButton("🎯 Проще", callback_data="prompt_simple")],
+        [InlineKeyboardButton("🔄 Заново", callback_data="prompt_retry"),
+         InlineKeyboardButton("➡️ Дальше", callback_data="choose_style")],
+        [InlineKeyboardButton("⬅️ Предыдущий", callback_data="history_prev"),
+         InlineKeyboardButton("➡️ Следующий", callback_data="history_next")],
     ])
 
-def kb_style_list():
+def kb_styles():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎥 Кино", callback_data="style_Кино"),
-         InlineKeyboardButton("📺 Док", callback_data="style_Док")],
-        [InlineKeyboardButton("🎨 Анимация", callback_data="style_Анимация"),
-         InlineKeyboardButton("✏️ Ввести свой стиль", callback_data="style_custom")],
+        [InlineKeyboardButton("🎥 Кино", callback_data="style_Cinema"),
+         InlineKeyboardButton("📺 Док", callback_data="style_Doc")],
+        [InlineKeyboardButton("🎨 Арт", callback_data="style_Art"),
+         InlineKeyboardButton("🕶️ Ч/Б", callback_data="style_BW")],
+        [InlineKeyboardButton("🌌 Киберпанк", callback_data="style_Cyberpunk"),
+         InlineKeyboardButton("✨ Pixar", callback_data="style_Pixar")],
+        [InlineKeyboardButton("🎤 ASMR", callback_data="style_ASMR"),
+         InlineKeyboardButton("🏷️ Бренд", callback_data="style_Brand")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_after_prompt")],
     ])
 
-def kb_replica_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✍️ Введу сам текст", callback_data="replica_custom")],
-        [InlineKeyboardButton("🤖 Пусть бот предложит", callback_data="replica_ai")],
-        [InlineKeyboardButton("⬅️ Назад", callback_data="back_after_prompt")],
-    ])
-
-# ──────────────────────────────────────────────────────────────
+# ───────────────────────────────
 # Хэндлеры
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    _ensure_state(uid)
-    user_state[uid].update({
-        "mode": None, "prompt": None, "style": None, "replica": None,
-        "awaiting_prompt": False, "awaiting_replica": False, "awaiting_custom_style": False,
-    })
+    _ensure(uid)
     await update.message.reply_text("👋 Привет! Я бот для генерации видео.", reply_markup=kb_main())
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    _ensure_state(uid)
+    _ensure(uid)
     st = user_state[uid]
     text = (update.message.text or "").strip()
 
-    # ждём кастомный стиль
-    if st["awaiting_custom_style"]:
-        st["awaiting_custom_style"] = False
-        st["style"] = text
-        await update.message.reply_text(f"🎨 Стиль сохранён: {text}", reply_markup=kb_after_prompt())
-        return
-
-    # ждём ручную реплику
-    if st["awaiting_replica"]:
-        st["awaiting_replica"] = False
-        st["replica"] = text
-        await update.message.reply_text(f"💬 Реплика сохранена: {text}", reply_markup=kb_after_prompt())
-        return
-
-    # ждём промт
     if st["awaiting_prompt"]:
         st["awaiting_prompt"] = False
-        if st["mode"] == "helper" and openai_client:
-            improved, ok = improve_prompt(text)
-            st["prompt"] = improved
-            if ok:
-                await update.message.reply_text(
-                    f"📝 Промт улучшен:\n\n{improved}",
-                    reply_markup=kb_after_prompt()
-                )
-            else:
-                await update.message.reply_text(
-                    "⚠️ GPT сейчас недоступен. Сохраняю промт без изменений:\n\n" + improved,
-                    reply_markup=kb_after_prompt()
-                )
-        else:
-            st["prompt"] = text
-            await update.message.reply_text(
-                f"📝 Промт сохранён:\n\n{text}",
-                reply_markup=kb_after_prompt()
-            )
+        new_prompt = improve_prompt(text)
+        st["prompt"] = new_prompt
+        st["history"].append(new_prompt)
+        st["history_index"] = len(st["history"]) - 1
+        await update.message.reply_text(f"📝 Промт улучшен:\n\n{new_prompt}", reply_markup=kb_after_prompt())
         return
 
-    # если ничего не ждём — меню
     await update.message.reply_text("Выбери действие:", reply_markup=kb_main())
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    q = update.callback_query
+    await q.answer()
     uid = update.effective_user.id
-    _ensure_state(uid)
+    _ensure(uid)
     st = user_state[uid]
-    data = query.data
+    data = q.data
     log.info("Button: %s", data)
 
-    # Главное меню
     if data == "menu_make":
-        await query.edit_message_text("Выберите режим генерации:", reply_markup=kb_modes()); return
-    if data == "menu_alive":
-        await query.edit_message_text("Фича «Оживление изображения» пока выключена.", reply_markup=kb_main()); return
-    if data == "menu_guides":
-        await query.edit_message_text("Скоро тут будут гайды и оплата ❤️", reply_markup=kb_main()); return
-    if data == "menu_profile":
-        await query.edit_message_text("Профиль / Баланс — в разработке.", reply_markup=kb_main()); return
-    if data == "back_main":
-        await query.edit_message_text("Главное меню:", reply_markup=kb_main()); return
+        st.update({"mode": "helper", "prompt": None, "style": None})
+        st["awaiting_prompt"] = True
+        await q.message.reply_text("Опиши сцену — я помогу улучшить."); return
 
-    # Режимы
-    if data == "mode_helper":
-        st.update({"mode": "helper", "prompt": None, "style": None, "replica": None})
-        st["awaiting_prompt"] = True
-        await query.edit_message_text("Опиши сцену — я помогу дописать детали. Жду промт 👇"); return
-    if data == "mode_manual":
-        st.update({"mode": "manual", "prompt": None, "style": None, "replica": None})
-        st["awaiting_prompt"] = True
-        await query.edit_message_text("Введи промт для видео 👇"); return
     if data == "mode_meme":
-        st.update({"mode": "meme", "prompt": "Смешная динамичная сцена, быстрая смена планов.",
-                   "style": "Мемный стиль", "replica": "Ну держитесь теперь!"})
-        await query.edit_message_text("Мемный режим готов. Можно генерировать.", reply_markup=kb_after_prompt()); return
-    if data == "back_modes":
-        await query.edit_message_text("Выберите режим генерации:", reply_markup=kb_modes()); return
+        st.update({"mode": "meme", "prompt": "Бабка гонится за динозавром на базаре.", "style": "Мемный"})
+        st["history"].append(st["prompt"])
+        st["history_index"] = len(st["history"]) - 1
+        await q.message.reply_text(f"Мемный промт готов:\n\n{st['prompt']}", reply_markup=kb_after_prompt()); return
 
-    # После промта
-    if data == "choose_style":
-        await query.edit_message_text("Выберите стиль:", reply_markup=kb_style_list()); return
-    if data == "back_after_prompt":
-        await query.edit_message_text("Дальше что делаем?", reply_markup=kb_after_prompt()); return
+    if data == "menu_guides":
+        await q.message.reply_text("Скоро тут будут гайды ❤️", reply_markup=kb_main()); return
 
-    if data.startswith("style_"):
-        st["style"] = data.split("style_", 1)[1]
-        await query.edit_message_text(f"🎨 Стиль выбран: {st['style']}", reply_markup=kb_after_prompt()); return
-    if data == "style_custom":
-        st["awaiting_custom_style"] = True
-        await query.edit_message_text("Введи стиль текстом 👇"); return
+    # Варианты промта
+    if data in ["prompt_absurd", "prompt_simple", "prompt_retry"]:
+        mode = "absurd" if data == "prompt_absurd" else "simple" if data == "prompt_simple" else "normal"
+        new_prompt = improve_prompt(st["prompt"], mode=mode)
+        st["prompt"] = new_prompt
+        st["history"].append(new_prompt)
+        st["history_index"] = len(st["history"]) - 1
+        await q.message.reply_text(f"📝 Новый вариант:\n\n{new_prompt}", reply_markup=kb_after_prompt()); return
 
-    # Реплика
-    if data == "replica_menu":
-        await query.edit_message_text("Выбери способ добавить реплику:", reply_markup=kb_replica_menu()); return
-    if data == "replica_custom":
-        st["awaiting_replica"] = True
-        await query.edit_message_text("Введи текст реплики 👇"); return
-    if data == "replica_ai":
-        if not st.get("prompt"):
-            await query.edit_message_text("Сначала введи промт, потом предложу реплику.", reply_markup=kb_after_prompt()); return
-        text = suggest_replica(st["prompt"]) or "Ну держитесь теперь!"
-        st["replica"] = text
-        await query.edit_message_text(f"💬 Реплика предложена: {text}", reply_markup=kb_after_prompt()); return
-
-    # Генерация
-    if data == "generate_now":
-        if not st.get("prompt"):
-            await query.edit_message_text("Сначала введи промт.", reply_markup=kb_after_prompt()); return
-        if not st.get("style"):
-            st["style"] = DEFAULT_STYLE
-        await query.edit_message_text("⏳ Генерирую видео в Veo 3… это может занять немного времени.")
-        try:
-            mp4_path = await context.application.run_in_executor(
-                None, generate_video_sync, st["prompt"], st["style"], st.get("replica"), 8
-            )
-            caption = (
-                "✅ Готово!\n\n"
-                f"📝 Промт: {st['prompt']}\n"
-                f"🎨 Стиль: {st['style']}" + (f"\n💬 Реплика: {st['replica']}" if st.get("replica") else "")
-            )
-            with open(mp4_path, "rb") as f:
-                await query.message.reply_video(video=f, caption=caption, supports_streaming=True)
-        except Exception as e:
-            log.exception("Veo generation failed")
-            await query.message.reply_text(f"❌ Ошибка генерации: {e}")
-        finally:
-            await query.message.reply_text("Что дальше?", reply_markup=kb_after_prompt())
+    # История
+    if data == "history_prev":
+        if st["history_index"] > 0:
+            st["history_index"] -= 1
+            prev_prompt = st["history"][st["history_index"]]
+            st["prompt"] = prev_prompt
+            await q.message.reply_text(f"⬅️ Предыдущий:\n\n{prev_prompt}", reply_markup=kb_after_prompt())
+        else:
+            await q.message.reply_text("❌ Это первый промт.", reply_markup=kb_after_prompt())
         return
 
-    # Фолбэк
-    await query.edit_message_text(f"Неизвестная кнопка: {data}", reply_markup=kb_main())
+    if data == "history_next":
+        if st["history_index"] < len(st["history"]) - 1:
+            st["history_index"] += 1
+            next_prompt = st["history"][st["history_index"]]
+            st["prompt"] = next_prompt
+            await q.message.reply_text(f"➡️ Следующий:\n\n{next_prompt}", reply_markup=kb_after_prompt())
+        else:
+            await q.message.reply_text("❌ Дальше нет.", reply_markup=kb_after_prompt())
+        return
 
-# ──────────────────────────────────────────────────────────────
-# Отладка всех апдейтов
-async def debug_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    log.info("DEBUG UPDATE: %s", update)
+    # Стили
+    if data == "choose_style":
+        await q.message.reply_text("Выберите стиль:", reply_markup=kb_styles()); return
+    if data.startswith("style_"):
+        st["style"] = data.split("style_", 1)[1]
+        await q.message.reply_text(f"🎨 Стиль выбран: {st['style']}", reply_markup=kb_after_prompt()); return
+    if data == "back_after_prompt":
+        await q.message.reply_text("Дальше что делаем?", reply_markup=kb_after_prompt()); return
 
-# ──────────────────────────────────────────────────────────────
+# ───────────────────────────────
 def main():
-    token = os.getenv("TELEGRAM_TOKEN")
-    if not token:
-        raise RuntimeError("ENV TELEGRAM_TOKEN не задан")
-
-    app = Application.builder().token(token).build()
-
-    # Отладка в самом раннем group
-    app.add_handler(MessageHandler(filters.ALL, debug_all), group=-1)
-
-    # Команды/кнопки/тексты
+    if not TELEGRAM_TOKEN:
+        raise RuntimeError("TELEGRAM_TOKEN не задан")
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-
     log.info("Bot is running…")
     app.run_polling()
 
-# ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     main()
 
