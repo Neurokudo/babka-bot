@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Загружаем .env (локально); на Railway переменные берутся из Settings → Variables
+# Загружаем .env локально; на Railway всё берётся из Variables
 load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 
 # Логи
@@ -28,48 +28,60 @@ log = logging.getLogger("babka-bot")
 user_state: dict[int, dict] = {}
 DEFAULT_STYLE = os.getenv("DEFAULT_STYLE", "cinema")
 
-
 def _ensure_state(uid: int):
     if uid not in user_state:
         user_state[uid] = {
-            "mode": None,                 # helper | manual | meme
-            "prompt": None,               # текущий промт
-            "style": None,                # выбранный стиль
-            "replica": None,              # текст реплики
-            "awaiting_replica": False,    # ждём ручной ввод реплики
-            "awaiting_custom_style": False,  # ждём ручной ввод стиля
+            "mode": None,                   # helper | manual | meme
+            "prompt": None,                 # текущий промт
+            "style": None,                  # выбранный стиль
+            "replica": None,                # текст реплики
+            "awaiting_replica": False,      # ждём ручной ввод реплики
+            "awaiting_custom_style": False, # ждём ручной ввод стиля
         }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Gemini (google-generativeai==0.8.5)
+# Gemini (google-generativeai==0.8.5) с надёжным выбором модели
 import google.generativeai as genai
 
+GENAI_MODEL = os.getenv("GENAI_MODEL", "").strip()  # можно задать явно в Railway
+_GEMINI_CANDIDATES = [m for m in [
+    GENAI_MODEL or None,
+    "gemini-1.5-flash",       # основной алиас
+    "gemini-1.5-flash-001",   # предыдущая версия
+    "gemini-1.5-flash-8b",    # облегчённая
+    "gemini-1.5-pro-001",     # pro-модель
+] if m]
+
 GEMINI_ENABLED = os.getenv("LLM_PROVIDER") == "gemini" and bool(os.getenv("GOOGLE_API_KEY"))
+gemini_model = None
 if GEMINI_ENABLED:
     try:
         genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-        gemini_model = genai.GenerativeModel("gemini-1.5-flash")
-        log.info("Gemini enabled.")
+        last_err = None
+        for mid in _GEMINI_CANDIDATES:
+            try:
+                gemini_model = genai.GenerativeModel(mid)
+                log.info("Gemini enabled. Using model: %s", mid)
+                break
+            except Exception as e:
+                last_err = e
+                log.warning("Gemini model '%s' failed: %s", mid, e)
+        if not gemini_model:
+            raise last_err or RuntimeError("No Gemini model available")
     except Exception as e:
         gemini_model = None
-        log.warning(f"Gemini init failed: {e}")
+        log.error("Gemini init failed: %s", e)
 else:
-    gemini_model = None
-    log.info("Gemini disabled (LLM_PROVIDER != gemini or no GOOGLE_API_KEY).")
-
+    log.info("Gemini disabled (LLM_PROVIDER != gemini or GOOGLE_API_KEY is empty).")
 
 def _gemini_text(prompt: str, *, temperature: float = 0.8, max_tokens: int = 256) -> Optional[str]:
-    """Вспомогательная обёртка с логами."""
+    """Удобная обёртка с логами и фолбэком None при ошибке."""
     if not gemini_model:
         return None
     try:
         resp = gemini_model.generate_content(
             prompt,
-            generation_config={
-                "temperature": temperature,
-                "top_p": 0.95,
-                "max_output_tokens": max_tokens,
-            },
+            generation_config={"temperature": temperature, "top_p": 0.95, "max_output_tokens": max_tokens},
         )
         text = (getattr(resp, "text", "") or "").strip()
         return text or None
@@ -77,31 +89,27 @@ def _gemini_text(prompt: str, *, temperature: float = 0.8, max_tokens: int = 256
         log.exception("Gemini error: %s", e)
         return None
 
-
 def improve_prompt(user_text: str) -> str:
     """Умный помощник — переписывает промт, делает детальнее и пригодным для видео."""
     sys = (
         "Ты редактор промтов для генерации видео. "
-        "На выходе дай 1–2 предложения, без списков, без кавычек, без хэштегов. "
+        "Дай 1–2 предложения, без списков, кавычек, эмодзи и хэштегов. "
         "Добавь детали: свет, камера, действие, настроение. Никакого текста на экране."
     )
     out = _gemini_text(f"{sys}\nИсходный текст: {user_text}", temperature=0.7, max_tokens=120)
-    if not out:
-        return user_text  # фолбэк — не ломаем поток
-    return out
-
+    return out or user_text  # при сбое оставляем оригинал
 
 def suggest_replica(scene_prompt: str) -> str:
     """Короткая смешная реплика под контекст сцены."""
     sys = (
         "Сделай ОДНУ короткую (до 12 слов) смешную живую реплику персонажа для подписи к видео. "
-        "Без кавычек, эмодзи и хештегов, без пояснений. Только фраза."
+        "Без кавычек, эмодзи, хештегов и пояснений. Только фраза."
     )
     out = _gemini_text(f"{sys}\nКонтекст сцены: {scene_prompt}", temperature=0.9, max_tokens=32)
     return out or "Ну держитесь теперь!"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Veo client
+# Veo client (генерация видео)
 from veo_client import generate_video_sync
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -184,7 +192,6 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Напиши описание сцены → выбери стиль → «Сгенерировать сейчас». /test_llm — проверка LLM.")
 
 async def test_llm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # быстрый самотест
     improved = improve_prompt("Бабка едет на осле по деревне")
     replica = suggest_replica(improved)
     await update.message.reply_text(f"✨ Промт: {improved}\n💬 Реплика: {replica}")
@@ -197,7 +204,7 @@ async def generate_video(query, context):
     st = user_state[uid]
 
     prompt = st.get("prompt") or "(пусто)"
-    style = st.get("style") or DEFAULT_STYLE
+    style  = st.get("style") or DEFAULT_STYLE
     replica = st.get("replica")
 
     await query.message.reply_text("⏳ Генерирую видео в Veo 3… это может занять немного времени.")
@@ -351,5 +358,6 @@ def main():
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
+    # Полезно: запускай только ОДИН бот (или локально, или Railway).
     main()
 
