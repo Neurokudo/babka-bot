@@ -1,4 +1,4 @@
-# main.py
+# main.py — версия без Gemini, с GPT (OpenAI)
 import os
 import logging
 from pathlib import Path
@@ -16,7 +16,7 @@ from telegram.ext import (
 )
 
 # ──────────────────────────────────────────────────────────────
-# .env — локально; на Railway переменные берутся из Variables
+# .env (локально); на Railway берутся Variables
 load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 
 # Логи
@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message
 log = logging.getLogger("babka-bot")
 
 # ──────────────────────────────────────────────────────────────
-# Состояние пользователя
+# Пользовательский стейт
 user_state: dict[int, dict] = {}
 DEFAULT_STYLE = os.getenv("DEFAULT_STYLE", "Кино")
 
@@ -33,82 +33,67 @@ def _ensure_state(uid: int):
         user_state[uid] = {
             "mode": None,                   # helper | manual | meme
             "prompt": None,                 # текущий промт
-            "style": None,                  # выбранный стиль
-            "replica": None,                # текст реплики
+            "style": None,                  # стиль
+            "replica": None,                # реплика
             "awaiting_prompt": False,       # ждём текст сцены
-            "awaiting_replica": False,      # ждём ручной ввод реплики
-            "awaiting_custom_style": False, # ждём ручной ввод стиля
+            "awaiting_replica": False,      # ждём ручную реплику
+            "awaiting_custom_style": False, # ждём ручной стиль
         }
 
 # ──────────────────────────────────────────────────────────────
-# Gemini (google-generativeai==0.8.5)
-import google.generativeai as genai
+# OpenAI (GPT)
+from openai import OpenAI
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai_client: Optional[OpenAI] = None
 
-_GEMINI_CANDIDATES = [
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-001",
-    "gemini-1.5-pro-latest",
-    "gemini-1.5-pro",
-    "gemini-1.5-pro-001",
-]
-
-gemini_model = None
-if os.getenv("LLM_PROVIDER", "").lower() == "gemini" and os.getenv("GOOGLE_API_KEY"):
+if OPENAI_API_KEY:
     try:
-        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-        last_err = None
-        for mid in _GEMINI_CANDIDATES:
-            try:
-                gemini_model = genai.GenerativeModel(mid)
-                log.info("Gemini enabled. Using model: %s", mid)
-                break
-            except Exception as e:
-                last_err = e
-                log.warning("Gemini model '%s' failed: %s", mid, e)
-        if not gemini_model:
-            raise last_err or RuntimeError("No Gemini model available")
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        log.info("OpenAI enabled (GPT provider).")
     except Exception as e:
-        gemini_model = None
-        log.error("Gemini init failed: %s", e)
+        log.error("OpenAI init failed: %s", e)
+        openai_client = None
 else:
-    log.info("Gemini disabled (LLM_PROVIDER != gemini or GOOGLE_API_KEY missing)")
+    log.warning("OPENAI_API_KEY is not set. GPT features disabled.")
 
-def _gemini_text(prompt: str, *, temperature: float = 0.8, max_tokens: int = 256) -> Optional[str]:
-    if not gemini_model:
+def _gpt_text(prompt: str, *, temperature: float = 0.7, max_tokens: int = 256) -> Optional[str]:
+    """Единый вызов GPT для короткого текста."""
+    if not openai_client:
         return None
     try:
-        resp = gemini_model.generate_content(
-            prompt,
-            generation_config={"temperature": temperature, "top_p": 0.95, "max_output_tokens": max_tokens},
+        resp = openai_client.chat.completions.create(
+            model="gpt-4o-mini",  # быстрый и недорогой; можно заменить на gpt-4o
+            messages=[
+                {"role": "system",
+                 "content": "Ты редактор промтов для генерации коротких видеосцен. Пиши ясно и без лишней воды."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
-        text = (getattr(resp, "text", "") or "").strip()
-        return text or None
+        out = (resp.choices[0].message.content or "").strip()
+        return out or None
     except Exception as e:
-        log.error("Gemini error: %s", e)
+        log.error("OpenAI error: %s", e)
         return None
 
 def improve_prompt(user_text: str) -> tuple[str, bool]:
-    """Вернуть улучшенный промт и флаг успеха (True/False)."""
+    """Вернуть улучшенный промт и флаг успеха."""
     sys = (
-        "Ты редактор промтов для генерации КОРОТКИХ видеосцен. "
-        "Верни 1–2 предложения без кавычек и списков. "
+        "Перепиши текст сцены для генерации КОРОТКОГО видео (1–2 предложения). "
         "Добавь детали камеры/света/движения/настроения. "
-        "Запрещено: любой текст/водяные знаки в кадре."
+        "Запрещено: любой экранный текст/водяные знаки."
     )
-    out = _gemini_text(f"{sys}\nИсходный текст сцены: {user_text}", temperature=0.7, max_tokens=120)
+    out = _gpt_text(f"{sys}\nИсходный текст: {user_text}", temperature=0.65, max_tokens=140)
     return (out, True) if out else (user_text, False)
 
-def suggest_replica(prompt: str) -> Optional[str]:
-    """LLM предлагает короткую реплику героя (4–10 слов)."""
-    sys = (
-        "Придумай ОДНУ короткую реплику персонажа (4–10 слов) под следующую сцену. "
-        "Только сама фраза, без кавычек и комментариев."
-    )
-    return _gemini_text(f"{sys}\nСцена: {prompt}", temperature=0.9, max_tokens=40)
+def suggest_replica(prompt_text: str) -> Optional[str]:
+    """Одна короткая реплика героя (4–10 слов), без кавычек и комментариев."""
+    sys = "Придумай ОДНУ короткую реплику персонажа (4–10 слов) к сцене. Только фраза, без кавычек."
+    return _gpt_text(f"{sys}\nСцена: {prompt_text}", temperature=0.9, max_tokens=40)
 
 # ──────────────────────────────────────────────────────────────
-# Veo клиент (если используешь Vertex, пакет google-cloud-aiplatform добавлен)
+# Veo клиент (оставляем как есть)
 from veo_client import generate_video_sync
 
 # ──────────────────────────────────────────────────────────────
@@ -184,10 +169,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"💬 Реплика сохранена: {text}", reply_markup=kb_after_prompt())
         return
 
-    # ждём промт (ключевой блок)
+    # ждём промт
     if st["awaiting_prompt"]:
         st["awaiting_prompt"] = False
-        if st["mode"] == "helper" and gemini_model:
+        if st["mode"] == "helper" and openai_client:
             improved, ok = improve_prompt(text)
             st["prompt"] = improved
             if ok:
@@ -197,7 +182,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             else:
                 await update.message.reply_text(
-                    "⚠️ Gemini сейчас недоступен. Сохраняю промт без изменений:\n\n" + improved,
+                    "⚠️ GPT сейчас недоступен. Сохраняю промт без изменений:\n\n" + improved,
                     reply_markup=kb_after_prompt()
                 )
         else:
@@ -208,12 +193,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # если ничего не ждём — показать меню
+    # если ничего не ждём — меню
     await update.message.reply_text("Выбери действие:", reply_markup=kb_main())
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # важно, чтобы не висели «часики»
+    await query.answer()
     uid = update.effective_user.id
     _ensure_state(uid)
     st = user_state[uid]
@@ -236,18 +221,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "mode_helper":
         st.update({"mode": "helper", "prompt": None, "style": None, "replica": None})
         st["awaiting_prompt"] = True
-        await query.edit_message_text("Опиши сцену текстом — я помогу дописать детали. Жду промт 👇"); return
+        await query.edit_message_text("Опиши сцену — я помогу дописать детали. Жду промт 👇"); return
     if data == "mode_manual":
         st.update({"mode": "manual", "prompt": None, "style": None, "replica": None})
         st["awaiting_prompt"] = True
         await query.edit_message_text("Введи промт для видео 👇"); return
     if data == "mode_meme":
-        st.update({"mode": "meme", "prompt": "Смешная динамичная сцена, быстрая смена планов.", "style": "Мемный стиль", "replica": "Ну держитесь теперь!"})
+        st.update({"mode": "meme", "prompt": "Смешная динамичная сцена, быстрая смена планов.",
+                   "style": "Мемный стиль", "replica": "Ну держитесь теперь!"})
         await query.edit_message_text("Мемный режим готов. Можно генерировать.", reply_markup=kb_after_prompt()); return
     if data == "back_modes":
         await query.edit_message_text("Выберите режим генерации:", reply_markup=kb_modes()); return
 
-    # После ввода промта
+    # После промта
     if data == "choose_style":
         await query.edit_message_text("Выберите стиль:", reply_markup=kb_style_list()); return
     if data == "back_after_prompt":
@@ -281,7 +267,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             st["style"] = DEFAULT_STYLE
         await query.edit_message_text("⏳ Генерирую видео в Veo 3… это может занять немного времени.")
         try:
-            # 8 секунд по умолчанию
             mp4_path = await context.application.run_in_executor(
                 None, generate_video_sync, st["prompt"], st["style"], st.get("replica"), 8
             )
@@ -299,11 +284,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text("Что дальше?", reply_markup=kb_after_prompt())
         return
 
-    # Если что-то не поймали
+    # Фолбэк
     await query.edit_message_text(f"Неизвестная кнопка: {data}", reply_markup=kb_main())
 
 # ──────────────────────────────────────────────────────────────
-# Отладчик всех апдейтов (помогает понять, доходят ли события)
+# Отладка всех апдейтов
 async def debug_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log.info("DEBUG UPDATE: %s", update)
 
@@ -313,18 +298,14 @@ def main():
     if not token:
         raise RuntimeError("ENV TELEGRAM_TOKEN не задан")
 
-    log.info("Инициализируем приложение…")
     app = Application.builder().token(token).build()
 
-    log.info("Добавляем хэндлеры…")
-    # Отладка — ставим в самый ранний group
+    # Отладка в самом раннем group
     app.add_handler(MessageHandler(filters.ALL, debug_all), group=-1)
 
-    # Команды
+    # Команды/кнопки/тексты
     app.add_handler(CommandHandler("start", start))
-    # Кнопки
     app.add_handler(CallbackQueryHandler(button_handler))
-    # Тексты от пользователя
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
 
     log.info("Bot is running…")
