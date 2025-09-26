@@ -15,28 +15,26 @@ from telegram.ext import (
     filters,
 )
 
-# ── Загрузка .env (строго из папки, где лежит этот файл)
+# ──────────────────────────────────────────────────────────────────────────────
+# .env грузим из той же папки, где лежит файл
 load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 
-# ── Логирование
-logging.basicConfig(level=logging.INFO)
+# ──────────────────────────────────────────────────────────────────────────────
+# Логирование
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+)
 log = logging.getLogger("babka-bot")
 
-# ── Gemini (LLM)
-import google.generativeai as genai
-
-# ── Veo client (лежит рядом: veo_client.py)
-from veo_client import generate_video_sync
-
 # ──────────────────────────────────────────────────────────────────────────────
-# Глобальное состояние пользователя
-# user_state[user_id] = {"mode":..., "prompt":..., "style":..., "replica":..., flags...}
-user_state = {}
+# Состояние
+user_state: dict[int, dict] = {}
 DEFAULT_STYLE = os.getenv("DEFAULT_STYLE", "cinema")
 
-def _ensure_state(user_id: int):
-    if user_id not in user_state:
-        user_state[user_id] = {
+def _ensure_state(uid: int):
+    if uid not in user_state:
+        user_state[uid] = {
             "mode": None,
             "prompt": None,
             "style": None,
@@ -46,7 +44,9 @@ def _ensure_state(user_id: int):
         }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Gemini init (по ключу)
+# Gemini (google-generativeai==0.8.5)
+import google.generativeai as genai
+
 GEMINI_ENABLED = os.getenv("LLM_PROVIDER") == "gemini" and bool(os.getenv("GOOGLE_API_KEY"))
 if GEMINI_ENABLED:
     try:
@@ -58,20 +58,42 @@ if GEMINI_ENABLED:
         log.warning(f"Gemini init failed: {e}")
 else:
     gemini_model = None
+    log.info("Gemini disabled.")
 
 def suggest_replica(prompt: str) -> str:
+    """
+    Возвращает короткую смешную реплику персонажа.
+    При любой ошибке/пустом ответе вернёт безопасный фолбэк.
+    """
     if not gemini_model:
+        log.warning("Gemini model is not initialized.")
         return "Ну держитесь теперь!"
     try:
         resp = gemini_model.generate_content(
-            f"Придумай короткую (до 15 слов) смешную, живую реплику персонажа к этому описанию сцены. "
-            f"Без кавычек и эмодзи. Описание: {prompt}"
+            contents=(
+                "Сделай ОДНУ короткую (до 12 слов) смешную живую реплику персонажа для подписи к видео. "
+                "Без кавычек, эмодзи и хештегов, без пояснений. Только фраза.\n"
+                f"Контекст сцены: {prompt}"
+            ),
+            generation_config={
+                "max_output_tokens": 32,
+                "temperature": 0.9,
+                "top_p": 0.95,
+            },
         )
-        text = (resp.text or "").strip()
-        return text or "Ну держитесь теперь!"
+        text = (getattr(resp, "text", "") or "").strip()
+        if not text:
+            log.warning("Gemini returned empty text. candidates=%s", getattr(resp, "candidates", None))
+            return "Ну держитесь теперь!"
+        return text
     except Exception as e:
-        log.warning(f"Gemini error: {e}")
+        log.exception("Gemini generate_content failed: %s", e)
         return "Ну держитесь теперь!"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Veo client (google-cloud-aiplatform==1.115.0)
+# В твоём veo_client.py реализован generate_video_sync(prompt, style, replica, seconds)
+from veo_client import generate_video_sync
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Клавиатуры
@@ -145,19 +167,23 @@ def generate_meme_prompt():
 # ──────────────────────────────────────────────────────────────────────────────
 # Команды
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    _ensure_state(user_id)
+    uid = update.effective_user.id
+    _ensure_state(uid)
     await update.message.reply_text("👋 Привет! Я бот для генерации видео.", reply_markup=kb_main_menu())
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Напиши описание сцены текстом → выбери стиль → нажми «Сгенерировать сейчас».")
+    await update.message.reply_text("Напиши описание сцены → выбери стиль → нажми «Сгенерировать сейчас». /test_llm — проверка Gemini.")
+
+async def test_llm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    phrase = suggest_replica("Бабка едет на осле по деревне; камера низкая, мягкий дневной свет")
+    await update.message.reply_text(f"Gemini test → {phrase}")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Генерация видео через Veo
+# Генерация видео (через veo_client.generate_video_sync)
 async def generate_video(query, context):
-    user_id = query.from_user.id
-    _ensure_state(user_id)
-    st = user_state[user_id]
+    uid = query.from_user.id
+    _ensure_state(uid)
+    st = user_state[uid]
 
     prompt = st.get("prompt") or "(пусто)"
     style  = st.get("style") or DEFAULT_STYLE
@@ -166,7 +192,6 @@ async def generate_video(query, context):
     await query.message.reply_text("⏳ Генерирую видео в Veo 3… это может занять немного времени.")
 
     try:
-        # Вынести синхронную генерацию из event loop
         mp4_path = await context.application.run_in_executor(
             None, generate_video_sync, prompt, style, replica, 8
         )
@@ -184,21 +209,19 @@ async def generate_video(query, context):
         await query.message.reply_text(f"❌ Ошибка генерации: {e}", reply_markup=kb_after_video())
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Текстовые сообщения
+# Обработка обычного текста
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    _ensure_state(user_id)
-    st = user_state[user_id]
+    uid = update.effective_user.id
+    _ensure_state(uid)
+    st = user_state[uid]
     text = (update.message.text or "").strip()
 
-    # ввод реплики?
     if st.get("awaiting_replica"):
         st["replica"] = text
         st["awaiting_replica"] = False
         await update.message.reply_text(f"✅ Реплика сохранена:\n{text}", reply_markup=kb_after_prompt())
         return
 
-    # ввод кастомного стиля?
     if st.get("awaiting_custom_style"):
         st["style"] = text
         st["awaiting_custom_style"] = False
@@ -215,9 +238,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
-    user_id = query.from_user.id
-    _ensure_state(user_id)
-    st = user_state[user_id]
+    uid = query.from_user.id
+    _ensure_state(uid)
+    st = user_state[uid]
 
     if data == "back_main":
         await query.message.reply_text("🏠 Главное меню", reply_markup=kb_main_menu()); return
@@ -272,7 +295,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "edit_prompt":
         await query.message.reply_text("Ок, введи новый промт:"); return
     if data == "new_video":
-        user_state[user_id] = {
+        user_state[uid] = {
             "mode": None, "prompt": None, "style": None,
             "replica": None, "awaiting_replica": False,
             "awaiting_custom_style": False,
@@ -290,12 +313,13 @@ def main():
     token = os.getenv("TELEGRAM_TOKEN")
     if not token:
         env_path = Path(__file__).with_name(".env")
-        raise RuntimeError(f"ENV TELEGRAM_TOKEN не задан. Проверь файл {env_path} и строку TELEGRAM_TOKEN=...")
+        raise RuntimeError(f"ENV TELEGRAM_TOKEN не задан. Проверь {env_path} или Railway Variables.")
 
     app = Application.builder().token(token).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("test_llm", test_llm))
     app.add_handler(CallbackQueryHandler(handle_buttons))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
