@@ -339,11 +339,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mp4_path = await asyncio.to_thread(
                 generate_video_sync, st["prompt"], st["style"], st.get("replica"), 8
             )
-            caption = (
-                "✅ Готово!\n\n"
-                f"📝 Промт: {st['prompt']}\n"
-                f"🎨 Стиль: {st['style']}" + (f"\n💬 Реплика: {st['replica']']}" if st.get("replica") else "")
-            )
+caption = (
+    "✅ Готово!\n\n"
+    f"📝 Промт: {st['prompt']}\n"
+    f"🎨 Стиль: {st['style']}" + (f"\n💬 Реплика: {st['replica']}" if st.get("replica") else "")
+)
             # отправляем видео отдельным сообщением
             with open(mp4_path, "rb") as f:
                 await q.message.reply_video(video=f, caption=caption, supports_streaming=True)
