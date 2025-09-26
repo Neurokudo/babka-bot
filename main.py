@@ -46,8 +46,12 @@ import google.generativeai as genai
 
 # Жёстко задаём список моделей (без env, чтобы не тянуло кривые пути)
 _GEMINI_CANDIDATES = [
-    "gemini-1.5-flash",   # основной
-    "gemini-1.5-pro",     # продвинутая
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-001",
+    "gemini-1.5-pro-latest",
+    "gemini-1.5-pro",
+    "gemini-1.5-pro-001",
 ]
 
 gemini_model = None
@@ -85,8 +89,7 @@ def _gemini_text(prompt: str, *, temperature: float = 0.8, max_tokens: int = 256
         log.error("Gemini error: %s", e)
         return None
 
-def improve_prompt(user_text: str) -> str:
-    """LLM-редактор промтов (коротко + кинематографичные детали)."""
+def improve_prompt(user_text: str) -> tuple[str, bool]:
     sys = (
         "Ты редактор промтов для генерации КОРОТКИХ видеосцен. "
         "Верни 1–2 предложения без кавычек и списков. "
@@ -94,7 +97,7 @@ def improve_prompt(user_text: str) -> str:
         "Запрещено: любой текст/водяные знаки в кадре."
     )
     out = _gemini_text(f"{sys}\nИсходный текст сцены: {user_text}", temperature=0.7, max_tokens=120)
-    return out or user_text
+    return (out, True) if out else (user_text, False)
 
 def suggest_replica(prompt: str) -> Optional[str]:
     """LLM предлагает короткую реплику героя (4–10 слов)."""
@@ -181,17 +184,28 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"💬 Реплика сохранена: {text}", reply_markup=kb_after_prompt())
         return
 
-    # ждём текст сцены
-    if st["awaiting_prompt"]:
-        st["awaiting_prompt"] = False
-        if st["mode"] == "helper" and gemini_model:
-            improved = improve_prompt(text)
-            st["prompt"] = improved
-            await update.message.reply_text(f"📝 Промт улучшен:\n\n{improved}", reply_markup=kb_after_prompt())
+if st["awaiting_prompt"]:
+    st["awaiting_prompt"] = False
+    if st["mode"] == "helper" and gemini_model:
+        improved, ok = improve_prompt(text)
+        st["prompt"] = improved
+        if ok:
+            await update.message.reply_text(
+                f"📝 Промт улучшен:\n\n{improved}",
+                reply_markup=kb_after_prompt()
+            )
         else:
-            st["prompt"] = text
-            await update.message.reply_text(f"📝 Промт сохранён:\n\n{text}", reply_markup=kb_after_prompt())
-        return
+            await update.message.reply_text(
+                "⚠️ Gemini сейчас недоступен. Сохраняю промт без изменений:\n\n" + improved,
+                reply_markup=kb_after_prompt()
+            )
+    else:
+        st["prompt"] = text
+        await update.message.reply_text(
+            f"📝 Промт сохранён:\n\n{text}",
+            reply_markup=kb_after_prompt()
+        )
+    return
 
     # если никакого ожидания — просто покажем меню
     await update.message.reply_text("Выбери действие:", reply_markup=kb_main())
