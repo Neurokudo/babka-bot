@@ -1,0 +1,445 @@
+kimport os
+import logging
+import random
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Логирование
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Состояние пользователей
+# user_state[user_id] = {
+#   "prompt": str|None,
+#   "style": str|None,
+#   "mode": "helper"|"manual"|"meme"|None,
+#   "editing": bool,
+#   "replica": str|None,
+#   "adding_replica": bool
+# }
+user_state = {}
+
+DEFAULT_STYLE = os.getenv("DEFAULT_STYLE", "cinema")
+TEST_VIDEO_URL = os.getenv(
+    "TEST_VIDEO_URL",
+    "https://filesamples.com/samples/video/mp4/sample_2560x1440.mp4"
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Клавиатуры
+def kb_modes():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✨ Помощник", callback_data="helper")],
+        [InlineKeyboardButton("✍️ Я сам напишу промт", callback_data="manual")],
+        [InlineKeyboardButton("🎲 Мемный режим", callback_data="meme_mode")],
+    ])
+
+def kb_variants():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🤪 Абсурднее", callback_data="variant_absurd")],
+        [InlineKeyboardButton("🎯 Реалистичнее", callback_data="variant_real")],
+        [InlineKeyboardButton("🔄 Заново", callback_data="variant_retry")],
+        [InlineKeyboardButton("➡️ Дальше", callback_data="variant_continue")],
+    ])
+
+def kb_after_prompt():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("➡️ К стилям", callback_data="prompt_to_styles")],
+        [InlineKeyboardButton("🚀 Сгенерировать сейчас", callback_data="generate_now")],
+        [InlineKeyboardButton("💬 Придумать реплику", callback_data="choose_replica")],
+    ])
+
+def kb_replica_options():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✍️ Я сам напишу", callback_data="replica_manual")],
+        [InlineKeyboardButton("🤖 Пусть бот предложит", callback_data="replica_ai")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="replica_back")],
+    ])
+
+def kb_styles():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎬 Кино", callback_data="style_cinema")],
+        [InlineKeyboardButton("🎧 ASMR", callback_data="style_asmr")],
+        [InlineKeyboardButton("🏢 Бренд", callback_data="style_brand")],
+        [InlineKeyboardButton("🎥 Документальный", callback_data="style_doc")],
+        [InlineKeyboardButton("🎨 Арт / Ретро / ЧБ", callback_data="style_art")],
+        [InlineKeyboardButton("🤖 Киберпанк", callback_data="style_cyber")],
+        [InlineKeyboardButton("✨ Pixar", callback_data="style_pixar")],
+        [InlineKeyboardButton("➕ Предложить ещё стиль", callback_data="style_more")],
+        [InlineKeyboardButton("🚀 Сгенерировать без стиля", callback_data="style_skip_generate")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="style_back")],
+    ])
+
+def kb_after_video():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ Изменить промт", callback_data="edit_prompt")],
+        [InlineKeyboardButton("🎬 Создать новое видео", callback_data="new_video")],
+    ])
+
+async def show_after_prompt_menu(source):
+    await source.message.reply_text("Промт готов. Что дальше?", reply_markup=kb_after_prompt())
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Заглушка авто-реплики (потом заменишь на API LLM)
+def suggest_replica(prompt: str) -> str:
+    witty = [
+        "Ну держитесь теперь!",
+        "Сало — всему голова!",
+        "Да что вы понимаете в этой жизни!",
+        "А мы в деревне так и живём!",
+        "Это было стратегически необходимо!",
+    ]
+    p = prompt.lower()
+    if "бабк" in p: return "Ох, внучек, опять твоё это... айти!"
+    if "дед" in p: return "В мои годы мы делали это без интернета!"
+    if "бизнес" in p: return "Счёт мне на почту, работаем по предоплате."
+    return random.choice(witty)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Мемные промты
+def generate_meme_prompt():
+    subjects = [
+        "Бабка","Дед","Гламурная девица","Неформал","Рокер","Строитель",
+        "Слон","Носорог","Бегемот","Капибара","Динозавр","Суровая бизнес-вумен",
+        "Официант","Футболист","Школьник с рюкзаком","Мужик в телогрейке",
+        "Тётка с авоськой","Дворник","Рэпер в кепке","Повар в колпаке",
+        "Охранник в форме","Курьер на велике"
+    ]
+    actions = [
+        "едет верхом","падает","кричит","танцует","спорит","машет руками",
+        "выпивает пиво","прыгает в воду","жарит шашлыки","катается на самокате",
+        "играет на гармошке","несёт мешок картошки","поёт в микрофон",
+        "катается на тележке из супермаркета","бросается снежками",
+        "разговаривает по старому телефону","тащит арматуру","ест арбуз",
+        "ловит курицу","катается на мопеде"
+    ]
+    objects = [
+        "на свинье","с огромным самоваром","рядом с арбузом размером с машину",
+        "на диване","с носорогом","с капибарой в руках","рядом с динозавром",
+        "с мешком цемента","с советским телевизором","на табуретке",
+        "рядом с холодильником","с гармошкой","с огромной кастрюлей борща",
+        "рядом с танком","с бидоном молока","с ведром воды","рядом с трактором",
+        "с гигантской пачкой сигарет","рядом с полным мешком денег","с портретом Ленина"
+    ]
+    locations = [
+        "в деревне","в панельном районе","в элитном доме","на стадионе",
+        "в аквапарке","у бассейна","на стройке","в саду","в супермаркете",
+        "в подъезде","во дворе пятиэтажки","на автобусной остановке",
+        "в электричке","на кухне с обоями в цветочек","в школьном спортзале",
+        "на заводе","на рынке","на вокзале","в поле подсолнухов",
+        "в ночном клубе","в пустыне","на Красной площади"
+    ]
+    return f"{random.choice(subjects)} {random.choice(actions)} {random.choice(objects)} {random.choice(locations)}"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Общие вьюхи
+async def show_mode_menu(target, *, with_greeting: bool):
+    msg = target.message
+    text = "👋 Привет! Я бот для генерации видео.\n\nВыберите, как хотите создать промт:" if with_greeting \
+        else "Выберите, как хотите создать промт:"
+    await msg.reply_text(text, reply_markup=kb_modes())
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_state[user_id] = {
+        "prompt": None, "style": None, "mode": None,
+        "editing": False, "replica": None, "adding_replica": False
+    }
+    await show_mode_menu(update, with_greeting=True)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Мемный режим
+async def meme_mode(query, context: ContextTypes.DEFAULT_TYPE):
+    user_id = query.from_user.id
+    st = user_state.setdefault(user_id, {
+        "prompt": None, "style": None, "mode": None,
+        "editing": False, "replica": None, "adding_replica": False
+    })
+    st["mode"] = "meme"
+    st["prompt"] = f"(Мемный промт) {generate_meme_prompt()}"
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎲 Крутить ещё", callback_data="meme_again")],
+        [InlineKeyboardButton("➡️ Дальше", callback_data="meme_next")],
+        [InlineKeyboardButton("🚀 Сгенерировать сейчас", callback_data="meme_generate_now")],
+        [InlineKeyboardButton("💬 Придумать реплику", callback_data="choose_replica")],
+    ])
+    await query.message.reply_text(f"🎲 Мемный сетап:\n\n{st['prompt']}", reply_markup=keyboard)
+
+async def handle_meme_buttons(query, context: ContextTypes.DEFAULT_TYPE):
+    user_id = query.from_user.id
+    st = user_state[user_id]
+
+    if query.data == "meme_again":
+        st["prompt"] = f"(Мемный промт) {generate_meme_prompt()}"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎲 Крутить ещё", callback_data="meme_again")],
+            [InlineKeyboardButton("➡️ Дальше", callback_data="meme_next")],
+            [InlineKeyboardButton("🚀 Сгенерировать сейчас", callback_data="meme_generate_now")],
+            [InlineKeyboardButton("💬 Придумать реплику", callback_data="choose_replica")],
+        ])
+        await query.message.reply_text(f"🎲 Мемный сетап:\n\n{st['prompt']}", reply_markup=keyboard)
+
+    elif query.data == "meme_next":
+        await ask_style(query, st["prompt"])
+
+    elif query.data == "meme_generate_now":
+        st["style"] = st.get("style") or DEFAULT_STYLE
+        await generate_video(query, context)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Обработка текстов (идея, ручной, редактирование, реплика)
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+    st = user_state.setdefault(user_id, {
+        "prompt": None, "style": None, "mode": None,
+        "editing": False, "replica": None, "adding_replica": False
+    })
+
+    # Ввод реплики
+    if st.get("adding_replica"):
+        st["adding_replica"] = False
+        st["replica"] = text
+        st["prompt"] = (st.get("prompt") or "") + f'\nРеплика персонажа: "{text}"'
+        await update.message.reply_text(f'✅ Реплика добавлена: "{text}"')
+        await show_after_prompt_menu(update)
+        return
+
+    # Редактирование промта
+    if st.get("editing"):
+        st["editing"] = False
+        st["prompt"] = text
+        if st.get("style"):
+            await update.message.reply_text("Перегенерирую по новому промту…")
+            fake_q = type("Q", (), {"from_user": update.effective_user, "message": update.message})
+            await generate_video(fake_q, context)
+        else:
+            await update.message.reply_text("✏️ Промт обновлён.")
+            await show_after_prompt_menu(update)
+        return
+
+    # Ручной режим — без улучшений
+    if st.get("mode") == "manual":
+        st["prompt"] = text
+        await update.message.reply_text("✍️ Промт сохранён как есть.")
+        await show_after_prompt_menu(update)
+        return
+
+    # По умолчанию — помощник
+    st["mode"] = "helper"
+    st["prompt"] = f"(Улучшенный промт) {text}"
+    await update.message.reply_text("✏️ Дорабатываю промт…")
+    await offer_variants(update, context, st["prompt"])
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Варианты (только для помощника)
+async def offer_variants(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt: str):
+    await update.message.reply_text(
+        f"Вот улучшенный промт:\n\n{prompt}\n\nХотите его подкрутить?",
+        reply_markup=kb_variants()
+    )
+
+async def handle_variants(query, context: ContextTypes.DEFAULT_TYPE):
+    user_id = query.from_user.id
+    st = user_state[user_id]
+    base_prompt = st["prompt"]
+
+    if query.data == "variant_absurd":
+        st["prompt"] = f"(Абсурдная версия) {base_prompt}"
+    elif query.data == "variant_real":
+        st["prompt"] = f"(Максимально реалистично) {base_prompt}"
+    elif query.data == "variant_retry":
+        st["prompt"] = f"(Альтернативный сетап) {generate_meme_prompt()}"
+    elif query.data == "variant_continue":
+        await show_after_prompt_menu(query)
+        return
+
+    await query.message.reply_text(f"🔄 Новый вариант:\n\n{st['prompt']}")
+    await show_after_prompt_menu(query)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Реплики
+async def handle_replica_buttons(query, context: ContextTypes.DEFAULT_TYPE):
+    user_id = query.from_user.id
+    st = user_state[user_id]
+
+    if query.data == "replica_manual":
+        st["adding_replica"] = True
+        await query.message.reply_text("✍️ Введите реплику персонажа:")
+
+    elif query.data == "replica_ai":
+        suggested = suggest_replica(st.get("prompt") or "")
+        st["replica"] = suggested
+        st["prompt"] = (st.get("prompt") or "") + f'\nРеплика персонажа: "{suggested}"'
+        await query.message.reply_text(f'🤖 Реплика добавлена автоматически:\n"{suggested}"')
+        await show_after_prompt_menu(query)
+
+    elif query.data == "replica_back":
+        await show_after_prompt_menu(query)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Выбор стиля
+async def ask_style(source, prompt: str):
+    await source.message.reply_text("Теперь выберите стиль:", reply_markup=kb_styles())
+
+async def handle_style(query, context: ContextTypes.DEFAULT_TYPE):
+    user_id = query.from_user.id
+    data = query.data
+    styles = {
+        "style_cinema": "cinema",
+        "style_asmr": "asmr",
+        "style_brand": "brand",
+        "style_doc": "documentary",
+        "style_art": "art/retro/ЧБ",
+        "style_cyber": "cyberpunk",
+        "style_pixar": "pixar"
+    }
+
+    if data in styles:
+        user_state[user_id]["style"] = styles[data]
+    elif data.startswith("style_"):
+        user_state[user_id]["style"] = data.replace("style_", "", 1)
+    else:
+        return
+
+    await generate_video(query, context)
+
+# Доп. стили (заглушка)
+extra_styles = [
+    ("retro_game", "🎮 8-bit Retro Game"),
+    ("surrealism", "👁️ Сюрреализм"),
+    ("space_drama", "🌌 Космическая драма"),
+    ("vhs_horror", "📼 VHS Horror"),
+    ("noir", "🕵️ Фильм-нуар")
+]
+
+async def handle_extra_style(query, context: ContextTypes.DEFAULT_TYPE):
+    key, name = random.choice(extra_styles)
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"Выбрать {name}", callback_data=f"style_{key}")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="style_back")]
+    ])
+    await query.message.reply_text(f"✨ Новый стиль: {name}\nХотите выбрать его?",
+                                   reply_markup=kb)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Генерация (демо): видео с fallback на ссылку
+async def generate_video(query, context: ContextTypes.DEFAULT_TYPE):
+    user_id = query.from_user.id
+    st = user_state[user_id]
+    prompt = st.get("prompt") or "(пусто)"
+    style = st.get("style") or DEFAULT_STYLE
+    st["style"] = style
+
+    try:
+        await query.message.reply_video(
+            video=TEST_VIDEO_URL,
+            caption=f"✅ Запрос обработан!\n\n📝 Промт: {prompt}\n🎨 Стиль: {style}\n\n(тут будет ролик)",
+            supports_streaming=True,
+            reply_markup=kb_after_video()
+        )
+        log.info(f"[OK] video sent | style={style}")
+    except Exception as e:
+        log.warning(f"[FALLBACK] reply_video failed: {e}")
+        await query.message.reply_text(
+            f"✅ Запрос обработан!\n\n📝 Промт: {prompt}\n🎨 Стиль: {style}\n\n👉 Видео (ссылка): {TEST_VIDEO_URL}",
+            reply_markup=kb_after_video()
+        )
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Роутер коллбеков
+async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    st = user_state.setdefault(user_id, {
+        "prompt": None, "style": None, "mode": None,
+        "editing": False, "replica": None, "adding_replica": False
+    })
+
+    if query.data == "helper":
+        st["mode"] = "helper"
+        await query.message.reply_text("🪄 Напишите идею, я помогу превратить её в промт.")
+
+    elif query.data == "manual":
+        st["mode"] = "manual"
+        await query.message.reply_text("✍️ Хорошо, напишите свой промт. Я не буду его менять.")
+
+    elif query.data == "meme_mode":
+        await meme_mode(query, context)
+
+    elif query.data in ["meme_again", "meme_next", "meme_generate_now"]:
+        await handle_meme_buttons(query, context)
+
+    elif query.data.startswith("variant_"):
+        await handle_variants(query, context)
+
+    elif query.data == "choose_replica":
+        await query.message.reply_text("Как добавить реплику?", reply_markup=kb_replica_options())
+
+    elif query.data in ["replica_manual", "replica_ai", "replica_back"]:
+        await handle_replica_buttons(query, context)
+
+    # спец-кнопки стилей — раньше префикса
+    elif query.data == "style_more":
+        await handle_extra_style(query, context)
+
+    elif query.data == "style_back":
+        await show_after_prompt_menu(query)
+
+    elif query.data == "style_skip_generate":
+        st["style"] = st.get("style") or DEFAULT_STYLE
+        await generate_video(query, context)
+
+    elif query.data.startswith("style_"):
+        await handle_style(query, context)
+
+    elif query.data == "prompt_to_styles":
+        await ask_style(query, st.get("prompt") or "")
+
+    elif query.data == "generate_now":
+        st["style"] = st.get("style") or DEFAULT_STYLE
+        await generate_video(query, context)
+
+    elif query.data == "edit_prompt":
+        st["editing"] = True
+        await query.message.reply_text(f"✏️ Текущий промт:\n\n{st.get('prompt') or ''}\n\nВведите новый вариант:")
+
+    elif query.data == "new_video":
+        user_state[user_id] = {
+            "prompt": None, "style": None, "mode": None,
+            "editing": False, "replica": None, "adding_replica": False
+        }
+        await show_mode_menu(query, with_greeting=False)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# main
+def main():
+    token = os.getenv("TELEGRAM_TOKEN")
+    if not token:
+        raise RuntimeError("ENV TELEGRAM_TOKEN не задан")
+    app = Application.builder().token(token).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(CallbackQueryHandler(handle_buttons))
+
+    log.info("Bot is running…")
+    app.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
+
