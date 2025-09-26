@@ -1,4 +1,4 @@
-# main.py — Стартовое меню, режимы, GPT-сцены на ~8 сек, расширенный мемный режим, стили/реплики, реальная генерация (Veo)
+# main.py — меню, умный помощник, осмысленный мем-рандомайзер, стили, реплика, генерация Veo
 import os
 import random
 import asyncio
@@ -34,7 +34,7 @@ if OPENAI_API_KEY:
 def _sanitize(text: str) -> str:
     if not text:
         return text
-    # убрать кавычки и тире всех видов
+    # убрать кавычки и тире всех видов (важно для озвучки)
     bad = ['"', '«', '»', '„', '“', '‟', '‹', '›', "'", '’', '‚', '‛', '‐', '-', '‒', '–', '—', '―']
     for ch in bad:
         text = text.replace(ch, "")
@@ -69,21 +69,22 @@ def improve_scene(user_text: str, mode: str = "normal") -> str:
     sys = (
         "Ты редактор коротких видео-сцен. "
         "Формулируй именно СЦЕНУ (что, где, кто, какое действие). "
-        "Длительность ~8 секунд, максимум две смены плана. "
-        "Без поэтических эмоций, только действие и визуальные детали. "
+        "Длительность примерно 8 секунд, максимум две смены плана. "
+        "Только действие и визуальные детали без поэтических эмоций. "
         "Запрещены текст/субтитры/водяные знаки в кадре. "
-        "СТРОГО не используй кавычки и тире. "
+        "СТРОГО не используй кавычки и тире в тексте. "
         f"{style} Напиши 1–2 кратких предложения."
     )
     out = _gpt(sys, user_text, temperature=0.65 if mode != "absurd" else 0.9, max_tokens=140)
     return out or _sanitize(user_text)
 
 def suggest_replica(scene: str) -> Optional[str]:
-    sys = "Придумай короткую реплику героя (4–10 слов) к сцене. Только сама фраза. Без кавычек и тире."
+    sys = "Придумай короткую реплику героя к сцене, 4–10 слов. Только сама фраза. Без кавычек и тире."
     return _gpt(sys, scene, temperature=0.9, max_tokens=35)
 
 # ========= VEO (реальная генерация) =========
-from veo_client import generate_video_sync  # def generate_video_sync(prompt, style, replica, duration)->str
+# Ожидается: def generate_video_sync(prompt: str, style: Optional[str], replica: Optional[str], duration_sec: int) -> str
+from veo_client import generate_video_sync
 
 # ========= СОСТОЯНИЕ =========
 State = Dict[str, Any]
@@ -152,49 +153,63 @@ def kb_meme():
         [InlineKeyboardButton("🎨 Выбрать стиль", callback_data="choose_style")],
     ])
 
-# ========= МЕМНЫЙ РЕЖИМ (расширенный) =========
+# ========= МЕМНЫЙ РЕЖИМ (осмысленный) =========
 def random_meme_scene() -> str:
     subjects = [
-        "Бабка","Дед","Гламурная девица","Неформал","Рокер","Строитель",
-        "Слон","Носорог","Бегемот","Капибара","Динозавр","Суровая бизнес-вумен",
-        "Официант","Футболист","Школьник с рюкзаком","Мужик в телогрейке",
-        "Тётка с авоськой","Дворник","Рэпер в кепке","Повар в колпаке",
-        "Охранник в форме","Курьер на велике"
+        "Бабка", "Дед", "Тётка с авоськой", "Дворник", "Курьер",
+        "Официант", "Школьник с рюкзаком", "Рокер", "Бизнес леди", "Мужик в телогрейке"
     ]
-
-    actions = [
-        "едет верхом","падает","кричит","танцует","спорит","машет руками",
-        "бегает","застревает в двери","ловит голубя","жонглирует","торгуется",
-        "заводит толпу","катается на тележке","прячет что то","фоткается на телефон",
-        "поёт частушки","спотыкается о бордюр","раскидывает листовки","играет на гармошке"
-    ]
-
-    objects = [
-        "на свинье","с огромным самоваром","рядом с холодильником","с портретом Ленина",
-        "с надувным крокодилом","с гигантской шаурмой","с деревянной дверью",
-        "с золотым унитазом","с арбузом под мышкой","с чемоданом денег",
-        "с кастрюлей борща","с огромным плюшевым медведем","с бесконечной удочкой",
-        "с карусельной лошадью"
-    ]
-
     locations = [
-        "в деревне","в панельном районе","на стадионе","у бассейна","на стройке",
-        "в метро","в торговом центре","на рынке","в автобусе","у подъезда",
-        "в парке","на льду катка","на пляже","в аквапарке","на набережной"
+        "у подъезда", "на рынке", "в метро", "на остановке",
+        "в парке", "во дворе панельного дома", "на набережной", "у киоска с шаурмой"
+    ]
+    props = [
+        "арбузом", "самоваром", "гигантским пакетом чипсов", "надувным крокодилом",
+        "плюшевым медведем", "огромной лампой торшером", "портретом кота", "резиновым утёнком"
+    ]
+    items_plural = [
+        "апельсинами", "булочками", "плюшевыми утками", "сосисками в тесте",
+        "листовками", "ладошками из поролона", "магнитиками", "стеклянными банками"
+    ]
+    npcs = ["охранником", "продавщицей семечек", "контролёром", "диспетчером такси", "дворовой кошкой"]
+    vehicles = ["скейтборде", "самокате", "тележке из супермаркета", "велике без седла"]
+
+    templates = [
+        "{s} едет на {veh} {loc}",
+        "{s} спорит с {npc} {loc}",
+        "{s} жонглирует {items} {loc}",
+        "{s} танцует с {prop} {loc}",
+        "{s} раздаёт {items} {loc}",
+        "{s} пытается упаковать {prop} в пакет {loc}",
+        "{s} толкает тележку с {prop} {loc}",
+        "{s} фотографируется с {prop} {loc}",
     ]
 
-    s = f"{random.choice(subjects)} {random.choice(actions)} {random.choice(objects)} {random.choice(locations)}"
-    return _sanitize(s)
+    t = random.choice(templates)
+    s = random.choice(subjects)
+    loc = random.choice(locations)
+
+    if "{veh}" in t:
+        txt = t.format(s=s, veh=random.choice(vehicles), loc=loc)
+    elif "{npc}" in t:
+        txt = t.format(s=s, npc=random.choice(npcs), loc=loc)
+    elif "{items}" in t:
+        txt = t.format(s=s, items=random.choice(items_plural), loc=loc)
+    else:
+        txt = t.format(s=s, prop=random.choice(props), loc=loc)
+
+    return _sanitize(txt)
 
 # ========= ХЭНДЛЕРЫ =========
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     _ensure(uid)
-    users[uid].update({"mode": None, "source_text": None, "scene": None, "style": None, "replica": None,
-                       "awaiting_scene": False, "awaiting_custom_style": False})
-    # два сообщения как на твоём скрине
+    users[uid].update({
+        "mode": None, "source_text": None, "scene": None, "style": None, "replica": None,
+        "awaiting_scene": False, "awaiting_custom_style": False
+    })
+    # Только главное меню (экран режимов откроется по кнопке "Создание видео с помощником")
     await update.message.reply_text("Привет! Выбирай режим 👇", reply_markup=kb_home())
-    await update.message.reply_text("Выберите режим генерации:", reply_markup=kb_modes())
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -220,9 +235,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"📝 Промт улучшен:\n\n{scene}", reply_markup=kb_variants())
         return
 
-    # если текст пришёл вне контекста — показать меню
+    # Вне контекста — вернуть меню
     await update.message.reply_text("Главное меню:", reply_markup=kb_home())
-    await update.message.reply_text("Выберите режим генерации:", reply_markup=kb_modes())
 
 async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -249,12 +263,12 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "mode_helper":
         st.update({"mode": "helper", "scene": None, "style": None, "replica": None})
         st["awaiting_scene"] = True
-        await q.message.reply_text("🧠✨ Опиши сцену — я сделаю её съёмочной на ~8 секунд.")
+        await q.message.reply_text("🧠✨ Опиши сцену — сделаю её съёмочной на ~8 секунд.")
         return
     if data == "mode_manual":
         st.update({"mode": "manual", "scene": None, "style": None, "replica": None})
         st["awaiting_scene"] = True
-        await q.message.reply_text("✍️ Введи свою сцену (я ничего не буду менять).")
+        await q.message.reply_text("✍️ Введи свою сцену (я ничего не меняю).")
         return
     if data == "mode_meme":
         st.update({"mode": "meme", "style": None, "replica": None})
@@ -315,16 +329,15 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text("Готово! Можно генерировать.", reply_markup=kb_after_style())
         return
 
-    # --- Генерация видео (реально Veo)
+    # --- Генерация видео (Veo)
     if data == "generate_now":
         if not st.get("scene"):
             await q.message.reply_text("Сначала опиши сцену."); return
         if st.get("style") is None:
             st["style"] = DEFAULT_STYLE
 
-        await q.message.reply_text("⏳ Генерирую видео…")
+        msg = await q.message.reply_text("⏳ Генерирую видео…")
         try:
-            # Генерим 8 секунд, как в правилах сцен
             mp4_path = await asyncio.to_thread(
                 generate_video_sync, st["scene"], st["style"], st.get("replica"), 8
             )
@@ -335,11 +348,16 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             log.exception("Veo generation failed")
             await q.message.reply_text(f"❌ Ошибка генерации: {e}")
+        finally:
+            # убираем «⏳ Генерирую…»
+            try:
+                await msg.delete()
+            except Exception:
+                pass
         return
 
     # fallback
     await q.message.reply_text("Команда пока не поддерживается. Возврат в меню.", reply_markup=kb_home())
-    await q.message.reply_text("Выберите режим генерации:", reply_markup=kb_modes())
 
 # ========= ЗАПУСК =========
 def main():
