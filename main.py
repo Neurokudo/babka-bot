@@ -1,4 +1,4 @@
-# main.py — Стартовое меню, режимы, GPT-сцены на ~8 сек, мемный режим, стили/реплики, реальная генерация (Veo)
+# main.py — Стартовое меню, режимы, GPT-сцены на ~8 сек, расширенный мемный режим, стили/реплики, реальная генерация (Veo)
 import os
 import random
 import asyncio
@@ -83,7 +83,7 @@ def suggest_replica(scene: str) -> Optional[str]:
     return _gpt(sys, scene, temperature=0.9, max_tokens=35)
 
 # ========= VEO (реальная генерация) =========
-from veo_client import generate_video_sync  # ожидается: def generate_video_sync(prompt, style, replica, duration)->str
+from veo_client import generate_video_sync  # def generate_video_sync(prompt, style, replica, duration)->str
 
 # ========= СОСТОЯНИЕ =========
 State = Dict[str, Any]
@@ -152,13 +152,38 @@ def kb_meme():
         [InlineKeyboardButton("🎨 Выбрать стиль", callback_data="choose_style")],
     ])
 
-# ========= МЕМНЫЙ РЕЖИМ =========
+# ========= МЕМНЫЙ РЕЖИМ (расширенный) =========
 def random_meme_scene() -> str:
-    subjects = ["Бабка", "Старушка", "Бабуля"]
-    mounts = ["на осле", "на страусе", "на тележке из супермаркета", "на скейтборде"]
-    spots  = ["на рынке", "в метро", "на стадионе", "в аквапарке", "у подъезда"]
-    actions = ["спорит с охраной", "гонится за голубем", "торгуется до копейки", "чешет страуса ложкой"]
-    s = f"{random.choice(subjects)} {random.choice(mounts)} {random.choice(spots)} {random.choice(actions)}"
+    subjects = [
+        "Бабка","Дед","Гламурная девица","Неформал","Рокер","Строитель",
+        "Слон","Носорог","Бегемот","Капибара","Динозавр","Суровая бизнес-вумен",
+        "Официант","Футболист","Школьник с рюкзаком","Мужик в телогрейке",
+        "Тётка с авоськой","Дворник","Рэпер в кепке","Повар в колпаке",
+        "Охранник в форме","Курьер на велике"
+    ]
+
+    actions = [
+        "едет верхом","падает","кричит","танцует","спорит","машет руками",
+        "бегает","застревает в двери","ловит голубя","жонглирует","торгуется",
+        "заводит толпу","катается на тележке","прячет что то","фоткается на телефон",
+        "поёт частушки","спотыкается о бордюр","раскидывает листовки","играет на гармошке"
+    ]
+
+    objects = [
+        "на свинье","с огромным самоваром","рядом с холодильником","с портретом Ленина",
+        "с надувным крокодилом","с гигантской шаурмой","с деревянной дверью",
+        "с золотым унитазом","с арбузом под мышкой","с чемоданом денег",
+        "с кастрюлей борща","с огромным плюшевым медведем","с бесконечной удочкой",
+        "с карусельной лошадью"
+    ]
+
+    locations = [
+        "в деревне","в панельном районе","на стадионе","у бассейна","на стройке",
+        "в метро","в торговом центре","на рынке","в автобусе","у подъезда",
+        "в парке","на льду катка","на пляже","в аквапарке","на набережной"
+    ]
+
+    s = f"{random.choice(subjects)} {random.choice(actions)} {random.choice(objects)} {random.choice(locations)}"
     return _sanitize(s)
 
 # ========= ХЭНДЛЕРЫ =========
@@ -212,7 +237,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_make":
         await q.message.reply_text("Выберите режим генерации:", reply_markup=kb_modes()); return
     if data == "menu_alive":
-        await q.message.reply_text("🖼️ Оживление изображения: пришлите фото и короткий промт (функция в разработке)."); return
+        await q.message.reply_text("🖼️ Оживление изображения: пришлите фото и короткий промт (в разработке)."); return
     if data == "menu_guides":
         await q.message.reply_text("📚 Гайды и оплата — скоро тут ❤️"); return
     if data == "menu_profile":
@@ -287,7 +312,6 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = suggest_replica(st["scene"]) or "Поехали уже!"
         st["replica"] = text
         await q.message.reply_text(f"💬 Реплика предложена: {text}")
-        # оставим компактную клавиатуру для шага генерации
         await q.message.reply_text("Готово! Можно генерировать.", reply_markup=kb_after_style())
         return
 
