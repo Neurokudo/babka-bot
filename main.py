@@ -1,3 +1,4 @@
+# main.py
 import os
 import logging
 from pathlib import Path
@@ -30,16 +31,16 @@ DEFAULT_STYLE = os.getenv("DEFAULT_STYLE", "Кино")
 def _ensure_state(uid: int):
     if uid not in user_state:
         user_state[uid] = {
-            "mode": None,
-            "prompt": None,
-            "style": None,
-            "replica": None,
-            "awaiting_prompt": False,
-            "awaiting_replica": False,
-            "awaiting_custom_style": False,
+            "mode": None,                   # helper | manual | meme
+            "prompt": None,                 # текущий промт
+            "style": None,                  # выбранный стиль
+            "replica": None,                # текст реплики
+            "awaiting_prompt": False,       # ждём текст сцены
+            "awaiting_replica": False,      # ждём ручной ввод реплики
+            "awaiting_custom_style": False, # ждём ручной ввод стиля
         }
 
-# ──────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 # Gemini (google-generativeai==0.8.5)
 import google.generativeai as genai
 
@@ -88,6 +89,7 @@ def _gemini_text(prompt: str, *, temperature: float = 0.8, max_tokens: int = 256
         return None
 
 def improve_prompt(user_text: str) -> tuple[str, bool]:
+    """Вернуть улучшенный промт и флаг успеха (True/False)."""
     sys = (
         "Ты редактор промтов для генерации КОРОТКИХ видеосцен. "
         "Верни 1–2 предложения без кавычек и списков. "
@@ -98,17 +100,18 @@ def improve_prompt(user_text: str) -> tuple[str, bool]:
     return (out, True) if out else (user_text, False)
 
 def suggest_replica(prompt: str) -> Optional[str]:
+    """LLM предлагает короткую реплику героя (4–10 слов)."""
     sys = (
         "Придумай ОДНУ короткую реплику персонажа (4–10 слов) под следующую сцену. "
         "Только сама фраза, без кавычек и комментариев."
     )
     return _gemini_text(f"{sys}\nСцена: {prompt}", temperature=0.9, max_tokens=40)
 
-# ──────────────────────────────────────────────
-# Veo клиент
+# ──────────────────────────────────────────────────────────────
+# Veo клиент (если используешь Vertex, пакет google-cloud-aiplatform добавлен)
 from veo_client import generate_video_sync
 
-# ──────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 # Клавиатуры
 def kb_main():
     return InlineKeyboardMarkup([
@@ -150,7 +153,7 @@ def kb_replica_menu():
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_after_prompt")],
     ])
 
-# ──────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 # Хэндлеры
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -165,7 +168,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     _ensure_state(uid)
     st = user_state[uid]
-    text = update.message.text.strip()
+    text = (update.message.text or "").strip()
 
     # ждём кастомный стиль
     if st["awaiting_custom_style"]:
@@ -181,7 +184,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"💬 Реплика сохранена: {text}", reply_markup=kb_after_prompt())
         return
 
-    # ждём промт
+    # ждём промт (ключевой блок)
     if st["awaiting_prompt"]:
         st["awaiting_prompt"] = False
         if st["mode"] == "helper" and gemini_model:
@@ -208,5 +211,126 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # если ничего не ждём — показать меню
     await update.message.reply_text("Выбери действие:", reply_markup=kb_main())
 
-# (button_handler и main без изменений, оставь их как у тебя)
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()  # важно, чтобы не висели «часики»
+    uid = update.effective_user.id
+    _ensure_state(uid)
+    st = user_state[uid]
+    data = query.data
+    log.info("Button: %s", data)
+
+    # Главное меню
+    if data == "menu_make":
+        await query.edit_message_text("Выберите режим генерации:", reply_markup=kb_modes()); return
+    if data == "menu_alive":
+        await query.edit_message_text("Фича «Оживление изображения» пока выключена.", reply_markup=kb_main()); return
+    if data == "menu_guides":
+        await query.edit_message_text("Скоро тут будут гайды и оплата ❤️", reply_markup=kb_main()); return
+    if data == "menu_profile":
+        await query.edit_message_text("Профиль / Баланс — в разработке.", reply_markup=kb_main()); return
+    if data == "back_main":
+        await query.edit_message_text("Главное меню:", reply_markup=kb_main()); return
+
+    # Режимы
+    if data == "mode_helper":
+        st.update({"mode": "helper", "prompt": None, "style": None, "replica": None})
+        st["awaiting_prompt"] = True
+        await query.edit_message_text("Опиши сцену текстом — я помогу дописать детали. Жду промт 👇"); return
+    if data == "mode_manual":
+        st.update({"mode": "manual", "prompt": None, "style": None, "replica": None})
+        st["awaiting_prompt"] = True
+        await query.edit_message_text("Введи промт для видео 👇"); return
+    if data == "mode_meme":
+        st.update({"mode": "meme", "prompt": "Смешная динамичная сцена, быстрая смена планов.", "style": "Мемный стиль", "replica": "Ну держитесь теперь!"})
+        await query.edit_message_text("Мемный режим готов. Можно генерировать.", reply_markup=kb_after_prompt()); return
+    if data == "back_modes":
+        await query.edit_message_text("Выберите режим генерации:", reply_markup=kb_modes()); return
+
+    # После ввода промта
+    if data == "choose_style":
+        await query.edit_message_text("Выберите стиль:", reply_markup=kb_style_list()); return
+    if data == "back_after_prompt":
+        await query.edit_message_text("Дальше что делаем?", reply_markup=kb_after_prompt()); return
+
+    if data.startswith("style_"):
+        st["style"] = data.split("style_", 1)[1]
+        await query.edit_message_text(f"🎨 Стиль выбран: {st['style']}", reply_markup=kb_after_prompt()); return
+    if data == "style_custom":
+        st["awaiting_custom_style"] = True
+        await query.edit_message_text("Введи стиль текстом 👇"); return
+
+    # Реплика
+    if data == "replica_menu":
+        await query.edit_message_text("Выбери способ добавить реплику:", reply_markup=kb_replica_menu()); return
+    if data == "replica_custom":
+        st["awaiting_replica"] = True
+        await query.edit_message_text("Введи текст реплики 👇"); return
+    if data == "replica_ai":
+        if not st.get("prompt"):
+            await query.edit_message_text("Сначала введи промт, потом предложу реплику.", reply_markup=kb_after_prompt()); return
+        text = suggest_replica(st["prompt"]) or "Ну держитесь теперь!"
+        st["replica"] = text
+        await query.edit_message_text(f"💬 Реплика предложена: {text}", reply_markup=kb_after_prompt()); return
+
+    # Генерация
+    if data == "generate_now":
+        if not st.get("prompt"):
+            await query.edit_message_text("Сначала введи промт.", reply_markup=kb_after_prompt()); return
+        if not st.get("style"):
+            st["style"] = DEFAULT_STYLE
+        await query.edit_message_text("⏳ Генерирую видео в Veo 3… это может занять немного времени.")
+        try:
+            # 8 секунд по умолчанию
+            mp4_path = await context.application.run_in_executor(
+                None, generate_video_sync, st["prompt"], st["style"], st.get("replica"), 8
+            )
+            caption = (
+                "✅ Готово!\n\n"
+                f"📝 Промт: {st['prompt']}\n"
+                f"🎨 Стиль: {st['style']}" + (f"\n💬 Реплика: {st['replica']}" if st.get("replica") else "")
+            )
+            with open(mp4_path, "rb") as f:
+                await query.message.reply_video(video=f, caption=caption, supports_streaming=True)
+        except Exception as e:
+            log.exception("Veo generation failed")
+            await query.message.reply_text(f"❌ Ошибка генерации: {e}")
+        finally:
+            await query.message.reply_text("Что дальше?", reply_markup=kb_after_prompt())
+        return
+
+    # Если что-то не поймали
+    await query.edit_message_text(f"Неизвестная кнопка: {data}", reply_markup=kb_main())
+
+# ──────────────────────────────────────────────────────────────
+# Отладчик всех апдейтов (помогает понять, доходят ли события)
+async def debug_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    log.info("DEBUG UPDATE: %s", update)
+
+# ──────────────────────────────────────────────────────────────
+def main():
+    token = os.getenv("TELEGRAM_TOKEN")
+    if not token:
+        raise RuntimeError("ENV TELEGRAM_TOKEN не задан")
+
+    log.info("Инициализируем приложение…")
+    app = Application.builder().token(token).build()
+
+    log.info("Добавляем хэндлеры…")
+    # Отладка — ставим в самый ранний group
+    app.add_handler(MessageHandler(filters.ALL, debug_all), group=-1)
+
+    # Команды
+    app.add_handler(CommandHandler("start", start))
+    # Кнопки
+    app.add_handler(CallbackQueryHandler(button_handler))
+    # Тексты от пользователя
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+
+    log.info("Bot is running…")
+    app.run_polling()
+
+# ──────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    main()
 
