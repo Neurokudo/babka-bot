@@ -40,16 +40,15 @@ def _ensure_state(uid: int):
             "awaiting_custom_style": False, # ждём ручной ввод стиля
         }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Gemini (google-generativeai==0.8.5) — безопасный выбор модели
+# ───────────────────────────────────────────────
+# Gemini (google-generativeai==0.8.5)
 import google.generativeai as genai
 
-GENAI_MODEL = (os.getenv("GENAI_MODEL", "") or "").strip()
-_GEMINI_CANDIDATES = [m for m in [
-    GENAI_MODEL or None,
-    "gemini-1.5-flash",    # быстрый базовый
-    "gemini-1.5-pro",      # продвинутый
-] if m]
+# Жёстко задаём список моделей (без env, чтобы не тянуло кривые пути)
+_GEMINI_CANDIDATES = [
+    "gemini-1.5-flash",   # основной
+    "gemini-1.5-pro",     # продвинутая
+]
 
 gemini_model = None
 if os.getenv("LLM_PROVIDER", "").lower() == "gemini" and os.getenv("GOOGLE_API_KEY"):
@@ -70,7 +69,7 @@ if os.getenv("LLM_PROVIDER", "").lower() == "gemini" and os.getenv("GOOGLE_API_K
         gemini_model = None
         log.error("Gemini init failed: %s", e)
 else:
-    log.info("Gemini disabled (LLM_PROVIDER != gemini or GOOGLE_API_KEY empty)")
+    log.info("Gemini disabled (LLM_PROVIDER != gemini or GOOGLE_API_KEY missing)")
 
 def _gemini_text(prompt: str, *, temperature: float = 0.8, max_tokens: int = 256) -> Optional[str]:
     if not gemini_model:
