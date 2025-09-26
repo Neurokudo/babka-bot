@@ -3,6 +3,7 @@ import os
 import logging
 import random
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -16,31 +17,27 @@ from telegram.ext import (
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# .env грузим из той же папки, где лежит файл
+# Загружаем .env (локально); на Railway переменные берутся из Settings → Variables
 load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Логирование
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(levelname)s:%(name)s:%(message)s",
-)
+# Логи
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 log = logging.getLogger("babka-bot")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Состояние
+# Глобальное состояние
 user_state: dict[int, dict] = {}
 DEFAULT_STYLE = os.getenv("DEFAULT_STYLE", "cinema")
+
 
 def _ensure_state(uid: int):
     if uid not in user_state:
         user_state[uid] = {
-            "mode": None,
-            "prompt": None,
-            "style": None,
-            "replica": None,
-            "awaiting_replica": False,
-            "awaiting_custom_style": False,
+            "mode": None,                 # helper | manual | meme
+            "prompt": None,               # текущий промт
+            "style": None,                # выбранный стиль
+            "replica": None,              # текст реплики
+            "awaiting_replica": False,    # ждём ручной ввод реплики
+            "awaiting_custom_style": False,  # ждём ручной ввод стиля
         }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -58,41 +55,53 @@ if GEMINI_ENABLED:
         log.warning(f"Gemini init failed: {e}")
 else:
     gemini_model = None
-    log.info("Gemini disabled.")
+    log.info("Gemini disabled (LLM_PROVIDER != gemini or no GOOGLE_API_KEY).")
 
-def suggest_replica(prompt: str) -> str:
-    """
-    Возвращает короткую смешную реплику персонажа.
-    При любой ошибке/пустом ответе вернёт безопасный фолбэк.
-    """
+
+def _gemini_text(prompt: str, *, temperature: float = 0.8, max_tokens: int = 256) -> Optional[str]:
+    """Вспомогательная обёртка с логами."""
     if not gemini_model:
-        log.warning("Gemini model is not initialized.")
-        return "Ну держитесь теперь!"
+        return None
     try:
         resp = gemini_model.generate_content(
-            contents=(
-                "Сделай ОДНУ короткую (до 12 слов) смешную живую реплику персонажа для подписи к видео. "
-                "Без кавычек, эмодзи и хештегов, без пояснений. Только фраза.\n"
-                f"Контекст сцены: {prompt}"
-            ),
+            prompt,
             generation_config={
-                "max_output_tokens": 32,
-                "temperature": 0.9,
+                "temperature": temperature,
                 "top_p": 0.95,
+                "max_output_tokens": max_tokens,
             },
         )
         text = (getattr(resp, "text", "") or "").strip()
-        if not text:
-            log.warning("Gemini returned empty text. candidates=%s", getattr(resp, "candidates", None))
-            return "Ну держитесь теперь!"
-        return text
+        return text or None
     except Exception as e:
-        log.exception("Gemini generate_content failed: %s", e)
-        return "Ну держитесь теперь!"
+        log.exception("Gemini error: %s", e)
+        return None
+
+
+def improve_prompt(user_text: str) -> str:
+    """Умный помощник — переписывает промт, делает детальнее и пригодным для видео."""
+    sys = (
+        "Ты редактор промтов для генерации видео. "
+        "На выходе дай 1–2 предложения, без списков, без кавычек, без хэштегов. "
+        "Добавь детали: свет, камера, действие, настроение. Никакого текста на экране."
+    )
+    out = _gemini_text(f"{sys}\nИсходный текст: {user_text}", temperature=0.7, max_tokens=120)
+    if not out:
+        return user_text  # фолбэк — не ломаем поток
+    return out
+
+
+def suggest_replica(scene_prompt: str) -> str:
+    """Короткая смешная реплика под контекст сцены."""
+    sys = (
+        "Сделай ОДНУ короткую (до 12 слов) смешную живую реплику персонажа для подписи к видео. "
+        "Без кавычек, эмодзи и хештегов, без пояснений. Только фраза."
+    )
+    out = _gemini_text(f"{sys}\nКонтекст сцены: {scene_prompt}", temperature=0.9, max_tokens=32)
+    return out or "Ну держитесь теперь!"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Veo client (google-cloud-aiplatform==1.115.0)
-# В твоём veo_client.py реализован generate_video_sync(prompt, style, replica, seconds)
+# Veo client
 from veo_client import generate_video_sync
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -172,21 +181,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 Привет! Я бот для генерации видео.", reply_markup=kb_main_menu())
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Напиши описание сцены → выбери стиль → нажми «Сгенерировать сейчас». /test_llm — проверка Gemini.")
+    await update.message.reply_text("Напиши описание сцены → выбери стиль → «Сгенерировать сейчас». /test_llm — проверка LLM.")
 
 async def test_llm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    phrase = suggest_replica("Бабка едет на осле по деревне; камера низкая, мягкий дневной свет")
-    await update.message.reply_text(f"Gemini test → {phrase}")
+    # быстрый самотест
+    improved = improve_prompt("Бабка едет на осле по деревне")
+    replica = suggest_replica(improved)
+    await update.message.reply_text(f"✨ Промт: {improved}\n💬 Реплика: {replica}")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Генерация видео (через veo_client.generate_video_sync)
+# Генерация видео (Veo)
 async def generate_video(query, context):
     uid = query.from_user.id
     _ensure_state(uid)
     st = user_state[uid]
 
     prompt = st.get("prompt") or "(пусто)"
-    style  = st.get("style") or DEFAULT_STYLE
+    style = st.get("style") or DEFAULT_STYLE
     replica = st.get("replica")
 
     await query.message.reply_text("⏳ Генерирую видео в Veo 3… это может занять немного времени.")
@@ -209,28 +220,42 @@ async def generate_video(query, context):
         await query.message.reply_text(f"❌ Ошибка генерации: {e}", reply_markup=kb_after_video())
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Обработка обычного текста
+# Текст от пользователя
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     _ensure_state(uid)
     st = user_state[uid]
     text = (update.message.text or "").strip()
 
+    # 1) ждём ручную реплику?
     if st.get("awaiting_replica"):
         st["replica"] = text
         st["awaiting_replica"] = False
         await update.message.reply_text(f"✅ Реплика сохранена:\n{text}", reply_markup=kb_after_prompt())
         return
 
+    # 2) ждём ручной стиль?
     if st.get("awaiting_custom_style"):
         st["style"] = text
         st["awaiting_custom_style"] = False
         await update.message.reply_text(f"🎨 Стиль установлен: {text}", reply_markup=kb_after_prompt())
         return
 
-    # иначе — это промт
-    st["prompt"] = text
-    await update.message.reply_text(f"📝 Промт сохранён:\n\n{text}", reply_markup=kb_after_prompt())
+    # 3) обычный ввод — это промт
+    mode = st.get("mode")
+    if mode == "helper":
+        improved = improve_prompt(text)
+        st["prompt"] = improved
+        await update.message.reply_text(
+            f"✨ Умный помощник переписал промт:\n\n{improved}",
+            reply_markup=kb_after_prompt(),
+        )
+    else:
+        st["prompt"] = text
+        await update.message.reply_text(
+            f"📝 Промт сохранён:\n\n{text}",
+            reply_markup=kb_after_prompt(),
+        )
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Кнопки
@@ -251,7 +276,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "helper":
         st["mode"] = "helper"
-        await query.message.reply_text("Опиши сцену текстом — я помогу дописать детали. Жду промт 👇"); return
+        await query.message.reply_text("Опиши сцену простыми словами — я улучшу промт. Жду текст 👇"); return
     if data == "manual":
         st["mode"] = "manual"
         await query.message.reply_text("Введи свой промт целиком. Жду 👇"); return
@@ -308,7 +333,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_text(f"Кнопка нажата: {data}")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Точка входа
 def main():
     token = os.getenv("TELEGRAM_TOKEN")
     if not token:
