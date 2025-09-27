@@ -15,6 +15,9 @@ PROJECT_ID = os.getenv("GCP_PROJECT_ID", "ornate-producer-473220-g2")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 MODEL = os.getenv("VEO_MODEL", "veo-3.0-fast-generate-001")
 
+# Дополнительная опция: качать mp4 локально?
+DOWNLOAD = os.getenv("DOWNLOAD_VIDEOS", "0") == "1"
+
 # Ключ для GCP
 def _get_credentials():
     key_b64 = os.getenv("GCP_KEY_JSON_B64")
@@ -46,9 +49,7 @@ def generate_video_sync(prompt: str, duration: int = 8, aspect_ratio: str = "9:1
     url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/publishers/google/models/{MODEL}:predictLongRunning"
 
     body = {
-        "instances": [
-            {"prompt": prompt}
-        ],
+        "instances": [{"prompt": prompt}],
         "parameters": {
             "sampleCount": 1,
             "resolution": "720p",
@@ -77,7 +78,7 @@ def _poll(sess, op_name: str):
     Опрос состояния операции через fetchPredictOperation
     """
     url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/publishers/google/models/{MODEL}:fetchPredictOperation"
-    payload = {"name": op_name}
+    payload = {"operationName": op_name}  # <-- исправлено
 
     log.info(f"Poll через fetchPredictOperation: {url} | payload={payload}")
 
@@ -89,7 +90,41 @@ def _poll(sess, op_name: str):
         data = r.json()
         if data.get("done"):
             log.info("Операция завершена")
-            return data
+
+            # Извлекаем ссылки на видео
+            videos = data.get("response", {}).get("videos", [])
+            out_files = []
+            for i, v in enumerate(videos):
+                gcs_uri = v.get("gcsUri")
+                if not gcs_uri:
+                    continue
+
+                item = {"uri": gcs_uri}
+
+                # Если включена опция DOWNLOAD
+                if DOWNLOAD:
+                    try:
+                        from google.cloud import storage
+                        storage_client = storage.Client(project=PROJECT_ID, credentials=_get_credentials())
+
+                        # Парсим bucket и путь
+                        assert gcs_uri.startswith("gs://")
+                        _, path = gcs_uri.split("gs://", 1)
+                        bucket_name, blob_name = path.split("/", 1)
+
+                        bucket = storage_client.bucket(bucket_name)
+                        blob = bucket.blob(blob_name)
+
+                        local_path = f"video_{int(time.time())}_{i}.mp4"
+                        blob.download_to_filename(local_path)
+                        item["file_path"] = local_path
+                        log.info(f"Скачано в {local_path}")
+                    except Exception as e:
+                        log.warning(f"Не удалось скачать {gcs_uri}: {e}")
+
+                out_files.append(item)
+
+            return {"videos": out_files}
 
         time.sleep(5)
 
