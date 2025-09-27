@@ -157,13 +157,7 @@ def generate_nkudo_reportage() -> tuple[str, str, str]:
 # from veo_client import generate_video_sync
 
 # Заглушка для тестирования
-def generate_video_sync(prompt: str, style: Optional[str], replica: Optional[str], duration_sec: int) -> str:
-    # Временная заглушка - возвращаем путь к несуществующему файлу
-    # В реальности здесь должна быть генерация видео
-    import tempfile
-    tmp = tempfile.NamedTemporaryFile(prefix="veo_", suffix=".mp4", delete=False)
-    tmp.close()
-    return tmp.name
+from veo_client import generate_video_sync
 
 # ========= СОСТОЯНИЕ =========
 State = Dict[str, Any]
