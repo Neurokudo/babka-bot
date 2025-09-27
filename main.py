@@ -1,4 +1,4 @@
-# main.py — меню, помощник, NEUROKUDO, мем-рандом, стили, реплика, генерация Veo
+k# main.py — меню, помощник, NEUROKUDO, мем-рандом, стили, реплика, генерация Veo
 import os
 import random
 import asyncio
@@ -19,6 +19,13 @@ log = logging.getLogger("babka-bot")
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# --- Модель OpenAI (дефолт gpt-4o-mini) ---
+OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
+# Страховка: если по ошибке указали gemini — форсим gpt-4o-mini
+if "gemini" in OPENAI_MODEL.lower():
+    OPENAI_MODEL = "gpt-4o-mini"
+
 DEFAULT_STYLE = "Кино"
 
 # ========= OPENAI (GPT) =========
@@ -28,6 +35,7 @@ if OPENAI_API_KEY:
     try:
         gpt = OpenAI(api_key=OPENAI_API_KEY)
         log.info("OpenAI GPT активирован.")
+        log.info(f"Модель: {OPENAI_MODEL}")
     except Exception as e:
         log.error("OpenAI init error: %s", e)
 
@@ -47,7 +55,7 @@ def _gpt(system: str, user: str, temperature=0.7, max_tokens=220) -> Optional[st
         return None
     try:
         r = gpt.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENAI_MODEL,
             messages=[{"role": "system", "content": system},
                       {"role": "user", "content": user}],
             temperature=temperature,
@@ -409,8 +417,12 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mp4_path = await asyncio.to_thread(
                 generate_video_sync, st["scene"], st["style"], st.get("replica"), 8
             )
-            caption = f"✅ Готово!\n\n📝 Сцена: {st['scene']}\n🎨 Стиль: {st['style']}" + \
-                      (f"\n💬 Реплика: {st['replica']}" if st.get("replica") else "")
+            caption = (
+                f"✅ Готово!\n\n"
+                f"📝 Сцена: {st['scene']}\n"
+                f"🎨 Стиль: {st['style']}"
+                + (f"\n💬 Реплика: {st['replica']}" if st.get("replica") else "")
+            )
             with open(mp4_path, "rb") as f:
                 await q.message.reply_video(video=f, caption=caption, supports_streaming=True)
         except Exception as e:
