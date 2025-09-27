@@ -127,6 +127,7 @@ def generate_video_sync(
 
     model_name = _make_model_name(PROJECT, LOCATION, MODEL_ID)
     log.info("VEO LRO start | model=%s | project=%s | location=%s | duration=%ss | AR=%s",
+             MODEL_ID, PROJECT, LOCATION, duration, aspect_ratio)
 
     # Optional local rate limiter to avoid hitting RPM hard (per-process)
     _rate_limit = float(os.getenv("VEO_RATE_LIMIT_SECONDS", "0"))
@@ -148,8 +149,6 @@ def generate_video_sync(
                 fh.write(str(_rt.time()))
         except Exception:
             pass
-
-             MODEL_ID, PROJECT, LOCATION, duration, aspect_ratio)
 
     # 1) Запускаем операцию
     sess = _authorized_session()
