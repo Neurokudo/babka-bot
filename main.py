@@ -1,4 +1,4 @@
-# main.py – меню, помощник, NEUROKUDO, мем-рандом, стили, реплика, генерация Veo
+# main.py – полный: меню, помощник, NEUROKUDO/репортаж, мемы, стили, ориентация, JSON, саппорт
 import os
 import json
 import random
@@ -20,11 +20,10 @@ log = logging.getLogger("babka-bot")
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")  # опционально: куда слать жалобы
 
-# --- Модель OpenAI (дефолт gpt-4o-mini) ---
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
-# Страховка: если по ошибке указали gemini – форсим gpt-4o-mini
-if "gemini" in OPENAI_MODEL.lower():
+if "gemini" in (OPENAI_MODEL or "").lower():
     OPENAI_MODEL = "gpt-4o-mini"
 
 DEFAULT_STYLE = "Кино"
@@ -36,18 +35,14 @@ gpt: Optional[OpenAI] = None
 if OPENAI_API_KEY:
     try:
         gpt = OpenAI(api_key=OPENAI_API_KEY)
-        log.info("OpenAI GPT активирован.")
-        log.info(f"Модель: {OPENAI_MODEL}")
+        log.info("OpenAI GPT активирован. Модель: %s", OPENAI_MODEL)
     except Exception as e:
         log.error("OpenAI init error: %s", e)
 
 def _sanitize(text: str) -> str:
     if not text:
         return text
-    text = text.replace('"', '')
-    text = text.replace("'", '')
-    text = text.replace('-', '')
-    text = text.replace('_', ' ')
+    text = text.replace('"', '').replace("'", '').replace('-', '').replace('_', ' ')
     while "  " in text:
         text = text.replace("  ", " ")
     return text.strip()
@@ -60,16 +55,33 @@ def _gpt(system: str, user: str, temperature=0.7, max_tokens=220) -> Optional[st
             model=OPENAI_MODEL,
             messages=[{"role": "system", "content": system},
                       {"role": "user", "content": user}],
-            temperature=temperature,
-            max_tokens=max_tokens,
+            temperature=temperature, max_tokens=max_tokens,
         )
-        out = (r.choices[0].message.content or "").strip()
-        return _sanitize(out)
+        return _sanitize((r.choices[0].message.content or "").strip())
     except Exception as e:
         log.error("GPT error: %s", e)
         return None
 
-# – Сцена на ~8 сек, максимум 2 смены плана, без поэзии
+# ========= ПРЕСЕТЫ СТИЛЕЙ (вливаются в JSON) =========
+STYLE_HINTS: Dict[str, str] = {
+    "Pixar": ("bright saturated palette, soft global illumination, clean surfaces, "
+              "gentle vignetting, subtle filmic halation, shallow depth of field, "
+              "expressive but realistic motion; friendly whimsical mood"),
+    "Киберпанк": ("neon accents, rainy night, high contrast, wet reflective surfaces, "
+                  "holographic signs, low key lighting, handheld micro-shake, grain; edgy mood"),
+    "Кино": ("cinematic color grading (teal & orange bias), anamorphic bokeh, "
+             "soft key + strong rim light, slow dolly or tripod, naturalistic performances"),
+    "Документальный": ("handheld camera, neutral color, available light, practical lamps, "
+                       "diegetic ambience, minimal post-processing; grounded realistic mood"),
+    "Арт/Ретро/ЧБ": ("monochrome or retro film stock, pronounced grain, contrast roll-off, "
+                     "static composition, slow tempo; contemplative mood"),
+    "ASMR": ("very quiet ambience, close perspective, soft textures, gentle motions, "
+             "intimate space; calming mood"),
+    "Бренд": ("clean minimal composition, product-first framing, soft studio light, "
+              "crisp edges, gentle camera reveal; premium mood"),
+}
+
+# ========= СЦЕНАРНЫЕ ХЕЛПЕРЫ =========
 def improve_scene(user_text: str, mode: str = "normal") -> str:
     style = {
         "normal": "Сделай рабочую сцену.",
@@ -77,77 +89,62 @@ def improve_scene(user_text: str, mode: str = "normal") -> str:
         "simple": "Сделай сцену проще, убери лишние детали, оставь только главное.",
         "absurd": "Сделай сцену более абсурдной и смешной."
     }.get(mode, "Сделай рабочую сцену.")
-    
     sys = (
-        "Ты редактор коротких видеосцен. "
-        "Формулируй именно СЦЕНУ: кто где что делает. "
-        "Длительность примерно 8 секунд, максимум две смены плана. "
-        "Только действие и визуальные детали, без поэтических эмоций. "
-        "Запрещены текст/субтитры/водяные знаки в кадре. "
-        "СТРОГО не используй кавычки и тире в тексте. "
+        "Ты редактор коротких видеосцен. Формулируй именно СЦЕНУ: кто где что делает. "
+        "Длительность ~8 секунд, максимум две смены плана. Только действие и визуальные детали, "
+        "без поэтики/оценок. Запрещены текст/субтитры в кадре. Не используй кавычки и тире. "
         f"{style} Напиши 1–2 коротких предложения."
     )
-    temp = 0.65 if mode == "normal" else 0.85 if mode == "complex" else 0.55 if mode == "simple" else 0.9
-    out = _gpt(sys, user_text, temperature=temp, max_tokens=140)
-    return out or _sanitize(user_text)
+    temp = {"normal": 0.65, "complex": 0.85, "simple": 0.55, "absurd": 0.9}[mode]
+    return _gpt(sys, user_text, temperature=temp, max_tokens=140) or _sanitize(user_text)
 
 def suggest_replica(scene: str) -> Optional[str]:
-    sys = "Придумай короткую реплику героя к сцене, 4–10 слов. Только сама фраза. ЗАПРЕЩЕНЫ кавычки, тире, двоеточия, точка с запятой. Можно только запятые, точки, восклицательный и вопросительный знаки."
+    sys = ("Придумай короткую реплику героя к сцене, 4–10 слов. Только сама фраза. "
+           "ЗАПРЕЩЕНЫ кавычки, тире, двоеточия, точка с запятой.")
     return _gpt(sys, scene, temperature=0.9, max_tokens=35)
 
-# ========= NEUROKUDO режим =========
-
+# ========= NEUROKUDO =========
 def generate_nkudo_single_scene() -> str:
     sys = (
-        "Ты создаешь сцены в стиле NEUROKUDO: обычный российский быт встречается с необычным объектом. "
-        "ВАЖНО: сцена должна быть реалистичной для съемки, НЕ фантастической. "
-        "Придумай ОДНУ сцену длительностью 8 секунд где обычная бабушка или дед взаимодействует с необычным но РЕАЛЬНЫМ объектом. "
-        "Примеры хорошего: бабушка кормит страуса на балконе, дед выгуливает альпаку во дворе, "
-        "бабушка моет слоненка в ванной, дед учит попугая ара читать газету. "
-        "НЕ придумывай: порталы, динозавров, инопланетян, фантастику. "
-        "Формат: простое бытовое действие с необычным животным или предметом. "
-        "Никаких кавычек, тире. Напиши 1-2 предложения."
+        "NEUROKUDO: обычный российский быт + необычный, но РЕАЛЬНЫЙ объект (без фантастики). "
+        "Сцена 8 сек, бытовое действие. Примеры: бабушка кормит страуса на балконе; "
+        "дед выгуливает альпаку; бабушка моет слонёнка; дед учит ара читать газету. "
+        "Никаких кавычек и тире. 1–2 предложения."
     )
-    usr = "Сгенерируй сцену где обычный быт встречается с необычным объектом."
-    return _gpt(sys, usr, temperature=0.75, max_tokens=100) or "Бабушка расчесывает ламу на кухне пятиэтажки"
+    return _gpt(sys, "Сгенерируй сцену", temperature=0.75, max_tokens=100) or \
+           "Бабушка расчесывает ламу на кухне пятиэтажки"
 
 def generate_nkudo_reportage() -> tuple[str, str, str]:
     sys1 = (
-        "Ты создаешь новостной репортаж в стиле NEUROKUDO. "
-        "Придумай ПЕРВУЮ сцену (8 секунд): журналистка с микрофоном говорит ОДНУ короткую фразу "
-        "типа 'Пенсионерка из Запупинска завела носорога'. "
-        "На заднем плане бабушка с этим необычным но РЕАЛЬНЫМ животным или объектом. "
-        "Примеры: бабушка с ламой, дед с павлином, бабушка с огромным кактусом. "
-        "НЕ фантастика! Реальные животные и предметы. "
-        "Опиши: фраза журналистки (5-8 слов) + что на фоне. "
-        "ЗАПРЕЩЕНЫ кавычки, тире, двоеточия. 1-2 предложения."
+        "Репортаж. Сцена 1 (8 сек): русскоязычная журналистка (женщина, 25–40) в деревне, "
+        "говорит короткую фразу в КАМЕРУ по-русски. На заднем плане бабушка с необычным, "
+        "но РЕАЛЬНЫМ животным/объектом. Без фантастики. 1–2 предложения. Без кавычек и тире."
     )
-    scene1 = _gpt(sys1, "Создай сцену репортажа", temperature=0.7, max_tokens=100)
+    scene1 = _gpt(sys1, "Создай сцену 1", temperature=0.7, max_tokens=100)
 
     sys2 = (
-        "Придумай ВТОРУЮ сцену репортажа (8 секунд): крупный план бабушки. "
-        "Она объясняет ситуацию и в конце говорит короткую фразу-бомбу. "
-        "Стиль: деревенский юмор, прямота, без мата. "
-        "Финальная фраза типа: 'Чего уставились', 'Вот и весь сказ', 'Ну и ладно'. "
-        "ЗАПРЕЩЕНЫ тире, двоеточия, точка с заяпятой, кавычки. "
-        "Опиши сцену с её объяснением и финальной фразой. 2-3 предложения."
+        "Сцена 2 (8 сек): крупный план той же бабушки. Она отвечает по-русски и в конце говорит "
+        "короткую финальную фразу-бомбу (3–6 слов, без кавычек/тире/двоеточий). "
+        "ВИЗУАЛЬНАЯ КОНТИНУИТИ: те же персонажи, одежда, двор, предметы, животное — повторить, "
+        "чтобы зрительно совпадало со сценой 1."
     )
     scene2 = _gpt(sys2, f"Контекст: {scene1}", temperature=0.75, max_tokens=120)
-    replica = "Чего смотрите то"
+    replica = "Вот и весь сказ"
+    return (scene1 or "", scene2 or "", replica)
 
-    return (
-        scene1 or "Журналистка говорит что пенсионерка завела ламу. На фоне бабушка чешет ламу",
-        scene2 or "Бабушка объясняет что лама лучше собаки сторожит огород и говорит: Чего смотрите то",
-        replica
-    )
-
+# ========= VEO CLIENT =========
 from veo_client import generate_video_sync
 
-# ========= СЕКРЕТНЫЙ JSON-КОНВЕРТЕР =========
-def to_json_prompt(scene: str, style: Optional[str], replica: Optional[str], mode: Optional[str]) -> str:
+# ========= СЕКРЕТНЫЙ JSON-КОНВЕРТЕР (+показ JSON) =========
+def style_hint(style: Optional[str]) -> str:
+    if not style: return ""
+    return STYLE_HINTS.get(style, "")
+
+def to_json_prompt(scene: str, style: Optional[str], replica: Optional[str],
+                   mode: Optional[str], context: Optional[str] = None) -> str:
     """
-    Если пользователь прислал уже JSON — не трогаем.
-    Иначе GPT конвертит сцену+стиль+реплику в JSON-структуру для Veo.
+    Если scene уже JSON -> возвращаем как есть.
+    Иначе: превращаем в структурный JSON для Veo с учётом стиля и (для репортажа) контекста.
     """
     try:
         json.loads(scene)
@@ -156,37 +153,50 @@ def to_json_prompt(scene: str, style: Optional[str], replica: Optional[str], mod
         pass
 
     if not gpt:
-        # Фолбэк — возвращаем как есть
         return scene
 
+    style_txt = style_hint(style)
+    base_rules = (
+        "Верни ТОЛЬКО валидный JSON без комментариев.\n"
+        "Структура:\n"
+        "{\n"
+        '  "shot": {"composition": "...", "camera_motion": "...", "lens": "35mm", "frame_rate": "24fps", "film_grain": "subtle"},\n'
+        '  "environment": {"location": "...", "time_of_day": "...", "weather": "..."},\n'
+        '  "characters": [{"name": "...", "position": "...", "appearance": "...", "action": "..."}],\n'
+        '  "dialogue": [{"character": "...", "voice": "...", "line": "..."}],\n'
+        '  "lighting": "...", "ambient": "...", "mood": "...", "constraints": "no on-screen text or subtitles"\n'
+        "}\n"
+        "Не добавляй субтитры/текст в кадре."
+    )
     sys = (
-        "Ты промт-инженер для Google Veo 3.0. "
-        "Возьми описание сцены, стиль и реплику, и преврати в JSON промт строго в такой структуре: "
-        "{shot:{composition, camera_motion, lens, frame_rate, film_grain}, "
-        " environment:{location, time_of_day, weather}, "
-        " characters:[{name, position, appearance, action}], "
-        " dialogue:[{character, voice, line}], "
-        " lighting, ambient, mood, constraints}. "
-        "Всегда заполняй поля осмысленными значениями. Реплику перенеси в dialogue. "
-        "Запрещены субтитры/текст в кадре."
+        "Ты промт-инженер Veo 3.0. Преврати описание сцены в JSON для видеогенерации. "
+        + base_rules
     )
     if mode == "nkudo":
-        sys += " Стиль: бытовуха + необычный объект, реализм, лёгкий юмор."
-    elif mode == "reportage":
-        sys += " Формат: новостной репортаж. Сцена 1 — журналистка говорит, сцена 2 — бабушка отвечает."
+        sys += " Стиль сцены: бытовуха + необычный реальный объект, реализм, лёгкий юмор."
     elif mode == "meme":
         sys += " Сделай гротескно и смешно, но реалистично снимаемо."
+    elif mode == "reportage":
+        sys += (" Формат: новостной репортаж, русский язык. "
+                "Сцена 1: журналистка говорит. Сцена 2: бабушка отвечает. "
+                "Для сцены 2 обязательно соблюдай ВИЗУАЛЬНУЮ КОНТИНУИТИ — повтори тех же людей, "
+                "одежду, предметы, животное, фон.")
     else:
         sys += " Сделай съёмочную сцену с реалистичными действиями."
 
+    if style_txt:
+        sys += f" Впитай требования стиля: {style_txt}"
+
     usr = f"Сцена: {scene}\nСтиль: {style or ''}\nРеплика: {replica or ''}"
+    if context:
+        usr += f"\nКонтекст/сцена_1 (для континуити): {context}"
 
     try:
         r = gpt.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[{"role": "system", "content": sys},
                       {"role": "user", "content": usr}],
-            temperature=0.6,
+            temperature=0.55,
             max_tokens=1200,
         )
         return (r.choices[0].message.content or "").strip()
@@ -209,12 +219,16 @@ def _ensure(uid: int):
             "awaiting_scene": False,
             "awaiting_custom_style": False,
             "awaiting_scene_edit": False,
+            "awaiting_support": False,
             "editing_scene": None,
             "scene_backup": None,
-            "orientation": DEFAULT_ORIENTATION,  # добавили ориентацию
+            "orientation": DEFAULT_ORIENTATION,
             "nkudo_type": None,
             "nkudo_scene1": None,
             "nkudo_scene2": None,
+            "last_json": None,
+            "last_json1": None,
+            "last_json2": None,
         }
 
 # ========= КЛАВИАТУРЫ =========
@@ -224,6 +238,7 @@ def kb_home():
         [InlineKeyboardButton("🖼️ Оживление изображения", callback_data="menu_alive")],
         [InlineKeyboardButton("📚 Гайды / Оплата", callback_data="menu_guides")],
         [InlineKeyboardButton("👤 Профиль / Баланс", callback_data="menu_profile")],
+        [InlineKeyboardButton("🆘 Возникли проблемы", callback_data="menu_support")],
     ])
 
 def kb_modes():
@@ -235,12 +250,16 @@ def kb_modes():
         [InlineKeyboardButton("⬅️ Назад в меню", callback_data="back_home")],
     ])
 
+def kb_back_only():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="back_modes")]])
+
 def kb_variants():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔍 Усложни", callback_data="var_complex"),
          InlineKeyboardButton("✂️ Упрости", callback_data="var_simple")],
         [InlineKeyboardButton("🔄 Заново", callback_data="var_again"),
          InlineKeyboardButton("➡️ Дальше", callback_data="go_next")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_modes")],
     ])
 
 def kb_nkudo_menu():
@@ -298,17 +317,22 @@ def kb_styles():
 def kb_after_style():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("💬 Придумать реплику", callback_data="add_replica")],
+        [InlineKeyboardButton("👁 Показать JSON", callback_data="show_json")],
         [InlineKeyboardButton("🚀 Создать видео", callback_data="show_final")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_modes")],
     ])
 
 def kb_after_replica():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 Другая реплика", callback_data="new_replica")],
-        [InlineKeyboardButton("👁 Посмотреть промпт", callback_data="show_final")]
+        [InlineKeyboardButton("👁 Показать JSON", callback_data="show_json")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="choose_style")],
+        [InlineKeyboardButton("🚀 Создать видео", callback_data="show_final")]
     ])
 
 def kb_final_prompt():
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("👁 Показать JSON", callback_data="show_json")],
         [InlineKeyboardButton("🚀 Создать видео", callback_data="generate_now")],
         [InlineKeyboardButton("🔄 Переделать", callback_data="go_next")],
     ])
@@ -324,29 +348,28 @@ def kb_meme():
         [InlineKeyboardButton("🎲 Крутить ещё", callback_data="meme_again")],
         [InlineKeyboardButton("🧠✨ Улучшить с помощником", callback_data="meme_to_helper")],
         [InlineKeyboardButton("➡️ Дальше", callback_data="go_next")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_modes")],
+    ])
+
+def kb_after_video():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ Изменить промт", callback_data="edit_from_last")],
+        [InlineKeyboardButton("🔁 Сгенерировать ещё", callback_data="menu_make")],
+        [InlineKeyboardButton("🏠 В меню", callback_data="back_home")],
     ])
 
 # ========= МЕМНЫЙ РЕЖИМ =========
 def random_meme_scene() -> str:
-    subjects = [
-        "Бабка", "Дед", "Тётка с авоськой", "Дворник", "Курьер",
-        "Официант", "Школьник с рюкзаком", "Рокер", "Бизнес леди", "Мужик в телогрейке"
-    ]
-    locations = [
-        "у подъезда", "на рынке", "в метро", "на остановке",
-        "в парке", "во дворе панельного дома", "на набережной", "у киоска с шаурмой"
-    ]
-    props = [
-        "арбузом", "самоваром", "гигантским пакетом чипсов", "надувным крокодилом",
-        "плюшевым медведем", "огромной лампой торшером", "портретом кота", "резиновым утёнком"
-    ]
-    items_plural = [
-        "апельсинами", "булочками", "плюшевыми утками", "сосисками в тесте",
-        "листовками", "ладошками из поролона", "магнитиками", "стеклянными банками"
-    ]
+    subjects = ["Бабка", "Дед", "Тётка с авоськой", "Дворник", "Курьер", "Официант",
+                "Школьник с рюкзаком", "Рокер", "Бизнес леди", "Мужик в телогрейке"]
+    locations = ["у подъезда", "на рынке", "в метро", "на остановке", "в парке",
+                 "во дворе панельного дома", "на набережной", "у киоска с шаурмой"]
+    props = ["арбузом", "самоваром", "гигантским пакетом чипсов", "надувным крокодилом",
+             "плюшевым медведем", "огромной лампой торшером", "портретом кота", "резиновым утёнком"]
+    items_plural = ["апельсинами", "булочками", "плюшевыми утками", "сосисками в тесте",
+                    "листовками", "ладошками из поролона", "магнитиками", "стеклянными банками"]
     npcs = ["охранником", "продавщицей семечек", "контролёром", "диспетчером такси", "дворовой кошкой"]
     vehicles = ["скейтборде", "самокате", "тележке из супермаркета", "велике без седла"]
-
     templates = [
         "{s} едет на {veh} {loc}",
         "{s} спорит с {npc} {loc}",
@@ -357,88 +380,75 @@ def random_meme_scene() -> str:
         "{s} толкает тележку с {prop} {loc}",
         "{s} фотографируется с {prop} {loc}",
     ]
-
-    import random as _rnd
-    t = _rnd.choice(templates)
-    s = _rnd.choice(subjects)
-    loc = _rnd.choice(locations)
-
-    if "{veh}" in t:
-        txt = t.format(s=s, veh=_rnd.choice(vehicles), loc=loc)
-    elif "{npc}" in t:
-        txt = t.format(s=s, npc=_rnd.choice(npcs), loc=loc)
-    elif "{items}" in t:
-        txt = t.format(s=s, items=_rnd.choice(items_plural), loc=loc)
-    else:
-        txt = t.format(s=s, prop=_rnd.choice(props), loc=loc)
-
-    return _sanitize(txt)
+    t = random.choice(templates); s = random.choice(subjects); loc = random.choice(locations)
+    if "{veh}" in t:  return _sanitize(t.format(s=s, veh=random.choice(vehicles), loc=loc))
+    if "{npc}" in t:  return _sanitize(t.format(s=s, npc=random.choice(npcs), loc=loc))
+    if "{items}" in t:return _sanitize(t.format(s=s, items=random.choice(items_plural), loc=loc))
+    return _sanitize(t.format(s=s, prop=random.choice(props), loc=loc))
 
 # ========= ХЭНДЛЕРЫ =========
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    _ensure(uid)
+    uid = update.effective_user.id; _ensure(uid)
     users[uid].update({
         "mode": None, "source_text": None, "scene": None, "style": None, "replica": None,
-        "awaiting_scene": False, "awaiting_custom_style": False, "awaiting_scene_edit": False
+        "awaiting_scene": False, "awaiting_custom_style": False, "awaiting_scene_edit": False,
+        "awaiting_support": False,
     })
     await update.message.reply_text("Привет! Выбирай режим 👇", reply_markup=kb_home())
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    _ensure(uid)
+    uid = update.effective_user.id; _ensure(uid)
     st = users[uid]
     text = _sanitize((update.message.text or "").strip())
 
-    if st.get("awaiting_scene_edit"):
-        editing = st.get("editing_scene")
-        if editing == 1:
-            st["nkudo_scene1"] = text
-            await update.message.reply_text("✅ Сцена 1 обновлена!")
-        elif editing == 2:
-            st["nkudo_scene2"] = text
-            await update.message.reply_text("✅ Сцена 2 обновлена!")
-        st["awaiting_scene_edit"] = False
-        result_text = (
-            "📮 Текущий репортаж:\n\n"
-            f"📺 Сцена 1: {st.get('nkudo_scene1', '')}\n\n"
-            f"🎤 Сцена 2: {st.get('nkudo_scene2', '')}\n\n"
-            f"💬 Реплика: {st.get('replica', '')}"
-        )
-        await update.message.reply_text(result_text, reply_markup=kb_nkudo_reportage_edit())
+    # Support
+    if st.get("awaiting_support"):
+        st["awaiting_support"] = False
+        await update.message.reply_text("✅ Спасибо! Сообщение принято. Мы свяжемся при необходимости.", reply_markup=kb_home())
+        if ADMIN_CHAT_ID:
+            try:
+                await context.bot.send_message(chat_id=int(ADMIN_CHAT_ID),
+                                               text=f"🆘 Репорт от {uid}:\n\n{text}")
+            except Exception as e:
+                log.error("Failed to forward support message: %s", e)
         return
 
+    # Репортаж – редактирование
+    if st.get("awaiting_scene_edit"):
+        editing = st.get("editing_scene")
+        if editing == 1: st["nkudo_scene1"] = text; await update.message.reply_text("✅ Сцена 1 обновлена!")
+        elif editing == 2: st["nkudo_scene2"] = text; await update.message.reply_text("✅ Сцена 2 обновлена!")
+        st["awaiting_scene_edit"] = False
+        result_text = ("📮 Текущий репортаж:\n\n"
+                       f"📺 Сцена 1: {st.get('nkudo_scene1','')}\n\n"
+                       f"🎤 Сцена 2: {st.get('nkudo_scene2','')}\n\n"
+                       f"💬 Реплика: {st.get('replica','')}")
+        await update.message.reply_text(result_text, reply_markup=kb_nkudo_reportage_edit()); return
+
+    # Кастом стиль
     if st["awaiting_custom_style"]:
         st["awaiting_custom_style"] = False
         st["style"] = text
         await update.message.reply_text(f"✅ Выбран стиль: {st['style']}")
-        await update.message.reply_text("Что делаем дальше?", reply_markup=kb_after_style())
-        return
+        await update.message.reply_text("Что делаем дальше?", reply_markup=kb_after_style()); return
 
+    # Ожидание сцены (manual/helper)
     if st["awaiting_scene"]:
-        st["awaiting_scene"] = False
-        st["source_text"] = text
+        st["awaiting_scene"] = False; st["source_text"] = text
         if st["mode"] == "helper" and gpt:
-            scene = improve_scene(text, mode="normal")
-            st["scene"] = scene
-            await update.message.reply_text(f"🧠✨ Улучшено помощником:\n\n{scene}", reply_markup=kb_variants())
-            return
+            scene = improve_scene(text, mode="normal"); st["scene"] = scene
+            await update.message.reply_text(f"🧠✨ Улучшено помощником:\n\n{scene}", reply_markup=kb_variants()); return
         st["scene"] = text
-        await update.message.reply_text(f"📝 Промт принят:\n\n{text}", reply_markup=kb_variants())
-        return
+        await update.message.reply_text(f"📝 Промт принят:\n\n{text}", reply_markup=kb_variants()); return
 
     await update.message.reply_text("Главное меню:", reply_markup=kb_home())
 
 async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    uid = q.from_user.id
-    _ensure(uid)
-    st = users[uid]
-    data = q.data
+    q = update.callback_query; await q.answer()
+    uid = q.from_user.id; _ensure(uid); st = users[uid]; data = q.data
     log.info("Button: %s", data)
 
-    # Меню
+    # Главные пункты
     if data == "menu_make":
         await q.message.edit_text("Выберите режим генерации:", reply_markup=kb_modes()); return
     if data == "menu_alive":
@@ -447,6 +457,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_text("📚 Гайды и оплата – скоро тут ❤️"); return
     if data == "menu_profile":
         await q.message.edit_text("👤 Профиль/Баланс – скоро доступно."); return
+    if data == "menu_support":
+        st["awaiting_support"] = True
+        await q.message.edit_text("🆘 Опишите проблему текстом — отправлю админу. Чтобы отменить: /start"); return
     if data == "back_home":
         await q.message.edit_text("Главное меню:", reply_markup=kb_home()); return
 
@@ -455,217 +468,140 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         st.update({"mode": "helper", "scene": None, "style": None, "replica": None})
         st["awaiting_scene"] = True
         await q.message.edit_text("🧠✨ Режим умного помощника активирован!")
-        await q.message.reply_text("Опиши сцену – сделаю её съёмочной на ~8 секунд.")
-        return
+        await q.message.reply_text("Опиши сцену — сделаю её съёмочной на ~8 секунд.", reply_markup=kb_back_only()); return
+
     if data == "mode_manual":
         st.update({"mode": "manual", "scene": None, "style": None, "replica": None})
         st["awaiting_scene"] = True
         await q.message.edit_text("✏️ Режим ручного ввода активирован!")
-        await q.message.reply_text("Введи свою сцену (я ничего не меняю).")
-        return
+        await q.message.reply_text("Введи свою сцену (я ничего не меняю).", reply_markup=kb_back_only()); return
+
     if data == "mode_meme":
         st.update({"mode": "meme", "style": None, "replica": None})
-        scene = random_meme_scene()
-        st["scene"] = scene
+        scene = random_meme_scene(); st["scene"] = scene
         await q.message.edit_text("🎲 Мемный режим активирован!")
-        await q.message.reply_text(f"🎭 Случайная сцена:\n\n{scene}", reply_markup=kb_meme())
-        return
+        await q.message.reply_text(f"🎭 Случайная сцена:\n\n{scene}", reply_markup=kb_meme()); return
+
+    if data == "meme_again":
+        scene = random_meme_scene(); st["scene"] = scene
+        await q.message.edit_text(f"🎭 Новая сцена:\n\n{scene}", reply_markup=kb_meme()); return
+
+    if data == "meme_to_helper":
+        st["mode"] = "helper"; st["source_text"] = st.get("scene"); st["scene"] = improve_scene(st["scene"], "normal")
+        await q.message.edit_text(f"🧠✨ Улучшено помощником:\n\n{st['scene']}", reply_markup=kb_variants()); return
+
     if data == "mode_nkudo":
         st.update({"mode": "nkudo", "scene": None, "style": None, "replica": None})
         await q.message.edit_text("🔮 Режим «Как у NEUROKUDO» активирован!")
-        explanation = (
-            "🔮 Экспериментальный режим создания сцен и репортажей в стиле NEUROKUDO!\n\n"
-            "Сочетание обычного быта с необычными объектами.\n\n"
-            "Выберите тип сюжета:"
-        )
-        await q.message.reply_text(explanation, reply_markup=kb_nkudo_menu())
-        return
+        explanation = ("🔮 Экспериментальный режим создания сцен и репортажей.\n\nВыберите тип сюжета:")
+        await q.message.reply_text(explanation, reply_markup=kb_nkudo_menu()); return
     if data == "back_modes":
         await q.message.edit_text("Выберите режим генерации:", reply_markup=kb_modes()); return
 
-    # NEUROKUDO
+    # NEUROKUDO — одиночная
     if data == "nkudo_menu_back":
         await q.message.edit_text("Выберите тип сюжета:", reply_markup=kb_nkudo_menu()); return
     if data == "nkudo_single":
         await q.message.edit_text("⏳ Генерирую сцену...")
-        scene = generate_nkudo_single_scene()
-        st["scene"] = scene
-        st["nkudo_type"] = "single"
-        txt = "🔮 Сгенерирована сцена в стиле NEUROKUDO\n\n🎬 Сцена (8 сек):\n" + scene + "\n\nЧто делаем дальше?"
+        st["scene"] = generate_nkudo_single_scene(); st["nkudo_type"] = "single"
+        txt = "🔮 Сгенерирована сцена в стиле NEUROKUDO\n\n🎬 Сцена (8 сек):\n" + st["scene"] + "\n\nЧто делаем дальше?"
         await q.message.edit_text(txt, reply_markup=kb_nkudo_single()); return
     if data == "nkudo_regenerate_single":
         await q.message.edit_text("🔄 Генерирую новую сцену...")
-        scene = generate_nkudo_single_scene()
-        st["scene"] = scene
-        txt = "🔮 Новая сцена сгенерирована\n\n🎬 Сцена (8 сек):\n" + scene + "\n\nЧто делаем дальше?"
+        st["scene"] = generate_nkudo_single_scene()
+        txt = "🔮 Новая сцена сгенерирована\n\n🎬 Сцена (8 сек):\n" + st["scene"] + "\n\nЧто делаем дальше?"
         await q.message.edit_text(txt, reply_markup=kb_nkudo_single()); return
     if data == "nkudo_improve_single":
         if st.get("scene"):
-            st["scene_backup"] = st["scene"]
-            improved = improve_scene(st["scene"], mode="complex")
-            st["scene"] = improved
-            txt = "🧠✨ Сцена улучшена помощником\n\n🎬 Улучшенная сцена:\n" + improved + "\n\nОставить улучшенную версию?"
-            await q.message.edit_text(txt, reply_markup=kb_improve_confirm())
-        return
+            st["scene_backup"] = st["scene"]; st["scene"] = improve_scene(st["scene"], mode="complex")
+            txt = "🧠✨ Сцена улучшена помощником\n\n🎬 Улучшенная сцена:\n" + st["scene"] + "\n\nОставить улучшенную версию?"
+            await q.message.edit_text(txt, reply_markup=kb_improve_confirm()); return
+
+    # NEUROKUDO — репортаж
     if data == "nkudo_reportage":
         await q.message.edit_text("⏳ Генерирую репортаж из деревни...")
-        scene1, scene2, replica = generate_nkudo_reportage()
-        st["nkudo_scene1"] = scene1
-        st["nkudo_scene2"] = f"{scene2} и говорит: {replica}" if replica and " говорит:" not in scene2 else scene2
-        st["replica"] = replica
-        st["scene"] = f"{scene1}\n\n{st['nkudo_scene2']}"
-        st["nkudo_type"] = "reportage"
-        txt = (
-            "🔮 Сгенерирован репортаж в стиле NEUROKUDO\n\n"
-            "📺 Сцена 1 (Репортаж - 8 сек):\n" + scene1 + "\n\n"
-            "🎤 Сцена 2 (Интервью - 8 сек):\n" + st["nkudo_scene2"] + "\n\n"
-            "Общая длительность: 16 секунд"
-        )
+        s1, s2, rep = generate_nkudo_reportage()
+        st["nkudo_scene1"] = s1; st["nkudo_scene2"] = s2 if "говорит:" in s2 else f"{s2} и говорит: {rep}"
+        st["replica"] = rep; st["scene"] = f"{s1}\n\n{st['nkudo_scene2']}"; st["nkudo_type"] = "reportage"
+        txt = ("🔮 Сгенерирован репортаж\n\n"
+               f"📺 Сцена 1: {s1}\n\n🎤 Сцена 2: {st['nkudo_scene2']}\n\nОбщая длительность ~16 сек")
         await q.message.edit_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
 
     if data == "nkudo_edit_scene1":
-        st["editing_scene"] = 1
-        st["awaiting_scene_edit"] = True
-        await q.message.reply_text(
-            f"✏️ Редактирование сцены 1:\n\n{st.get('nkudo_scene1', '')}\n\n"
-            "Отправьте новый текст сцены или нажмите отмену:",
-            reply_markup=kb_scene_edit()
-        ); return
-
+        st["editing_scene"] = 1; st["awaiting_scene_edit"] = True
+        await q.message.reply_text(f"✏️ Редактирование сцены 1:\n\n{st.get('nkudo_scene1','')}\n\nОтправьте новый текст:", reply_markup=kb_scene_edit()); return
     if data == "nkudo_edit_scene2":
-        st["editing_scene"] = 2
-        st["awaiting_scene_edit"] = True
-        await q.message.reply_text(
-            f"✏️ Редактирование сцены 2:\n\n{st.get('nkudo_scene2', '')}\n\n"
-            "Отправьте новый текст сцены или нажмите отмену:",
-            reply_markup=kb_scene_edit()
-        ); return
-
+        st["editing_scene"] = 2; st["awaiting_scene_edit"] = True
+        await q.message.reply_text(f"✏️ Редактирование сцены 2:\n\n{st.get('nkudo_scene2','')}\n\nОтправьте новый текст:", reply_markup=kb_scene_edit()); return
     if data == "scene_save":
         st["awaiting_scene_edit"] = False
         await q.message.edit_text("✅ Изменения сохранены!")
-        txt = (
-            "📮 Текущий репортаж:\n\n"
-            f"📺 Сцена 1: {st.get('nkudo_scene1', '')}\n\n"
-            f"🎤 Сцена 2: {st.get('nkudo_scene2', '')}\n\n"
-            f"💬 Реплика: {st.get('replica', '')}"
-        )
+        txt = ("📮 Текущий репортаж:\n\n"
+               f"📺 Сцена 1: {st.get('nkudo_scene1','')}\n\n"
+               f"🎤 Сцена 2: {st.get('nkudo_scene2','')}\n\n"
+               f"💬 Реплика: {st.get('replica','')}")
         await q.message.reply_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
-
     if data == "scene_cancel":
         st["awaiting_scene_edit"] = False
         await q.message.edit_text("❌ Редактирование отменено")
-        txt = (
-            "📮 Текущий репортаж:\n\n"
-            f"📺 Сцена 1: {st.get('nkudo_scene1', '')}\n\n"
-            f"🎤 Сцена 2: {st.get('nkudo_scene2', '')}\n\n"
-            f"💬 Реплика: {st.get('replica', '')}"
-        )
+        txt = ("📮 Текущий репортаж:\n\n"
+               f"📺 Сцена 1: {st.get('nkudo_scene1','')}\n\n"
+               f"🎤 Сцена 2: {st.get('nkudo_scene2','')}\n\n"
+               f"💬 Реплика: {st.get('replica','')}")
         await q.message.reply_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
 
     if data == "nkudo_new_replica":
-        sys = (
-            "Придумай короткую финальную фразу бабушки для репортажа. "
-            "Стиль: народная мудрость с юмором. "
-            "Примеры: 'Чего уставились', 'Вот и весь сказ', 'Ну и ладно'. "
-            "3-6 слов. ЗАПРЕЩЕНЫ кавычки, тире, двоеточия, точка с заяпятой."
-        )
-        new_replica = _gpt(sys, f"Контекст: {st.get('nkudo_scene2', '')}", temperature=0.8, max_tokens=25) or "Поехали уже"
-        st["replica"] = new_replica
-        scene2_base = st.get("nkudo_scene2", "")
-        if " и говорит:" in scene2_base or " говорит:" in scene2_base:
-            scene2_base = scene2_base.split(" и говорит:")[0].split(" говорит:")[0]
-        st["nkudo_scene2"] = f"{scene2_base} и говорит: {new_replica}"
-        st["scene"] = f"{st.get('nkudo_scene1', '')}\n\n{st['nkudo_scene2']}"
-        txt = "💬 Новая реплика сгенерирована!\n\n" + f"📺 Сцена 1: {st.get('nkudo_scene1', '')}\n\n" + f"🎤 Сцена 2: {st['nkudo_scene2']}"
+        sys = ("Короткая финальная фраза бабушки для репортажа (3–6 слов, по-русски). Без кавычек/тире/двоеточий.")
+        st["replica"] = _gpt(sys, f"Контекст: {st.get('nkudo_scene2','')}", temperature=0.8, max_tokens=25) or "Поехали уже"
+        base2 = st.get("nkudo_scene2","")
+        if " говорит:" in base2: base2 = base2.split(" говорит:")[0]
+        st["nkudo_scene2"] = f"{base2} говорит: {st['replica']}"
+        st["scene"] = f"{st.get('nkudo_scene1','')}\n\n{st['nkudo_scene2']}"
+        txt = f"💬 Новая реплика: {st['replica']}\n\n🎤 Сцена 2: {st['nkudo_scene2']}"
         await q.message.edit_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
 
     if data == "nkudo_regenerate_report":
         await q.message.edit_text("🔄 Генерирую новый репортаж...")
-        scene1, scene2, replica = generate_nkudo_reportage()
-        st["nkudo_scene1"] = scene1
-        st["nkudo_scene2"] = f"{scene2} и говорит: {replica}" if replica and " говорит:" not in scene2 else scene2
-        st["replica"] = replica
-        st["scene"] = f"{scene1}\n\n{st['nkudo_scene2']}"
-        txt = "🔮 Новый репортаж сгенерирован\n\n" + f"📺 Сцена 1: {scene1}\n\n" + f"🎤 Сцена 2: {st['nkudo_scene2']}"
+        s1, s2, rep = generate_nkudo_reportage()
+        st["nkudo_scene1"] = s1; st["nkudo_scene2"] = s2 if "говорит:" in s2 else f"{s2} говорит: {rep}"
+        st["replica"] = rep; st["scene"] = f"{s1}\n\n{st['nkudo_scene2']}"
+        txt = f"🔮 Новый репортаж\n\n📺 Сцена 1: {s1}\n\n🎤 Сцена 2: {st['nkudo_scene2']}"
         await q.message.edit_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
 
     if data == "nkudo_improve_report":
         if st.get("nkudo_scene1") and st.get("nkudo_scene2"):
-            st["scene1_backup"] = st["nkudo_scene1"]
-            st["scene2_backup"] = st["nkudo_scene2"]
-            scene1_improved = improve_scene(st["nkudo_scene1"], mode="complex")
-            scene2_improved = improve_scene(st["nkudo_scene2"], mode="normal")
-            st["nkudo_scene1"] = scene1_improved
-            st["nkudo_scene2"] = scene2_improved
-            st["scene"] = f"{scene1_improved}\n\n{scene2_improved}"
-            txt = (
-                "🧠✨ Сцены улучшены помощником:\n\n"
-                f"📺 Сцена 1: {scene1_improved}\n\n"
-                f"🎤 Сцена 2: {scene2_improved}\n\n"
-                f"💬 Реплика: {st.get('replica', '')}\n\n"
-                "Оставить улучшенную версию?"
-            )
+            st["scene1_backup"] = st["nkudo_scene1"]; st["scene2_backup"] = st["nkudo_scene2"]
+            st["nkudo_scene1"] = improve_scene(st["nkudo_scene1"], "complex")
+            st["nkudo_scene2"] = improve_scene(st["nkudo_scene2"], "normal")
+            st["scene"] = f"{st['nkudo_scene1']}\n\n{st['nkudo_scene2']}"
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ Оставить улучшенное", callback_data="report_improve_keep")],
                 [InlineKeyboardButton("↩️ Отмена (вернуть прежнее)", callback_data="report_improve_cancel")],
             ])
-            await q.message.edit_text(txt, reply_markup=kb)
-        return
-
-    if data == "improve_keep":
-        st["scene_backup"] = None
-        await q.message.edit_text("✅ Улучшенная версия сохранена!")
-        if st.get("nkudo_type") == "single":
-            txt = f"🎬 Сцена (8 сек):\n{st['scene']}\n\nЧто делаем дальше?"
-            await q.message.reply_text(txt, reply_markup=kb_nkudo_single())
-        return
-
-    if data == "improve_cancel":
-        if st.get("scene_backup"):
-            st["scene"] = st["scene_backup"]
-            st["scene_backup"] = None
-            await q.message.edit_text("↩️ Возвращена прежняя версия!")
-            txt = f"🎬 Сцена (8 сек):\n{st['scene']}\n\nЧто делаем дальше?"
-            await q.message.reply_text(txt, reply_markup=kb_nkudo_single())
-        return
-
-    if data == "improve_again":
-        if st.get("scene"):
-            improved = improve_scene(st["scene"], mode="complex")
-            st["scene"] = improved
-            txt = "🧠✨ Сцена улучшена ещё раз\n\n" + f"🎬 Улучшенная сцена:\n{improved}\n\n" + "Оставить эту версию?"
-            await q.message.edit_text(txt, reply_markup=kb_improve_confirm())
-        return
-
+            txt = ("🧠✨ Сцены улучшены.\n\n"
+                   f"📺 Сцена 1: {st['nkudo_scene1']}\n\n"
+                   f"🎤 Сцена 2: {st['nkudo_scene2']}\n\n"
+                   f"💬 Реплика: {st.get('replica','')}")
+            await q.message.edit_text(txt, reply_markup=kb); return
     if data == "report_improve_keep":
-        st["scene1_backup"] = None
-        st["scene2_backup"] = None
+        st["scene1_backup"] = None; st["scene2_backup"] = None
         await q.message.edit_text("✅ Улучшенная версия сохранена!")
-        txt = (
-            "📮 Текущий репортаж:\n\n"
-            f"📺 Сцена 1: {st.get('nkudo_scene1', '')}\n\n"
-            f"🎤 Сцена 2: {st.get('nkudo_scene2', '')}\n\n"
-            f"💬 Реплика: {st.get('replica', '')}"
-        )
+        txt = ("📮 Текущий репортаж:\n\n"
+               f"📺 Сцена 1: {st.get('nkudo_scene1','')}\n\n"
+               f"🎤 Сцена 2: {st.get('nkudo_scene2','')}\n\n"
+               f"💬 Реплика: {st.get('replica','')}")
         await q.message.reply_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
-
     if data == "report_improve_cancel":
         if st.get("scene1_backup") and st.get("scene2_backup"):
-            st["nkudo_scene1"] = st["scene1_backup"]
-            st["nkudo_scene2"] = st["scene2_backup"]
-            st["scene"] = f"{st['scene1_backup']}\n\n{st['scene2_backup']}"
-            st["scene1_backup"] = None
-            st["scene2_backup"] = None
+            st["nkudo_scene1"] = st["scene1_backup"]; st["nkudo_scene2"] = st["scene2_backup"]
+            st["scene"] = f"{st['nkudo_scene1']}\n\n{st['nkudo_scene2']}"
+            st["scene1_backup"] = None; st["scene2_backup"] = None
             await q.message.edit_text("↩️ Возвращена прежняя версия!")
-            txt = (
-                "📮 Текущий репортаж:\n\n"
-                f"📺 Сцена 1: {st.get('nkudo_scene1', '')}\n\n"
-                f"🎤 Сцена 2: {st.get('nkudo_scene2', '')}\n\n"
-                f"💬 Реплика: {st.get('replica', '')}"
-            )
-            await q.message.reply_text(txt, reply_markup=kb_nkudo_reportage_edit())
-        return
+            txt = ("📮 Текущий репортаж:\n\n"
+                   f"📺 Сцена 1: {st.get('nkudo_scene1','')}\n\n"
+                   f"🎤 Сцена 2: {st.get('nkudo_scene2','')}\n\n"
+                   f"💬 Реплика: {st.get('replica','')}")
+            await q.message.reply_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
 
     if data == "nkudo_approve":
         if st.get("nkudo_type") == "reportage":
@@ -676,197 +612,154 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🎨 Стиль: Документальный репортаж\n\n"
                 "Готово к генерации видео!"
             )
-            # Перед генерацией спросим ориентацию
+            await q.message.reply_text("📝 Итоговый промпт:\n\n"
+                                       f"📺 Сцена 1: {st.get('nkudo_scene1','')}\n\n"
+                                       f"🎤 Сцена 2: {st.get('nkudo_scene2','')}\n\n"
+                                       f"💬 Реплика: {st.get('replica','')}")
             await q.message.reply_text("Выбери ориентацию:", reply_markup=kb_orientation())
-            # И подготовим финальный шаг
-            await q.message.reply_text("📝 Итоговый промпт готов. Жмём запуск, когда определишься с ориентацией.",
-                                       reply_markup=kb_final_prompt())
-        return
+            await q.message.reply_text("Когда готов — запускаем:", reply_markup=kb_final_prompt()); return
 
     # Варианты улучшения
-    if data == "var_complex":
-        if st.get("source_text") and gpt:
-            scene = improve_scene(st["source_text"], mode="complex")
-            st["scene"] = scene
-            await q.message.edit_text(f"🔍 Усложнено:\n\n{scene}", reply_markup=kb_variants())
-        return
-    if data == "var_simple":
-        if st.get("source_text") and gpt:
-            scene = improve_scene(st["source_text"], mode="simple")
-            st["scene"] = scene
-            await q.message.edit_text(f"✂️ Упрощено:\n\n{scene}", reply_markup=kb_variants())
-        return
-    if data == "var_again":
-        if st.get("source_text") and gpt:
-            scene = improve_scene(st["source_text"], mode="normal")
-            st["scene"] = scene
-            await q.message.edit_text(f"🔄 Переделано:\n\n{scene}", reply_markup=kb_variants())
-        return
+    if data == "var_complex" and st.get("source_text") and gpt:
+        st["scene"] = improve_scene(st["source_text"], "complex")
+        await q.message.edit_text(f"🔍 Усложнено:\n\n{st['scene']}", reply_markup=kb_variants()); return
+    if data == "var_simple" and st.get("source_text") and gpt:
+        st["scene"] = improve_scene(st["source_text"], "simple")
+        await q.message.edit_text(f"✂️ Упрощено:\n\n{st['scene']}", reply_markup=kb_variants()); return
+    if data == "var_again" and st.get("source_text") and gpt:
+        st["scene"] = improve_scene(st["source_text"], "normal")
+        await q.message.edit_text(f"🔄 Переделано:\n\n{st['scene']}", reply_markup=kb_variants()); return
 
     # Переход к стилям
     if data in ("go_next", "choose_style"):
-        if st.get("scene"):
-            await q.message.edit_text(f"✅ Сцена готова:\n\n{st['scene']}")
-        await q.message.reply_text("Выбери стиль:", reply_markup=kb_styles())
-        return
+        if st.get("scene"): await q.message.edit_text(f"✅ Сцена готова:\n\n{st['scene']}")
+        await q.message.reply_text("Выбери стиль:", reply_markup=kb_styles()); return
 
+    # Стили
     if data.startswith("style_"):
         val = data.split("_", 1)[1]
         if val == "custom":
             st["awaiting_custom_style"] = True
-            await q.message.edit_text("✏️ Напишите желаемый стиль для видео:")
-            return
+            await q.message.edit_text("✏️ Напишите желаемый стиль для видео:"); return
         st["style"] = None if val == "None" else val
-        style_text = st['style'] or "Без стиля"
-        await q.message.edit_text(f"✅ Выбран стиль: {style_text}")
-        await q.message.reply_text("Что делаем дальше?", reply_markup=kb_after_style())
-        return
+        await q.message.edit_text(f"✅ Выбран стиль: {st['style'] or 'Без стиля'}")
+        await q.message.reply_text("Что делаем дальше?", reply_markup=kb_after_style()); return
 
-    if data == "add_replica" or data == "new_replica":
-        if not st.get("scene"):
-            await q.message.reply_text("Сначала опиши сцену."); return
-        text = suggest_replica(st["scene"]) or "Поехали уже!"
-        st["replica"] = text
+    # Реплики
+    if data in ("add_replica", "new_replica"):
+        if not st.get("scene"): await q.message.reply_text("Сначала опиши сцену."); return
+        st["replica"] = suggest_replica(st["scene"]) or "Поехали уже!"
         if data == "new_replica":
-            await q.message.edit_text(f"✅ Создана реплика: {text}", reply_markup=kb_after_replica())
+            await q.message.edit_text(f"✅ Создана реплика: {st['replica']}", reply_markup=kb_after_replica())
         else:
-            await q.message.edit_text(f"✅ Создана реплика: {text}")
+            await q.message.edit_text(f"✅ Создана реплика: {st['replica']}")
             await q.message.reply_text("Готово! Можно генерировать другую реплику или смотреть промпт.", reply_markup=kb_after_replica())
         return
 
+    # Показ JSON
+    if data == "show_json":
+        if st.get("nkudo_type") == "reportage":
+            j1 = to_json_prompt(st.get("nkudo_scene1",""), st.get("style"), None, "reportage")
+            j2 = to_json_prompt(st.get("nkudo_scene2",""), st.get("style"), st.get("replica"), "reportage",
+                                context=st.get("nkudo_scene1"))
+            st["last_json1"], st["last_json2"] = j1, j2
+            await q.message.reply_text("🧾 JSON — Сцена 1:\n```\n" + j1 + "\n```", parse_mode="Markdown")
+            await q.message.reply_text("🧾 JSON — Сцена 2:\n```\n" + j2 + "\n```", parse_mode="Markdown")
+        else:
+            jj = to_json_prompt(st.get("scene",""), st.get("style"), st.get("replica"), st.get("mode"))
+            st["last_json"] = jj
+            await q.message.reply_text("🧾 JSON-промт:\n```\n" + jj + "\n```", parse_mode="Markdown")
+        return
+
+    # Финальный промпт + ориентация
     if data == "show_final":
-        if not st.get("scene"):
-            await q.message.reply_text("Сначала опиши сцену."); return
+        if not st.get("scene"): await q.message.reply_text("Сначала опиши сцену."); return
         final_text = "📝 Итоговый промпт:\n\n"
         final_text += f"🎬 Сцена: {st['scene']}\n\n"
-        if st.get("style"):
-            final_text += f"🎨 Стиль: {st['style']}\n\n"
-        if st.get("replica"):
-            final_text += f"💬 Реплика: {st['replica']}\n\n"
+        if st.get("style"): final_text += f"🎨 Стиль: {st['style']}\n\n"
+        if st.get("replica"): final_text += f"💬 Реплика: {st['replica']}\n\n"
         final_text += "Всё готово для генерации!"
         await q.message.reply_text(final_text)
-        # Перед запуском — выбор ориентации
         await q.message.reply_text("Выбери ориентацию:", reply_markup=kb_orientation())
-        await q.message.reply_text("Когда готов — запускаем:", reply_markup=kb_final_prompt())
-        return
+        await q.message.reply_text("Когда готов — запускаем:", reply_markup=kb_final_prompt()); return
 
-    # ==== ОРИЕНТАЦИЯ ====
+    # Ориентация
     if data == "ori_916":
-        st["orientation"] = "9:16"
-        await q.message.edit_text("✅ Ориентация: Вертикальное (9:16)")
-        return
+        st["orientation"] = "9:16"; await q.message.edit_text("✅ Ориентация: Вертикальное (9:16)"); return
     if data == "ori_169":
-        st["orientation"] = "16:9"
-        await q.message.edit_text("✅ Ориентация: Горизонтальное (16:9)")
-        return
+        st["orientation"] = "16:9"; await q.message.edit_text("✅ Ориентация: Горизонтальное (16:9)"); return
 
-    # ==== ГЕНЕРАЦИЯ ВИДЕО (Veo) ====
+    # Генерация
     if data == "generate_now":
-        if not st.get("scene"):
-            await q.message.reply_text("Сначала опиши сцену."); return
-        if st.get("style") is None:
-            st["style"] = DEFAULT_STYLE
-        if not st.get("orientation"):
-            st["orientation"] = DEFAULT_ORIENTATION
-
-        try:
-            await q.message.edit_reply_markup(reply_markup=None)
-        except:
-            pass
+        if not st.get("scene"): await q.message.reply_text("Сначала опиши сцену."); return
+        if st.get("style") is None: st["style"] = DEFAULT_STYLE
+        if not st.get("orientation"): st["orientation"] = DEFAULT_ORIENTATION
+        try: await q.message.edit_reply_markup(reply_markup=None)
+        except: pass
 
         msg = await q.message.reply_text("⏳ Генерирую видео… Это может занять несколько минут.")
         try:
-            mode = st.get("mode")
-
-            # Репортаж → два видео подряд (по 8 сек)
-            if st.get("nkudo_type") == "reportage" or mode == "reportage":
-                # Сцена 1
+            # REPORTAGE — два видео
+            if st.get("nkudo_type") == "reportage" or st.get("mode") == "reportage":
                 prompt1 = to_json_prompt(st.get("nkudo_scene1",""), st.get("style"), None, "reportage")
-                res1 = await asyncio.to_thread(
-                    generate_video_sync,
-                    prompt1,
-                    duration=8,
-                    aspect_ratio=st["orientation"]
-                )
+                prompt2 = to_json_prompt(st.get("nkudo_scene2",""), st.get("style"), st.get("replica"), "reportage",
+                                         context=st.get("nkudo_scene1"))
+                st["last_json1"], st["last_json2"] = prompt1, prompt2
+
+                res1 = await asyncio.to_thread(generate_video_sync, prompt1, duration=8, aspect_ratio=st["orientation"])
                 vids1 = (res1 or {}).get("videos", [])
-                if not vids1:
+                if vids1 and vids1[0].get("file_path") and os.path.exists(vids1[0]["file_path"]):
+                    with open(vids1[0]["file_path"], "rb") as f:
+                        await q.message.reply_video(video=f, caption="📺 Сцена 1", supports_streaming=True)
+                else:
                     await q.message.reply_text("⚠️ Сцена 1: видео не вернулось.")
-                else:
-                    v1 = vids1[0]
-                    if v1.get("file_path") and os.path.exists(v1["file_path"]):
-                        with open(v1["file_path"], "rb") as f:
-                            await q.message.reply_video(video=f, caption="📺 Сцена 1", supports_streaming=True)
-                    elif v1.get("uri"):
-                        await q.message.reply_text(f"📺 Сцена 1 (GCS): {v1['uri']}")
 
-                # Сцена 2
-                prompt2 = to_json_prompt(st.get("nkudo_scene2",""), st.get("style"), st.get("replica"), "reportage")
-                res2 = await asyncio.to_thread(
-                    generate_video_sync,
-                    prompt2,
-                    duration=8,
-                    aspect_ratio=st["orientation"]
-                )
+                res2 = await asyncio.to_thread(generate_video_sync, prompt2, duration=8, aspect_ratio=st["orientation"])
                 vids2 = (res2 or {}).get("videos", [])
-                if not vids2:
-                    await q.message.reply_text("⚠️ Сцена 2: видео не вернулось.")
+                cap2 = "🎤 Сцена 2" + (f"\n💬 {st.get('replica')}" if st.get("replica") else "")
+                if vids2 and vids2[0].get("file_path") and os.path.exists(vids2[0]["file_path"]):
+                    with open(vids2[0]["file_path"], "rb") as f:
+                        await q.message.reply_video(video=f, caption=cap2, supports_streaming=True)
                 else:
-                    v2 = vids2[0]
-                    cap2 = "🎤 Сцена 2" + (f"\n💬 {st.get('replica')}" if st.get("replica") else "")
-                    if v2.get("file_path") and os.path.exists(v2["file_path"]):
-                        with open(v2["file_path"], "rb") as f:
-                            await q.message.reply_video(video=f, caption=cap2, supports_streaming=True)
-                    elif v2.get("uri"):
-                        await q.message.reply_text(f"{cap2}\n\nGCS: {v2['uri']}")
+                    await q.message.reply_text("⚠️ Сцена 2: видео не вернулось.")
 
-                await q.message.reply_text("Готово! Хотите создать ещё одно видео?", reply_markup=kb_home())
+                await q.message.reply_text("Готово! Что дальше?", reply_markup=kb_after_video())
                 return
 
-            # Все остальные режимы → одно видео
+            # Обычные режимы — одно видео
             prompt = to_json_prompt(st["scene"], st.get("style"), st.get("replica"), st.get("mode"))
-            res = await asyncio.to_thread(
-                generate_video_sync,
-                prompt,
-                duration=8,
-                aspect_ratio=st["orientation"]
-            )
-
+            st["last_json"] = prompt
+            res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"])
             videos = (res or {}).get("videos", [])
             if not videos:
-                await q.message.reply_text("⚠️ Видео не вернулось. Попробуйте ещё раз.", reply_markup=kb_home())
-                return
+                await q.message.reply_text("⚠️ Видео не вернулось. Попробуйте ещё раз.", reply_markup=kb_home()); return
 
-            v0 = videos[0]
-            file_path = v0.get("file_path")
-            uri = v0.get("uri")
-
-            caption = (
-                f"✅ Видео готово!\n\n"
-                f"🎬 Сцена: {st['scene']}\n"
-                f"🎨 Стиль: {st['style']}"
-                + (f"\n💬 Реплика: {st['replica']}" if st.get("replica") else "")
-                + (f"\n📐 Ориентация: {st['orientation']}" if st.get("orientation") else "")
-            )
-
+            v0 = videos[0]; file_path = v0.get("file_path"); uri = v0.get("uri")
+            caption = (f"✅ Видео готово!\n\n🎬 Сцена: {st['scene']}\n🎨 Стиль: {st['style']}" +
+                       (f"\n💬 Реплика: {st['replica']}" if st.get("replica") else "") +
+                       f"\n📐 Ориентация: {st['orientation']}")
             if file_path and os.path.exists(file_path):
                 with open(file_path, "rb") as f:
-                    await q.message.reply_video(video=f, caption=caption, supports_streaming=True)
+                    await q.message.reply_video(video=f, caption=caption, supports_streaming=True, reply_markup=kb_after_video())
             elif uri:
-                # Фолбэк: если не скачалось — хотя бы даём ссылку GCS
-                await q.message.reply_text(f"{caption}\n\n🔗 Ссылка на видео (GCS): {uri}")
+                await q.message.reply_text(f"{caption}\n\n🔗 GCS: {uri}", reply_markup=kb_after_video())
             else:
                 await q.message.reply_text("⚠️ Видео не вернулось. Попробуйте ещё раз.", reply_markup=kb_home())
-
-            await q.message.reply_text("Хотите создать ещё одно видео?", reply_markup=kb_home())
 
         except Exception as e:
             log.exception("Veo generation failed")
             await q.message.reply_text(f"⚠️ Ошибка генерации: {e}\n\nПопробуйте ещё раз.", reply_markup=kb_home())
         finally:
-            try:
-                await msg.delete()
-            except Exception:
-                pass
+            try: await msg.delete()
+            except: pass
+        return
+
+    # Пост-кнопки после видео
+    if data == "edit_from_last":
+        # Возвращаемся к редактированию текущей сцены
+        st["awaiting_scene"] = True
+        await q.message.reply_text("✏️ Отправьте новый текст сцены. Текущая версия ниже.")
+        await q.message.reply_text(f"Текущая сцена:\n\n{st.get('scene','')}", reply_markup=kb_back_only())
         return
 
     # fallback
