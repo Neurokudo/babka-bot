@@ -1,90 +1,95 @@
 import os
 import time
 import json
-import logging
 import base64
+import logging
 import requests
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 
 log = logging.getLogger("veo_client")
+logging.basicConfig(level=logging.INFO)
 
-PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "ornate-producer-473220-g2")
+# Настройки
+PROJECT_ID = os.getenv("GCP_PROJECT_ID", "ornate-producer-473220-g2")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 MODEL = os.getenv("VEO_MODEL", "veo-3.0-fast-generate-001")
 
-# Чтение ключа из переменной окружения
-def _load_credentials():
+# Ключ для GCP
+def _get_credentials():
     key_b64 = os.getenv("GCP_KEY_JSON_B64")
     if not key_b64:
         raise RuntimeError("GCP_KEY_JSON_B64 не задан")
+
     key_json = base64.b64decode(key_b64).decode("utf-8")
-    creds_info = json.loads(key_json)
-    return service_account.Credentials.from_service_account_info(
-        creds_info,
+    creds = service_account.Credentials.from_service_account_info(
+        json.loads(key_json),
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
     )
+    creds.refresh(Request())
+    return creds
+
 
 def _authorized_session():
-    creds = _load_credentials()
-    creds.refresh(Request())
-    sess = requests.Session()
-    sess.headers.update({
-        "Authorization": f"Bearer {creds.token}",
-        "Content-Type": "application/json; charset=utf-8",
-    })
-    return sess
+    creds = _get_credentials()
+    session = requests.Session()
+    session.headers.update({"Authorization": f"Bearer {creds.token}"})
+    return session
+
 
 def generate_video_sync(prompt: str, duration: int = 8, aspect_ratio: str = "9:16"):
     """
-    Синхронная генерация видео через Veo 3 Fast
+    Генерация видео через Veo 3 Fast
     """
     sess = _authorized_session()
 
-    url = (
-        f"https://{LOCATION}-aiplatform.googleapis.com/v1/"
-        f"projects/{PROJECT}/locations/{LOCATION}/publishers/google/models/{MODEL}:predictLongRunning"
-    )
+    url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/publishers/google/models/{MODEL}:predictLongRunning"
 
     body = {
-        "instances": [{"prompt": prompt}],
+        "instances": [
+            {"prompt": prompt}
+        ],
         "parameters": {
             "sampleCount": 1,
             "resolution": "720p",
-            "durationSeconds": duration,
+            "duration": f"{duration}s",
             "aspectRatio": aspect_ratio,
         },
     }
 
-    log.info("Запрос генерации: %s", url)
-    r = sess.post(url, json=body, timeout=60)
-    if r.status_code >= 300:
+    log.info(f"Запрос генерации: {url}")
+    r = sess.post(url, json=body)
+    if r.status_code != 200:
         raise RuntimeError(f"Generation error {r.status_code}: {r.text}")
 
     resp = r.json()
     op_name = resp.get("name")
     if not op_name:
-        raise RuntimeError(f"Нет operation name в ответе: {resp}")
+        raise RuntimeError(f"Не удалось получить operation name: {resp}")
 
-    log.info("Получили op_name: %s", op_name)
+    log.info(f"Получили op_name: {op_name}")
 
-    # polling через fetchPredictOperation
-    poll_url = (
-        f"https://{LOCATION}-aiplatform.googleapis.com/v1/{op_name}:fetchPredictOperation"
-    )
-    log.info("Poll через fetchPredictOperation: %s", poll_url)
+    return _poll(sess, op_name)
 
-    deadline, interval = 600, 5
-    t0 = time.time()
+
+def _poll(sess, op_name: str):
+    """
+    Опрос состояния операции через fetchPredictOperation
+    """
+    url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/publishers/google/models/{MODEL}:fetchPredictOperation"
+    payload = {"name": op_name}
+
+    log.info(f"Poll через fetchPredictOperation: {url} | payload={payload}")
+
     while True:
-        rr = sess.post(poll_url, timeout=60)  # 👈 без json
-        if rr.status_code >= 300:
-            raise RuntimeError(f"Poll error {rr.status_code}: {rr.text}")
+        r = sess.post(url, json=payload)
+        if r.status_code != 200:
+            raise RuntimeError(f"Poll error {r.status_code}: {r.text}")
 
-        payload = rr.json()
-        if payload.get("done"):
-            return payload
-        if time.time() - t0 > deadline:
-            raise RuntimeError("Таймаут ожидания операции")
-        time.sleep(interval)
+        data = r.json()
+        if data.get("done"):
+            log.info("Операция завершена")
+            return data
+
+        time.sleep(5)
 
