@@ -14,7 +14,8 @@ vertexai.init(project=project_id, location="us-central1")
 print("Ping Veo…")
 try:
     # ВАЖНО: корректный ID модели
-    model = GenerativeModel("veo-3.0-generate-preview")
+from vertexai.generative_models import GenerativeModel
+model = GenerativeModel("veo-3.0-fast")
 
     # Без нестабильных полей — дефолты модели
     resp = model.generate_content("dancing robot")

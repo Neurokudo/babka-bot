@@ -4,3 +4,5 @@ google-cloud-aiplatform>=1.66.0
 vertexai>=1.66.0
 requests
 python-dotenv>=1.0.1
+python-telegram-bot>=21.6
+openai>=1.40.0
