@@ -2,13 +2,11 @@
 """
 veo_client.py — клиент Veo 3 (REST + Long‑Running Operation).
 
-Особенности:
-- Только REST.
 - Модель: VEO_MODEL (по умолчанию "veo-3.0-fast-generate-001")
 - Старт через :predictLongRunning
-- Опрос: использовать полный путь операции из r.json()["name"] (НЕ резать UUID!)
-- Креды из ENV: GCP_KEY_JSON_B64 (base64) или GCP_KEY_JSON (one-line JSON).
-- Автоповторы при 429/RESOURCE_EXHAUSTED и опциональный локальный rate limit.
+- Опрос: global operations /projects/{project}/locations/{location}/operations/{uuid}
+- Креды из ENV: GCP_KEY_JSON_B64 (base64) или GCP_KEY_JSON (one-line JSON)
+- Автоповторы при 429/RESOURCE_EXHAUSTED и опциональный локальный rate limit
 """
 
 import os, json, time, uuid, base64, pathlib, logging
@@ -178,8 +176,12 @@ def generate_video_sync(
     if not op_name:
         raise RuntimeError("Не получили имя операции от Veo (ожидали long-running).")
 
-    # Опрос — использовать полный op_name
-    op_url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/{op_name}"
+    # В op_name сидит полный путь с /models/.../operations/{uuid}
+    # Для поллинга нужен global operations path с этим UUID
+    op_id = op_name.split("/")[-1]
+    op_url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{LOCATION}/operations/{op_id}"
+    log.info("Polling global operations: %s", op_url)
+
     deadline_s = int(os.getenv("VEO_POLL_DEADLINE", "600"))
     interval_s = int(os.getenv("VEO_POLL_INTERVAL", "5"))
     t0 = time.time()
