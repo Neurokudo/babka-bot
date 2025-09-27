@@ -1,5 +1,6 @@
 # main.py – меню, помощник, NEUROKUDO, мем-рандом, стили, реплика, генерация Veo
 import os
+import json
 import random
 import asyncio
 import logging
@@ -27,6 +28,7 @@ if "gemini" in OPENAI_MODEL.lower():
     OPENAI_MODEL = "gpt-4o-mini"
 
 DEFAULT_STYLE = "Кино"
+DEFAULT_ORIENTATION = "9:16"  # по умолчанию вертикальное
 
 # ========= OPENAI (GPT) =========
 from openai import OpenAI
@@ -127,7 +129,7 @@ def generate_nkudo_reportage() -> tuple[str, str, str]:
         "Она объясняет ситуацию и в конце говорит короткую фразу-бомбу. "
         "Стиль: деревенский юмор, прямота, без мата. "
         "Финальная фраза типа: 'Чего уставились', 'Вот и весь сказ', 'Ну и ладно'. "
-        "ЗАПРЕЩЕНЫ тире, двоеточия, точка с запятой, кавычки. "
+        "ЗАПРЕЩЕНЫ тире, двоеточия, точка с заяпятой, кавычки. "
         "Опиши сцену с её объяснением и финальной фразой. 2-3 предложения."
     )
     scene2 = _gpt(sys2, f"Контекст: {scene1}", temperature=0.75, max_tokens=120)
@@ -140,6 +142,57 @@ def generate_nkudo_reportage() -> tuple[str, str, str]:
     )
 
 from veo_client import generate_video_sync
+
+# ========= СЕКРЕТНЫЙ JSON-КОНВЕРТЕР =========
+def to_json_prompt(scene: str, style: Optional[str], replica: Optional[str], mode: Optional[str]) -> str:
+    """
+    Если пользователь прислал уже JSON — не трогаем.
+    Иначе GPT конвертит сцену+стиль+реплику в JSON-структуру для Veo.
+    """
+    try:
+        json.loads(scene)
+        return scene
+    except Exception:
+        pass
+
+    if not gpt:
+        # Фолбэк — возвращаем как есть
+        return scene
+
+    sys = (
+        "Ты промт-инженер для Google Veo 3.0. "
+        "Возьми описание сцены, стиль и реплику, и преврати в JSON промт строго в такой структуре: "
+        "{shot:{composition, camera_motion, lens, frame_rate, film_grain}, "
+        " environment:{location, time_of_day, weather}, "
+        " characters:[{name, position, appearance, action}], "
+        " dialogue:[{character, voice, line}], "
+        " lighting, ambient, mood, constraints}. "
+        "Всегда заполняй поля осмысленными значениями. Реплику перенеси в dialogue. "
+        "Запрещены субтитры/текст в кадре."
+    )
+    if mode == "nkudo":
+        sys += " Стиль: бытовуха + необычный объект, реализм, лёгкий юмор."
+    elif mode == "reportage":
+        sys += " Формат: новостной репортаж. Сцена 1 — журналистка говорит, сцена 2 — бабушка отвечает."
+    elif mode == "meme":
+        sys += " Сделай гротескно и смешно, но реалистично снимаемо."
+    else:
+        sys += " Сделай съёмочную сцену с реалистичными действиями."
+
+    usr = f"Сцена: {scene}\nСтиль: {style or ''}\nРеплика: {replica or ''}"
+
+    try:
+        r = gpt.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "system", "content": sys},
+                      {"role": "user", "content": usr}],
+            temperature=0.6,
+            max_tokens=1200,
+        )
+        return (r.choices[0].message.content or "").strip()
+    except Exception as e:
+        log.error("GPT JSON convert error: %s", e)
+        return scene
 
 # ========= СОСТОЯНИЕ =========
 State = Dict[str, Any]
@@ -158,6 +211,10 @@ def _ensure(uid: int):
             "awaiting_scene_edit": False,
             "editing_scene": None,
             "scene_backup": None,
+            "orientation": DEFAULT_ORIENTATION,  # добавили ориентацию
+            "nkudo_type": None,
+            "nkudo_scene1": None,
+            "nkudo_scene2": None,
         }
 
 # ========= КЛАВИАТУРЫ =========
@@ -254,6 +311,12 @@ def kb_final_prompt():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🚀 Создать видео", callback_data="generate_now")],
         [InlineKeyboardButton("🔄 Переделать", callback_data="go_next")],
+    ])
+
+def kb_orientation():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📱 Вертикальное (9:16)", callback_data="ori_916")],
+        [InlineKeyboardButton("🖥 Горизонтальное (16:9)", callback_data="ori_169")],
     ])
 
 def kb_meme():
@@ -505,7 +568,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Придумай короткую финальную фразу бабушки для репортажа. "
             "Стиль: народная мудрость с юмором. "
             "Примеры: 'Чего уставились', 'Вот и весь сказ', 'Ну и ладно'. "
-            "3-6 слов. ЗАПРЕЩЕНЫ кавычки, тире, двоеточия, точка с запятой."
+            "3-6 слов. ЗАПРЕЩЕНЫ кавычки, тире, двоеточия, точка с заяпятой."
         )
         new_replica = _gpt(sys, f"Контекст: {st.get('nkudo_scene2', '')}", temperature=0.8, max_tokens=25) or "Поехали уже"
         st["replica"] = new_replica
@@ -613,7 +676,11 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🎨 Стиль: Документальный репортаж\n\n"
                 "Готово к генерации видео!"
             )
-            await q.message.reply_text("Всё готово для генерации!", reply_markup=kb_final_prompt())
+            # Перед генерацией спросим ориентацию
+            await q.message.reply_text("Выбери ориентацию:", reply_markup=kb_orientation())
+            # И подготовим финальный шаг
+            await q.message.reply_text("📝 Итоговый промпт готов. Жмём запуск, когда определишься с ориентацией.",
+                                       reply_markup=kb_final_prompt())
         return
 
     # Варианты улучшения
@@ -677,7 +744,20 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if st.get("replica"):
             final_text += f"💬 Реплика: {st['replica']}\n\n"
         final_text += "Всё готово для генерации!"
-        await q.message.reply_text(final_text, reply_markup=kb_final_prompt())
+        await q.message.reply_text(final_text)
+        # Перед запуском — выбор ориентации
+        await q.message.reply_text("Выбери ориентацию:", reply_markup=kb_orientation())
+        await q.message.reply_text("Когда готов — запускаем:", reply_markup=kb_final_prompt())
+        return
+
+    # ==== ОРИЕНТАЦИЯ ====
+    if data == "ori_916":
+        st["orientation"] = "9:16"
+        await q.message.edit_text("✅ Ориентация: Вертикальное (9:16)")
+        return
+    if data == "ori_169":
+        st["orientation"] = "16:9"
+        await q.message.edit_text("✅ Ориентация: Горизонтальное (16:9)")
         return
 
     # ==== ГЕНЕРАЦИЯ ВИДЕО (Veo) ====
@@ -686,6 +766,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text("Сначала опиши сцену."); return
         if st.get("style") is None:
             st["style"] = DEFAULT_STYLE
+        if not st.get("orientation"):
+            st["orientation"] = DEFAULT_ORIENTATION
 
         try:
             await q.message.edit_reply_markup(reply_markup=None)
@@ -694,13 +776,59 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         msg = await q.message.reply_text("⏳ Генерирую видео… Это может занять несколько минут.")
         try:
-            duration = 16 if st.get("nkudo_type") == "reportage" else 8
+            mode = st.get("mode")
 
+            # Репортаж → два видео подряд (по 8 сек)
+            if st.get("nkudo_type") == "reportage" or mode == "reportage":
+                # Сцена 1
+                prompt1 = to_json_prompt(st.get("nkudo_scene1",""), st.get("style"), None, "reportage")
+                res1 = await asyncio.to_thread(
+                    generate_video_sync,
+                    prompt1,
+                    duration=8,
+                    aspect_ratio=st["orientation"]
+                )
+                vids1 = (res1 or {}).get("videos", [])
+                if not vids1:
+                    await q.message.reply_text("⚠️ Сцена 1: видео не вернулось.")
+                else:
+                    v1 = vids1[0]
+                    if v1.get("file_path") and os.path.exists(v1["file_path"]):
+                        with open(v1["file_path"], "rb") as f:
+                            await q.message.reply_video(video=f, caption="📺 Сцена 1", supports_streaming=True)
+                    elif v1.get("uri"):
+                        await q.message.reply_text(f"📺 Сцена 1 (GCS): {v1['uri']}")
+
+                # Сцена 2
+                prompt2 = to_json_prompt(st.get("nkudo_scene2",""), st.get("style"), st.get("replica"), "reportage")
+                res2 = await asyncio.to_thread(
+                    generate_video_sync,
+                    prompt2,
+                    duration=8,
+                    aspect_ratio=st["orientation"]
+                )
+                vids2 = (res2 or {}).get("videos", [])
+                if not vids2:
+                    await q.message.reply_text("⚠️ Сцена 2: видео не вернулось.")
+                else:
+                    v2 = vids2[0]
+                    cap2 = "🎤 Сцена 2" + (f"\n💬 {st.get('replica')}" if st.get("replica") else "")
+                    if v2.get("file_path") and os.path.exists(v2["file_path"]):
+                        with open(v2["file_path"], "rb") as f:
+                            await q.message.reply_video(video=f, caption=cap2, supports_streaming=True)
+                    elif v2.get("uri"):
+                        await q.message.reply_text(f"{cap2}\n\nGCS: {v2['uri']}")
+
+                await q.message.reply_text("Готово! Хотите создать ещё одно видео?", reply_markup=kb_home())
+                return
+
+            # Все остальные режимы → одно видео
+            prompt = to_json_prompt(st["scene"], st.get("style"), st.get("replica"), st.get("mode"))
             res = await asyncio.to_thread(
                 generate_video_sync,
-                st["scene"],
-                duration=duration,
-                aspect_ratio="9:16"
+                prompt,
+                duration=8,
+                aspect_ratio=st["orientation"]
             )
 
             videos = (res or {}).get("videos", [])
@@ -717,6 +845,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🎬 Сцена: {st['scene']}\n"
                 f"🎨 Стиль: {st['style']}"
                 + (f"\n💬 Реплика: {st['replica']}" if st.get("replica") else "")
+                + (f"\n📐 Ориентация: {st['orientation']}" if st.get("orientation") else "")
             )
 
             if file_path and os.path.exists(file_path):
