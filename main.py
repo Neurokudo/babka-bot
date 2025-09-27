@@ -1,4 +1,4 @@
-k# main.py — меню, помощник, NEUROKUDO, мем-рандом, стили, реплика, генерация Veo
+# main.py — меню, помощник, NEUROKUDO, мем-рандом, стили, реплика, генерация Veo
 import os
 import random
 import asyncio
