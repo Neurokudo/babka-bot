@@ -1,24 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-veo_client.py — обёртка для генерации видео в Google Vertex AI (Veo 3)
+veo_client.py — простой клиент Veo 3 на Vertex AI (REST + Long‑Running Operation)
 
-Что я упростил:
-- Больше НЕ нужен GOOGLE_APPLICATION_CREDENTIALS и ADC.
-- Клиент сам берёт ключ из ENV: GCP_KEY_JSON (однострочный JSON) или GCP_KEY_JSON_B64.
-- Работает и через vertexai SDK, и через REST (фолбэк).
-- Вернёт dict: {"file_path": "...", "uri": "..."}. Хотя бы одно поле будет.
+Упрощения:
+- Только REST, без vertexai SDK.
+- Никаких ADC-файлов. Креды берём из ENV:
+  1) GCP_KEY_JSON_B64 — base64 от JSON ключа сервисного аккаунта
+  2) GCP_KEY_JSON — JSON ключ сервисного аккаунта одной строкой
+- Правильная модель и эндпоинт:
+  MODEL_ID: "veo-3.0-fast-generate-001" (или "veo-3.0-generate-001")
+  Endpoint: .../models/{MODEL_ID}:predictLongRunning  (+ опрос операции)
+- Возвращаем: {"file_path": "...", "uri": "..."}
 
 ENV (Railway):
-- GCP_KEY_JSON (Shared Variable, one-line JSON) ИЛИ GCP_KEY_JSON_B64 (base64 того же JSON).
-- GOOGLE_CLOUD_PROJECT / GCP_PROJECT_ID = id проекта
-- GOOGLE_CLOUD_LOCATION = us-central1
-- VEO_MODEL = "veo-3.0-fast" или "veo-3.0"
+- GCP_KEY_JSON_B64  (предпочтительно) ИЛИ GCP_KEY_JSON (one-line JSON)
+- GOOGLE_CLOUD_PROJECT / GCP_PROJECT_ID
+- GOOGLE_CLOUD_LOCATION=us-central1
+- VEO_MODEL=veo-3.0-fast-generate-001   (или veo-3.0-generate-001)
+- (опционально) VEO_POLL_DEADLINE=600, VEO_POLL_INTERVAL=5
 
-requirements.txt должен содержать:
-google-auth
-google-cloud-aiplatform>=1.66.0
-vertexai>=1.66.0
-requests
+requirements.txt:
+- google-auth
+- requests
 """
 
 from __future__ import annotations
@@ -27,9 +30,10 @@ import os
 import json
 import time
 import uuid
+import base64
 import pathlib
 import logging
-from typing import Optional, Tuple, Dict, Any
+from typing import Dict, Any, Optional, Tuple
 
 log = logging.getLogger("veo_client")
 if not log.handlers:
@@ -40,96 +44,49 @@ if not log.handlers:
 
 PROJECT: str = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT", "")
 LOCATION: str = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1").strip() or "us-central1"
-MODEL_ID: str = os.getenv("VEO_MODEL", "veo-3.0-fast").strip() or "veo-3.0-fast"
+MODEL_ID: str = os.getenv("VEO_MODEL", "veo-3.0-fast-generate-001").strip() or "veo-3.0-fast-generate-001"
 
 
 # ----------------------------- Credentials helper -----------------------------
 def _get_credentials():
     """
-    Возвращает google.auth.credentials.Credentials.
-
-    Порядок:
-    1) Пытается Application Default Credentials (если выставлен GOOGLE_APPLICATION_CREDENTIALS).
-    2) Если нет — берёт сервисный ключ из ENV:
-       - GCP_KEY_JSON_B64 (base64-строка JSON-ключа)
-       - GCP_KEY_JSON (однострочный JSON-ключ)
+    Возвращает google.oauth2.service_account.Credentials.
+    Берём из ENV (base64 или one-line JSON). ADC не требуется.
     """
     from google.auth.transport.requests import Request  # type: ignore
-    import google.auth  # type: ignore
-    from google.auth.exceptions import DefaultCredentialsError  # type: ignore
     from google.oauth2 import service_account  # type: ignore
-    import base64
+    from google.auth.exceptions import DefaultCredentialsError  # type: ignore
 
-    # (1) ADC (если настроен)
-    try:
-        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-        if not creds.valid:
-            creds.refresh(Request())
-        return creds
-    except DefaultCredentialsError:
-        pass
+    js = os.getenv("GCP_KEY_JSON")
+    b64 = os.getenv("GCP_KEY_JSON_B64")
 
-    # (2) Service Account из ENV (base64)
-    raw = os.getenv("GCP_KEY_JSON_B64")
-    if raw:
+    info = None
+    if b64:
         try:
-            data = base64.b64decode(raw).decode("utf-8")
+            data = base64.b64decode(b64).decode("utf-8")
             info = json.loads(data)
-            creds = service_account.Credentials.from_service_account_info(
-                info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-            if not creds.valid:
-                creds.refresh(Request())
-            return creds
         except Exception as e:
-            log.warning("Не удалось разобрать GCP_KEY_JSON_B64: %s", e)
+            log.warning("Не удалось декодировать GCP_KEY_JSON_B64: %s", e)
 
-    # (3) Service Account из ENV (one-line JSON)
-    raw = os.getenv("GCP_KEY_JSON")
-    if raw:
+    if not info and js:
         try:
-            info = json.loads(raw)
-            creds = service_account.Credentials.from_service_account_info(
-                info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-            if not creds.valid:
-                creds.refresh(Request())
-            return creds
+            info = json.loads(js)
         except Exception as e:
-            log.warning("Не удалось разобрать GCP_KEY_JSON: %s", e)
+            log.warning("Не удалось распарсить GCP_KEY_JSON: %s", e)
 
-    raise DefaultCredentialsError("Нет кредитов: ни ADC, ни GCP_KEY_JSON(_B64).")
+    if not info:
+        raise DefaultCredentialsError("Нет кредов: добавь GCP_KEY_JSON_B64 (base64) или GCP_KEY_JSON (one-line).")
 
-
-# ----------------------------- SDK (lazy import) ------------------------------
-_vertexai_loaded = False
-def _lazy_import_vertexai():
-    """Лениво импортируем vertexai и модели (совместимо с preview)."""
-    global _vertexai_loaded
-    if _vertexai_loaded:
-        import vertexai  # type: ignore
-        try:
-            from vertexai.generative_models import GenerativeModel, GenerationConfig  # type: ignore
-        except Exception:
-            from vertexai.preview.generative_models import GenerativeModel, GenerationConfig  # type: ignore
-        return vertexai, GenerativeModel, GenerationConfig
-
-    try:
-        import vertexai  # type: ignore
-        try:
-            from vertexai.generative_models import GenerativeModel, GenerationConfig  # type: ignore
-        except Exception:
-            from vertexai.preview.generative_models import GenerativeModel, GenerationConfig  # type: ignore
-        _vertexai_loaded = True
-        return vertexai, GenerativeModel, GenerationConfig
-    except Exception as e:
-        log.warning("Не удалось импортировать vertexai SDK: %s", e)
-        raise
+    creds = service_account.Credentials.from_service_account_info(
+        info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    if not creds.valid:
+        creds.refresh(Request())
+    return creds
 
 
-# ----------------------------- REST auth session ------------------------------
 def _authorized_session():
-    """Возвращает requests.Session с Authorization: Bearer <token>."""
+    """requests.Session с Authorization: Bearer <token>."""
     import requests  # type: ignore
     from google.auth.transport.requests import Request  # type: ignore
 
@@ -137,12 +94,11 @@ def _authorized_session():
     if not creds.valid:
         creds.refresh(Request())
 
-    class _AuthSess(requests.Session):
+    class _Sess(requests.Session):
         def __init__(self, token: str):
             super().__init__()
             self.headers.update({"Authorization": f"Bearer {token}"})
-
-    return _AuthSess(creds.token)
+    return _Sess(creds.token)
 
 
 # --------------------------------- Utilities ----------------------------------
@@ -163,107 +119,97 @@ def generate_video_sync(
     filename_prefix: str = "veo_video"
 ) -> Dict[str, Any]:
     """
-    Генерация видео. Сначала пробуем через vertexai SDK (с кредами из ENV),
-    если не получилось — фолбэк на REST. Возвращает dict с file_path и/или uri.
+    REST-вызов Veo 3 через predictLongRunning + опрос операции.
+    Возвращает dict с "file_path" и/или "uri".
     """
     if not prompt or not isinstance(prompt, str):
         raise ValueError("prompt must be a non-empty string")
 
     model_name = _make_model_name(PROJECT, LOCATION, MODEL_ID)
-    log.info(
-        "VEO generate start | model=%s | project=%s | location=%s | duration=%ss | AR=%s",
-        MODEL_ID, PROJECT, LOCATION, duration, aspect_ratio
-    )
+    log.info("VEO LRO start | model=%s | project=%s | location=%s | duration=%ss | AR=%s",
 
-    # --- SDK путь ---
-    try:
-        vertexai, GenerativeModel, GenerationConfig = _lazy_import_vertexai()
-        creds = _get_credentials()
-        vertexai.init(project=PROJECT, location=LOCATION, credentials=creds)
+    # Optional local rate limiter to avoid hitting RPM hard (per-process)
+    _rate_limit = float(os.getenv("VEO_RATE_LIMIT_SECONDS", "0"))
+    if _rate_limit > 0:
+        import time as _rt, os as _os
+        _stamp_file = "/tmp/veo_last_start"
+        try:
+            last_t = 0.0
+            if _os.path.exists(_stamp_file):
+                with open(_stamp_file, "r") as fh:
+                    last_t = float(fh.read().strip() or "0")
+            now = _rt.time()
+            delta = now - last_t
+            if delta < _rate_limit:
+                sleep_need = _rate_limit - delta
+                log.info("Local rate limit: сплю %.2fs", sleep_need)
+                _rt.sleep(sleep_need)
+            with open(_stamp_file, "w") as fh:
+                fh.write(str(_rt.time()))
+        except Exception:
+            pass
 
-        gen_config = GenerationConfig(response_mime_type="application/json")
-        model = GenerativeModel(MODEL_ID)  # ВАЖНО: без суффикса "-generate-preview"
+             MODEL_ID, PROJECT, LOCATION, duration, aspect_ratio)
 
-        composed_prompt = (
-            f"{prompt.strip()}\n\n"
-            f"Duration: {duration}s\n"
-            f"Aspect Ratio: {aspect_ratio}\n"
-            f"Clear video without text."
-        )
-
-        resp = model.generate_content([composed_prompt], generation_config=gen_config)
-
-        uri, file_bytes = _extract_video_from_response(resp)
-        result: Dict[str, Any] = {}
-        if file_bytes:
-            out_dir = _ensure_output_dir()
-            fname = f"{filename_prefix}_{int(time.time())}_{uuid.uuid4().hex[:8]}.mp4"
-            fpath = out_dir / fname
-            with open(fpath, "wb") as f:
-                f.write(file_bytes)
-            result["file_path"] = str(fpath)
-        if uri:
-            result["uri"] = uri
-
-        if result:
-            log.info("VEO generate done via SDK | %s", result)
-            return result
-        else:
-            log.warning("SDK ответ без файла/URI, пробую REST...")
-            return _generate_via_rest(prompt, duration, aspect_ratio, filename_prefix)
-
-    except Exception as e:
-        log.warning("SDK способ не сработал (%s). Пытаюсь REST…", e)
-
-    # --- REST путь ---
-    return _generate_via_rest(prompt, duration, aspect_ratio, filename_prefix)
-
-
-# ---------------------------------- REST path ---------------------------------
-def _generate_via_rest(
-    prompt: str,
-    duration: int,
-    aspect_ratio: str,
-    filename_prefix: str
-) -> Dict[str, Any]:
-    import requests  # type: ignore
-
-    endpoint = (
-        f"https://{LOCATION}-aiplatform.googleapis.com/v1/"
-        f"{_make_model_name(PROJECT, LOCATION, MODEL_ID)}:generateContent"
-    )
+    # 1) Запускаем операцию
     sess = _authorized_session()
-
-    composed_prompt = (
-        f"{prompt.strip()}\n\n"
-        f"Duration: {duration}s\n"
-        f"Aspect Ratio: {aspect_ratio}\n"
-        f"Clear video without text."
-    )
+    endpoint = f"https://{LOCATION}-aiplatform.googleapis.com/v1/{model_name}:predictLongRunning"
     body = {
-        "contents": [
+        "instances": [
             {
-                "role": "user",
-                "parts": [{"text": composed_prompt}]
+                "prompt": prompt.strip()
             }
-        ]
+        ],
+        "parameters": {
+            "aspectRatio": aspect_ratio,     # "16:9" | "9:16"
+            "duration": duration,            # секунды
+            "sampleCount": 1,
+            "seed": 0
+        }
     }
 
-    r = sess.post(endpoint, json=body, timeout=600)
+    r = _post_with_retries(sess, endpoint, body, timeout=60)
     if r.status_code == 404:
         raise RuntimeError(
             f"404 Model not found. Проверь GOOGLE_CLOUD_LOCATION='{LOCATION}' "
-            f"и VEO_MODEL='{MODEL_ID}'. Для Veo используй us-central1 и 'veo-3.0(-fast)'."
+            f"и VEO_MODEL='{MODEL_ID}'. Поддерживаются: "
+            f"'veo-3.0-generate-001', 'veo-3.0-fast-generate-001' (регион us-central1)."
         )
     if r.status_code >= 300:
         try:
             err_payload = r.json()
         except Exception:
             err_payload = r.text
-        raise RuntimeError(f"Vertex REST error {r.status_code}: {err_payload}")
+        raise RuntimeError(f"Vertex start error {r.status_code}: {err_payload}")
 
-    payload = r.json()
-    uri, file_bytes = _extract_video_from_rest_payload(payload)
+    op = r.json().get("name")
+    if not op:
+        raise RuntimeError("Не получили имя операции от Veo (ожидали long-running).")
+
+    # 2) Пуллим до готовности
+    op_url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/{op}"
+    deadline_s = int(os.getenv("VEO_POLL_DEADLINE", "600"))
+    interval_s = int(os.getenv("VEO_POLL_INTERVAL", "5"))
+    t0 = time.time()
+    while True:
+        rr = sess.get(op_url, timeout=60)
+        if rr.status_code >= 300:
+            try:
+                errp = rr.json()
+            except Exception:
+                errp = rr.text
+            raise RuntimeError(f"Vertex poll error {rr.status_code}: {errp}")
+
+        payload = rr.json()
+        if payload.get("done"):
+            break
+        if (time.time() - t0) > deadline_s:
+            raise RuntimeError("Таймаут ожидания Veo операции.")
+        time.sleep(interval_s)
+
+    # 3) Извлекаем результат
+    resp = payload.get("response") or payload.get("result") or {}
+    uri, file_bytes = _extract_video_from_operation_response(resp)
 
     result: Dict[str, Any] = {}
     if file_bytes:
@@ -277,74 +223,83 @@ def _generate_via_rest(
         result["uri"] = uri
 
     if not result:
-        raise RuntimeError("Не удалось извлечь видео из REST-ответа (нет URI/bytes).")
+        raise RuntimeError("Операция завершилась без URI/bytes. Проверь ответ Veo.")
 
-    log.info("VEO generate done via REST | %s", result)
+    log.info("VEO LRO done | %s", result)
     return result
 
 
-# -------------------------- Response parsers (SDK/REST) -----------------------
-def _extract_video_from_response(resp) -> Tuple[Optional[str], Optional[bytes]]:
-    """Пытается вытащить URI или байты из ответа SDK."""
+# ------------------------------ Parsers ---------------------------------------
+def _extract_video_from_operation_response(resp: Dict[str, Any]) -> Tuple[Optional[str], Optional[bytes]]:
+    """
+    Ищем видео в структуре ответа LRO:
+      resp.outputs[0].fileUri | resp.outputs[0].video.fileUri
+      resp.outputs[0].bytesBase64Encoded | resp.outputs[0].video.bytesBase64Encoded
+    """
     uri = None
     file_bytes = None
 
     try:
-        candidates = getattr(resp, "candidates", []) or []
-        for cand in candidates:
-            content = getattr(cand, "content", None)
-            if not content:
-                continue
-            parts = getattr(content, "parts", []) or []
-            for p in parts:
-                fdata = getattr(p, "file_data", None)
-                if fdata and getattr(fdata, "file_uri", None):
-                    uri = fdata.file_uri
-                idata = getattr(p, "inline_data", None)
-                if idata and getattr(idata, "data", None):
-                    import base64
+        outputs = resp.get("outputs") or resp.get("predictions") or []
+        if outputs and isinstance(outputs, list):
+            out0 = outputs[0] or {}
+            # Прямые поля
+            if isinstance(out0, dict):
+                uri = out0.get("fileUri") or out0.get("videoUri") or uri
+                b64 = out0.get("bytesBase64Encoded") or out0.get("videoBytesBase64")
+                if b64 and not file_bytes:
                     try:
-                        file_bytes = base64.b64decode(idata.data)
+                        file_bytes = base64.b64decode(b64)
                     except Exception:
                         pass
-
-        if not uri and hasattr(resp, "media"):
-            media = getattr(resp, "media", None)
-            if isinstance(media, dict) and "fileUri" in media:
-                uri = media["fileUri"]
-    except Exception as e:
-        log.debug("parse SDK response error: %s", e)
-
-    return uri, file_bytes
-
-
-def _extract_video_from_rest_payload(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[bytes]]:
-    """Пытается вытащить URI или байты из REST-ответа Gemini/Veo."""
-    uri = None
-    file_bytes = None
-
-    try:
-        candidates = (payload.get("candidates") or [])
-        for cand in candidates:
-            content = cand.get("content") or {}
-            parts = content.get("parts") or []
-            for p in parts:
-                if "fileData" in p and isinstance(p["fileData"], dict):
-                    uri = p["fileData"].get("fileUri") or uri
-                if "inlineData" in p and isinstance(p["inlineData"], dict):
-                    data_b64 = p["inlineData"].get("data")
-                    if data_b64:
-                        import base64
+                # Вложенный объект video
+                v = out0.get("video")
+                if isinstance(v, dict):
+                    uri = v.get("fileUri") or uri
+                    b64 = v.get("bytesBase64Encoded") or v.get("data")
+                    if b64 and not file_bytes:
                         try:
-                            file_bytes = base64.b64decode(data_b64)
+                            file_bytes = base64.b64decode(b64)
                         except Exception:
                             pass
-
-        if not uri:
-            maybe_uri = payload.get("fileUri") or payload.get("media", {}).get("fileUri")
-            if maybe_uri:
-                uri = maybe_uri
     except Exception as e:
-        log.debug("parse REST payload error: %s", e)
+        log.debug("parse LRO response error: %s", e)
 
     return uri, file_bytes
+
+
+def _post_with_retries(sess, url, json_body, *,
+                       timeout=60,
+                       max_retries:int=int(os.getenv("VEO_RETRIES", "6")),
+                       base_sleep:float=float(os.getenv("VEO_BACKOFF_BASE", "4")),
+                       multiplier:float=float(os.getenv("VEO_BACKOFF_MULT", "1.8")),
+                       max_sleep:float=float(os.getenv("VEO_BACKOFF_MAX", "45"))):
+    """
+    Делает POST с экспоненциальным бэк-оффом при 429/RESOURCE_EXHAUSTED/503.
+    """
+    import time as _t, random
+    last = None
+    for attempt in range(max_retries):
+        r = sess.post(url, json=json_body, timeout=timeout)
+        last = r
+        need_retry = False
+        if r.status_code in (429, 503):
+            need_retry = True
+        else:
+            try:
+                j = r.json()
+                err = (j.get("error") or {})
+                if err.get("status") in ("RESOURCE_EXHAUSTED",) or "quota" in (err.get("message","").lower()):
+                    need_retry = True
+            except Exception:
+                pass
+        if not need_retry:
+            return r
+        sleep_s = min(base_sleep * (multiplier ** attempt), max_sleep)
+        sleep_s += random.uniform(0, 0.5)
+        try:
+            log.warning("Quota/429 (attempt %d/%d). Сплю %.1fs и повторяю…", attempt+1, max_retries, sleep_s)
+        except Exception:
+            pass
+        _t.sleep(sleep_s)
+    return last
