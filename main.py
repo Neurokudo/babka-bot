@@ -1,14 +1,36 @@
-# main.py – полный: меню, помощник, NEUROKUDO/репортаж, мемы, стили, ориентация, JSON, саппорт
+# main.py – финальный
+# Включает:
+#  - доступ только для владельца (ID 5015100177)
+#  - нижнюю Reply-клавиатуру с кнопкой «🆘 Возникли проблемы»
+#  - отправку репортов на почту antonkudo.ai@gmail.com через SMTP
+#  - весь функционал: помощник, NEUROKUDO (одна сцена/репортаж из 2 сцен),
+#    мемный режим, стили, ориентация (9:16/16:9), богатый JSON-промт,
+#    ручное редактирование JSON, показ JSON, пост-кнопки, континуити
+#
+# .env значения для почты:
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your_gmail@gmail.com
+# SMTP_PASS=app_password   # пароль приложения Google
+# FROM_EMAIL=your_gmail@gmail.com
+# BOT_TOKEN=xxxxxxxxxxxxxx
+# OPENAI_API_KEY=sk-...
+
 import os
 import json
 import random
 import asyncio
 import logging
+import smtplib
+from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update, InlineKeyboardButton, InlineKeyboardMarkup,
+    ReplyKeyboardMarkup, KeyboardButton
+)
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 )
@@ -20,7 +42,29 @@ log = logging.getLogger("babka-bot")
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")  # опционально: куда слать жалобы
+
+# SMTP для отправки репортов
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+FROM_EMAIL = os.getenv("FROM_EMAIL") or SMTP_USER
+SUPPORT_TO_EMAIL = "antonkudo.ai@gmail.com"
+
+# (опционально) дублирование репортов в TG-чат(ы): ADMIN_CHAT_ID=-100111,-100222
+ADMIN_CHAT_RAW = os.getenv("ADMIN_CHAT_ID", "").strip()
+ADMIN_CHAT_IDS = []
+if ADMIN_CHAT_RAW:
+    for piece in ADMIN_CHAT_RAW.split(","):
+        piece = piece.strip()
+        if piece:
+            try:
+                ADMIN_CHAT_IDS.append(int(piece))
+            except:
+                pass
+
+# ДОСТУП ТОЛЬКО ДЛЯ ВЛАДЕЛЬЦА (до релиза)
+ALLOWED_USERS = [5015100177]
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 if "gemini" in (OPENAI_MODEL or "").lower():
@@ -42,12 +86,15 @@ if OPENAI_API_KEY:
 def _sanitize(text: str) -> str:
     if not text:
         return text
-    text = text.replace('"', '').replace("'", '').replace('-', '').replace('_', ' ')
+    # Удаляем длинные тире и кавычки
+    for ch in ['—', '–', '«', '»', '"', "'", '“', '”', '„', '‟']:
+        text = text.replace(ch, '')
+    text = text.replace('-', '').replace('_', ' ')
     while "  " in text:
         text = text.replace("  ", " ")
     return text.strip()
 
-def _gpt(system: str, user: str, temperature=0.7, max_tokens=220) -> Optional[str]:
+def _gpt(system: str, user: str, temperature=0.65, max_tokens=220) -> Optional[str]:
     if not gpt:
         return None
     try:
@@ -62,134 +109,199 @@ def _gpt(system: str, user: str, temperature=0.7, max_tokens=220) -> Optional[st
         log.error("GPT error: %s", e)
         return None
 
+# ========= EMAIL / ADMIN NOTIFY =========
+def _send_support_email(subject: str, body: str) -> bool:
+    if not (SMTP_HOST and SMTP_USER and SMTP_PASS and FROM_EMAIL):
+        log.warning("SMTP not configured; skipping email send")
+        return False
+    try:
+        msg = MIMEText(body, _charset="utf-8")
+        msg["Subject"] = subject
+        msg["From"] = FROM_EMAIL
+        msg["To"] = SUPPORT_TO_EMAIL
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(FROM_EMAIL, [SUPPORT_TO_EMAIL], msg.as_string())
+        return True
+    except Exception as e:
+        log.error("SMTP send failed: %s", e)
+        return False
+
+async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str):
+    for cid in ADMIN_CHAT_IDS:
+        try:
+            await context.bot.send_message(chat_id=cid, text=text)
+        except Exception as e:
+            logging.error("Failed to send report to %s: %s", cid, e)
+
 # ========= ПРЕСЕТЫ СТИЛЕЙ (вливаются в JSON) =========
-STYLE_HINTS: Dict[str, str] = {
-    "Pixar": ("bright saturated palette, soft global illumination, clean surfaces, "
-              "gentle vignetting, subtle filmic halation, shallow depth of field, "
-              "expressive but realistic motion; friendly whimsical mood"),
-    "Киберпанк": ("neon accents, rainy night, high contrast, wet reflective surfaces, "
-                  "holographic signs, low key lighting, handheld micro-shake, grain; edgy mood"),
-    "Кино": ("cinematic color grading (teal & orange bias), anamorphic bokeh, "
-             "soft key + strong rim light, slow dolly or tripod, naturalistic performances"),
-    "Документальный": ("handheld camera, neutral color, available light, practical lamps, "
-                       "diegetic ambience, minimal post-processing; grounded realistic mood"),
-    "Арт/Ретро/ЧБ": ("monochrome or retro film stock, pronounced grain, contrast roll-off, "
-                     "static composition, slow tempo; contemplative mood"),
-    "ASMR": ("very quiet ambience, close perspective, soft textures, gentle motions, "
-             "intimate space; calming mood"),
-    "Бренд": ("clean minimal composition, product-first framing, soft studio light, "
-              "crisp edges, gentle camera reveal; premium mood"),
+STYLE_HINTS: Dict[str, Dict[str, str]] = {
+    "Pixar": {
+        "lighting": "soft global illumination, bright saturated palette, gentle bloom/halation",
+        "mood": "whimsical, friendly, optimistic",
+        "camera": "clean digital, shallow depth of field, smooth tripod or slow dolly"
+    },
+    "Киберпанк": {
+        "lighting": "neon accents, high contrast, rainy wet surfaces, rim lights",
+        "mood": "edgy, urban, tense",
+        "camera": "handheld, slight micro-shake, gritty grain"
+    },
+    "Кино": {
+        "lighting": "cinematic key+fill, soft bounce, natural shadows",
+        "mood": "grounded, storytelling",
+        "camera": "slow dolly or static tripod, anamorphic-like bokeh"
+    },
+    "Документальный": {
+        "lighting": "available light, practical lamps, neutral color",
+        "mood": "realistic, grounded",
+        "camera": "handheld, slight sway"
+    },
+    "Арт/Ретро/ЧБ": {
+        "lighting": "monochrome/retro film stock feel, pronounced grain, contrast roll-off",
+        "mood": "contemplative, nostalgic",
+        "camera": "static compositions"
+    },
+    "ASMR": {
+        "lighting": "soft low-contrast light, tactile textures",
+        "mood": "calm, intimate",
+        "camera": "close perspective, very stable"
+    },
+    "Бренд": {
+        "lighting": "clean studio, softboxes, crisp edges",
+        "mood": "premium, minimal",
+        "camera": "product-first framing, gentle reveal"
+    },
 }
+
+def _style_block(style: Optional[str]) -> Dict[str, str]:
+    if not style:
+        return {}
+    return STYLE_HINTS.get(style, {})
 
 # ========= СЦЕНАРНЫЕ ХЕЛПЕРЫ =========
 def improve_scene(user_text: str, mode: str = "normal") -> str:
     style = {
         "normal": "Сделай рабочую сцену.",
-        "complex": "Добавь больше деталей, сделай сцену насыщеннее и сложнее визуально.",
-        "simple": "Сделай сцену проще, убери лишние детали, оставь только главное.",
+        "complex": "Добавь деталей, сделай сцену насыщеннее и визуально сложнее.",
+        "simple": "Упрости сцену, оставь только главное.",
         "absurd": "Сделай сцену более абсурдной и смешной."
     }.get(mode, "Сделай рабочую сцену.")
     sys = (
         "Ты редактор коротких видеосцен. Формулируй именно СЦЕНУ: кто где что делает. "
-        "Длительность ~8 секунд, максимум две смены плана. Только действие и визуальные детали, "
-        "без поэтики/оценок. Запрещены текст/субтитры в кадре. Не используй кавычки и тире. "
-        f"{style} Напиши 1–2 коротких предложения."
+        "Длительность ~8 секунд, максимум две смены плана. Без поэзии и оценок. "
+        "Субтитры и текст в кадре запрещены. Не используй кавычки и тире."
+        f" {style} Напиши 1–2 коротких предложения."
     )
     temp = {"normal": 0.65, "complex": 0.85, "simple": 0.55, "absurd": 0.9}[mode]
     return _gpt(sys, user_text, temperature=temp, max_tokens=140) or _sanitize(user_text)
 
 def suggest_replica(scene: str) -> Optional[str]:
     sys = ("Придумай короткую реплику героя к сцене, 4–10 слов. Только сама фраза. "
-           "ЗАПРЕЩЕНЫ кавычки, тире, двоеточия, точка с запятой.")
+           "Запрещены кавычки/тире/двоеточия/точка с запятой.")
     return _gpt(sys, scene, temperature=0.9, max_tokens=35)
 
 # ========= NEUROKUDO =========
 def generate_nkudo_single_scene() -> str:
     sys = (
-        "NEUROKUDO: обычный российский быт + необычный, но РЕАЛЬНЫЙ объект (без фантастики). "
-        "Сцена 8 сек, бытовое действие. Примеры: бабушка кормит страуса на балконе; "
-        "дед выгуливает альпаку; бабушка моет слонёнка; дед учит ара читать газету. "
-        "Никаких кавычек и тире. 1–2 предложения."
+        "NEUROKUDO: российский быт + необычный, но РЕАЛЬНЫЙ объект. "
+        "Без фантастики. Сцена 8 сек, бытовое действие. 1–2 предложения. "
+        "Никаких кавычек и тире."
     )
     return _gpt(sys, "Сгенерируй сцену", temperature=0.75, max_tokens=100) or \
            "Бабушка расчесывает ламу на кухне пятиэтажки"
 
-def generate_nkudo_reportage() -> tuple[str, str, str]:
-    sys1 = (
-        "Репортаж. Сцена 1 (8 сек): русскоязычная журналистка (женщина, 25–40) в деревне, "
+def generate_nkudo_reportage_scene1() -> str:
+    sys = (
+        "Репортаж. Сцена 1 (8 сек): русскоязычная журналистка (женщина, 25–40) в деревенском дворе, "
         "говорит короткую фразу в КАМЕРУ по-русски. На заднем плане бабушка с необычным, "
-        "но РЕАЛЬНЫМ животным/объектом. Без фантастики. 1–2 предложения. Без кавычек и тире."
+        "но РЕАЛЬНЫМ животным/предметом. Без фантастики. 1–2 предложения. Без кавычек и тире."
     )
-    scene1 = _gpt(sys1, "Создай сцену 1", temperature=0.7, max_tokens=100)
+    return _gpt(sys, "Создай сцену 1", temperature=0.7, max_tokens=100) or \
+           "Журналистка в деревенском дворе говорит в камеру. На фоне бабушка расчёсывает енота"
 
-    sys2 = (
-        "Сцена 2 (8 сек): крупный план той же бабушки. Она отвечает по-русски и в конце говорит "
-        "короткую финальную фразу-бомбу (3–6 слов, без кавычек/тире/двоеточий). "
-        "ВИЗУАЛЬНАЯ КОНТИНУИТИ: те же персонажи, одежда, двор, предметы, животное — повторить, "
-        "чтобы зрительно совпадало со сценой 1."
+def generate_nkudo_reportage_scene2(context_scene1: str) -> tuple[str, str]:
+    sys = (
+        "Репортаж. Сцена 2 (8 сек): крупный план ТОЙ ЖЕ бабушки. Она отвечает по-русски и в конце "
+        "говорит короткую финальную фразу-бомбу (3–6 слов). "
+        "ВИЗУАЛЬНАЯ КОНТИНУИТИ: те же люди, одежда, двор, предметы/животное — повторить."
     )
-    scene2 = _gpt(sys2, f"Контекст: {scene1}", temperature=0.75, max_tokens=120)
-    replica = "Вот и весь сказ"
-    return (scene1 or "", scene2 or "", replica)
+    s2 = _gpt(sys, f"Контекст (сцена 1): {context_scene1}", temperature=0.75, max_tokens=120) or \
+         "Бабушка в том же дворе, рядом енот; отвечает уверенно и говорит: Вот и весь сказ"
+    short = "Вот и весь сказ"
+    return s2, short
+
+def generate_nkudo_reportage() -> tuple[str, str, str]:
+    s1 = generate_nkudo_reportage_scene1()
+    s2, rep = generate_nkudo_reportage_scene2(s1)
+    return s1, s2, rep
 
 # ========= VEO CLIENT =========
 from veo_client import generate_video_sync
 
-# ========= СЕКРЕТНЫЙ JSON-КОНВЕРТЕР (+показ JSON) =========
-def style_hint(style: Optional[str]) -> str:
-    if not style: return ""
-    return STYLE_HINTS.get(style, "")
+# ========= БОГАТЫЙ JSON-КОНВЕРТЕР =========
+def _rich_json_template(scene: str, style: Optional[str], replica: Optional[str],
+                        mode: Optional[str], aspect_ratio: str, context: Optional[str]) -> str:
+    style_bl = _style_block(style)
+    style_text = (
+        f'lighting_hint: "{style_bl.get("lighting", "")}", '
+        f'mood_hint: "{style_bl.get("mood", "")}", '
+        f'camera_hint: "{style_bl.get("camera", "")}"'
+    )
 
-def to_json_prompt(scene: str, style: Optional[str], replica: Optional[str],
-                   mode: Optional[str], context: Optional[str] = None) -> str:
-    """
-    Если scene уже JSON -> возвращаем как есть.
-    Иначе: превращаем в структурный JSON для Veo с учётом стиля и (для репортажа) контекста.
-    """
-    try:
-        json.loads(scene)
-        return scene
-    except Exception:
-        pass
+    rep_rules = ""
+    if mode == "reportage":
+        rep_rules = (
+            "Reporter must be Russian-speaking female, speak Russian. "
+            "No English lines. "
+            "Scene 1: reporter speaks to camera; grandmother and object/animal visible behind. "
+            "Scene 2: CLOSE on the SAME grandmother in the SAME yard/clothes/object — ensure strict visual continuity. "
+            "If context is provided, repeat characters/props/background from it."
+        )
 
-    if not gpt:
-        return scene
-
-    style_txt = style_hint(style)
     base_rules = (
-        "Верни ТОЛЬКО валидный JSON без комментариев.\n"
-        "Структура:\n"
-        "{\n"
-        '  "shot": {"composition": "...", "camera_motion": "...", "lens": "35mm", "frame_rate": "24fps", "film_grain": "subtle"},\n'
-        '  "environment": {"location": "...", "time_of_day": "...", "weather": "..."},\n'
-        '  "characters": [{"name": "...", "position": "...", "appearance": "...", "action": "..."}],\n'
-        '  "dialogue": [{"character": "...", "voice": "...", "line": "..."}],\n'
-        '  "lighting": "...", "ambient": "...", "mood": "...", "constraints": "no on-screen text or subtitles"\n'
-        "}\n"
-        "Не добавляй субтитры/текст в кадре."
+        "Return VALID JSON only (no comments). "
+        "Prohibit any on-screen text/subtitles/logos/watermarks. "
+        "Duration strictly 8 seconds."
     )
+
     sys = (
-        "Ты промт-инженер Veo 3.0. Преврати описание сцены в JSON для видеогенерации. "
-        + base_rules
+        "You are a prompt engineer for Google Veo 3.0. "
+        f"{base_rules} {rep_rules} "
+        "Use this schema (keys in English; values can be Russian where natural):\n"
+        "{\n"
+        '  "model": "veo-3.0-fast",\n'
+        '  "duration": 8,\n'
+        '  "aspect_ratio": "9:16|16:9",\n'
+        '  "shot": {"composition": "...", "camera_motion": "...", "lens": "35mm", "frame_rate": "24fps", "film_grain": "subtle"},\n'
+        '  "subject": {"description": "...", "voice_sync": false},\n'
+        '  "scene": {"location": "...", "time_of_day": "..."},\n'
+        '  "action": "what happens in 8s concisely",\n'
+        '  "voiceover": {"voice": "...", "line": "..."},\n'
+        '  "characters": [{"name":"...", "position":"...", "appearance":"...", "action":"..."}],\n'
+        '  "ambient": "fx list",\n'
+        '  "lighting": "derived from style + scene",\n'
+        '  "mood": "derived from style",\n'
+        '  "restrictions": "No text or logos."\n'
+        "}\n"
+        "Respect style hints if given."
     )
-    if mode == "nkudo":
-        sys += " Стиль сцены: бытовуха + необычный реальный объект, реализм, лёгкий юмор."
-    elif mode == "meme":
-        sys += " Сделай гротескно и смешно, но реалистично снимаемо."
-    elif mode == "reportage":
-        sys += (" Формат: новостной репортаж, русский язык. "
-                "Сцена 1: журналистка говорит. Сцена 2: бабушка отвечает. "
-                "Для сцены 2 обязательно соблюдай ВИЗУАЛЬНУЮ КОНТИНУИТИ — повтори тех же людей, "
-                "одежду, предметы, животное, фон.")
-    else:
-        sys += " Сделай съёмочную сцену с реалистичными действиями."
 
-    if style_txt:
-        sys += f" Впитай требования стиля: {style_txt}"
-
-    usr = f"Сцена: {scene}\nСтиль: {style or ''}\nРеплика: {replica or ''}"
+    usr = (
+        f"scene_text: {scene}\n"
+        f"style: {style or 'Без стиля'} ({style_text})\n"
+        f"replica: {replica or ''}\n"
+        f"aspect_ratio: {aspect_ratio}\n"
+    )
     if context:
-        usr += f"\nКонтекст/сцена_1 (для континуити): {context}"
+        usr += f"context_for_continuity: {context}\n"
+
+    if mode == "reportage" and not context:
+        usr += (
+            "\nGUIDE: опиши так — Репортерша стоит в деревенском дворе, "
+            "на заднем плане бабушка с [объект/животное]; репортерша говорит короткую фразу по-русски."
+        )
 
     try:
         r = gpt.chat.completions.create(
@@ -197,12 +309,37 @@ def to_json_prompt(scene: str, style: Optional[str], replica: Optional[str],
             messages=[{"role": "system", "content": sys},
                       {"role": "user", "content": usr}],
             temperature=0.55,
-            max_tokens=1200,
+            max_tokens=1300,
         )
         return (r.choices[0].message.content or "").strip()
     except Exception as e:
         log.error("GPT JSON convert error: %s", e)
+        return json.dumps({
+            "model": "veo-3.0-fast",
+            "duration": 8,
+            "aspect_ratio": aspect_ratio,
+            "shot": {"composition": "medium shot", "camera_motion": "static", "lens": "35mm", "frame_rate": "24fps", "film_grain": "subtle"},
+            "subject": {"description": _sanitize(scene), "voice_sync": False},
+            "scene": {"location": "rural yard", "time_of_day": "day"},
+            "action": "simple 8 second action",
+            "voiceover": {"voice": "female", "line": _sanitize(replica or "")},
+            "characters": [],
+            "ambient": "light wind, birds",
+            "lighting": style_bl.get("lighting", "natural daylight"),
+            "mood": style_bl.get("mood", "grounded"),
+            "restrictions": "No text or logos"
+        }, ensure_ascii=False)
+
+def to_json_prompt(scene: str, style: Optional[str], replica: Optional[str],
+                   mode: Optional[str], aspect_ratio: str, context: Optional[str] = None) -> str:
+    try:
+        json.loads(scene)
         return scene
+    except Exception:
+        pass
+    if not gpt:
+        return scene
+    return _rich_json_template(scene, style, replica, mode, aspect_ratio, context)
 
 # ========= СОСТОЯНИЕ =========
 State = Dict[str, Any]
@@ -220,6 +357,8 @@ def _ensure(uid: int):
             "awaiting_custom_style": False,
             "awaiting_scene_edit": False,
             "awaiting_support": False,
+            "awaiting_json_edit": False,
+            "editing_json_index": 0,   # 0=single, 1=rep scene1, 2=rep scene2
             "editing_scene": None,
             "scene_backup": None,
             "orientation": DEFAULT_ORIENTATION,
@@ -232,6 +371,12 @@ def _ensure(uid: int):
         }
 
 # ========= КЛАВИАТУРЫ =========
+def reply_main_kb():
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton("🆘 Возникли проблемы")]],
+        resize_keyboard=True, one_time_keyboard=False
+    )
+
 def kb_home():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎬 Создание видео с помощником", callback_data="menu_make")],
@@ -279,6 +424,8 @@ def kb_nkudo_single():
 
 def kb_nkudo_reportage_edit():
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎲 Крутить сцену 1", callback_data="nkudo_reroll_scene1")],
+        [InlineKeyboardButton("🎲 Крутить сцену 2", callback_data="nkudo_reroll_scene2")],
         [InlineKeyboardButton("✏️ Изменить сцену 1", callback_data="nkudo_edit_scene1")],
         [InlineKeyboardButton("✏️ Изменить сцену 2", callback_data="nkudo_edit_scene2")],
         [InlineKeyboardButton("💬 Другая реплика", callback_data="nkudo_new_replica")],
@@ -358,6 +505,17 @@ def kb_after_video():
         [InlineKeyboardButton("🏠 В меню", callback_data="back_home")],
     ])
 
+def kb_edit_json(which: str):
+    rows = []
+    if which == "single":
+        rows.append([InlineKeyboardButton("✏️ Изменить JSON", callback_data="edit_json_single")])
+    elif which == "rep1":
+        rows.append([InlineKeyboardButton("✏️ Изменить JSON сцены 1", callback_data="edit_json1")])
+    elif which == "rep2":
+        rows.append([InlineKeyboardButton("✏️ Изменить JSON сцены 2", callback_data="edit_json2")])
+    rows.append([InlineKeyboardButton("✅ Использовать как есть", callback_data="show_final")])
+    return InlineKeyboardMarkup(rows)
+
 # ========= МЕМНЫЙ РЕЖИМ =========
 def random_meme_scene() -> str:
     subjects = ["Бабка", "Дед", "Тётка с авоськой", "Дворник", "Курьер", "Официант",
@@ -386,34 +544,70 @@ def random_meme_scene() -> str:
     if "{items}" in t:return _sanitize(t.format(s=s, items=random.choice(items_plural), loc=loc))
     return _sanitize(t.format(s=s, prop=random.choice(props), loc=loc))
 
+# ========= ДОСТУП =========
+async def check_access(update: Update) -> bool:
+    uid = update.effective_user.id
+    if uid not in ALLOWED_USERS:
+        try:
+            if update.message:
+                await update.message.reply_text("🚧 Бот пока закрыт для теста. Доступ только у владельца.")
+            elif update.callback_query:
+                await update.callback_query.message.reply_text("🚧 Бот пока закрыт для теста. Доступ только у владельца.")
+        except:
+            pass
+        return False
+    return True
+
 # ========= ХЭНДЛЕРЫ =========
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id; _ensure(uid)
+    if not await check_access(update): return
+    uid = update.effective_user.id
+    _ensure(uid)
     users[uid].update({
         "mode": None, "source_text": None, "scene": None, "style": None, "replica": None,
         "awaiting_scene": False, "awaiting_custom_style": False, "awaiting_scene_edit": False,
-        "awaiting_support": False,
+        "awaiting_support": False, "awaiting_json_edit": False, "editing_json_index": 0
     })
     await update.message.reply_text("Привет! Выбирай режим 👇", reply_markup=kb_home())
+    # Включаем нижнюю клавиатуру
+    await update.message.reply_text("Нижняя кнопка для связи включена.", reply_markup=reply_main_kb())
+
+async def cmd_whereami(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_access(update): return
+    chat = update.effective_chat
+    await update.message.reply_text(
+        f"chat_id: {chat.id}\n"
+        f"type: {chat.type}\n"
+        f"title: {getattr(chat, 'title', '')}"
+    )
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id; _ensure(uid)
+    if not await check_access(update): return
+    uid = update.effective_user.id
+    _ensure(uid)
     st = users[uid]
     text = _sanitize((update.message.text or "").strip())
 
-    # Support
-    if st.get("awaiting_support"):
-        st["awaiting_support"] = False
-        await update.message.reply_text("✅ Спасибо! Сообщение принято. Мы свяжемся при необходимости.", reply_markup=kb_home())
-        if ADMIN_CHAT_ID:
-            try:
-                await context.bot.send_message(chat_id=int(ADMIN_CHAT_ID),
-                                               text=f"🆘 Репорт от {uid}:\n\n{text}")
-            except Exception as e:
-                log.error("Failed to forward support message: %s", e)
+    # Нижняя кнопка «Возникли проблемы»
+    if text == "🆘 Возникли проблемы":
+        st["awaiting_support"] = True
+        await update.message.reply_text("Опиши проблему одним сообщением — я перешлю её разработчику на почту.")
         return
 
-    # Репортаж – редактирование
+    # Приём репорта
+    if st.get("awaiting_support"):
+        st["awaiting_support"] = False
+        body = f"Репорт от @{update.effective_user.username or uid} (ID {uid}):\n\n{text}"
+        ok = _send_support_email("🆘 Репорт из Babka Bot", body)
+        if ADMIN_CHAT_IDS:
+            await notify_admins(context, f"🆘 Репорт от {uid}:\n\n{text}")
+        if ok:
+            await update.message.reply_text("✅ Репорт отправлен на почту разработчика.", reply_markup=reply_main_kb())
+        else:
+            await update.message.reply_text("⚠️ Не удалось отправить на почту. Проверь SMTP-настройки.", reply_markup=reply_main_kb())
+        return
+
+    # Репортаж – редактирование текста сцены
     if st.get("awaiting_scene_edit"):
         editing = st.get("editing_scene")
         if editing == 1: st["nkudo_scene1"] = text; await update.message.reply_text("✅ Сцена 1 обновлена!")
@@ -441,9 +635,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         st["scene"] = text
         await update.message.reply_text(f"📝 Промт принят:\n\n{text}", reply_markup=kb_variants()); return
 
+    # По умолчанию
     await update.message.reply_text("Главное меню:", reply_markup=kb_home())
+    await update.message.reply_text("Готов к новым задачам.", reply_markup=reply_main_kb())
 
 async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_access(update): return
     q = update.callback_query; await q.answer()
     uid = q.from_user.id; _ensure(uid); st = users[uid]; data = q.data
     log.info("Button: %s", data)
@@ -452,16 +649,21 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_make":
         await q.message.edit_text("Выберите режим генерации:", reply_markup=kb_modes()); return
     if data == "menu_alive":
-        await q.message.edit_text("🖼️ Оживление изображения: пришлите фото и короткий промт (в разработке)."); return
+        await q.message.edit_text("🖼️ Оживление изображения (в разработке)."); return
     if data == "menu_guides":
         await q.message.edit_text("📚 Гайды и оплата – скоро тут ❤️"); return
     if data == "menu_profile":
         await q.message.edit_text("👤 Профиль/Баланс – скоро доступно."); return
     if data == "menu_support":
         st["awaiting_support"] = True
-        await q.message.edit_text("🆘 Опишите проблему текстом — отправлю админу. Чтобы отменить: /start"); return
+        await q.message.edit_text("🆘 Опишите проблему одним сообщением — отправлю на почту. Чтобы отменить: /start"); return
     if data == "back_home":
-        await q.message.edit_text("Главное меню:", reply_markup=kb_home()); return
+        await q.message.edit_text("Главное меню:", reply_markup=kb_home())
+        try:
+            await q.message.reply_text("Готов к новым задачам.", reply_markup=reply_main_kb())
+        except:
+            pass
+        return
 
     # Режимы
     if data == "mode_helper":
@@ -497,10 +699,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text(explanation, reply_markup=kb_nkudo_menu()); return
     if data == "back_modes":
         await q.message.edit_text("Выберите режим генерации:", reply_markup=kb_modes()); return
-
-    # NEUROKUDO — одиночная
     if data == "nkudo_menu_back":
         await q.message.edit_text("Выберите тип сюжета:", reply_markup=kb_nkudo_menu()); return
+
+    # NEUROKUDO — одиночная
     if data == "nkudo_single":
         await q.message.edit_text("⏳ Генерирую сцену...")
         st["scene"] = generate_nkudo_single_scene(); st["nkudo_type"] = "single"
@@ -520,19 +722,34 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # NEUROKUDO — репортаж
     if data == "nkudo_reportage":
         await q.message.edit_text("⏳ Генерирую репортаж из деревни...")
-        s1, s2, rep = generate_nkudo_reportage()
-        st["nkudo_scene1"] = s1; st["nkudo_scene2"] = s2 if "говорит:" in s2 else f"{s2} и говорит: {rep}"
-        st["replica"] = rep; st["scene"] = f"{s1}\n\n{st['nkudo_scene2']}"; st["nkudo_type"] = "reportage"
+        s1 = generate_nkudo_reportage_scene1()
+        s2, rep = generate_nkudo_reportage_scene2(s1)
+        st["nkudo_scene1"] = s1; st["nkudo_scene2"] = s2; st["replica"] = rep
+        st["scene"] = f"{s1}\n\n{s2}"; st["nkudo_type"] = "reportage"
         txt = ("🔮 Сгенерирован репортаж\n\n"
-               f"📺 Сцена 1: {s1}\n\n🎤 Сцена 2: {st['nkudo_scene2']}\n\nОбщая длительность ~16 сек")
+               f"📺 Сцена 1: {s1}\n\n"
+               f"🎤 Сцена 2: {s2}\n\n"
+               f"💬 Реплика: {rep}\n\n"
+               "Общая длительность ~16 сек")
         await q.message.edit_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
+
+    if data == "nkudo_reroll_scene1":
+        st["nkudo_scene1"] = generate_nkudo_reportage_scene1()
+        await q.message.edit_text(f"🔄 Новая сцена 1:\n\n{st['nkudo_scene1']}", reply_markup=kb_nkudo_reportage_edit()); return
+    if data == "nkudo_reroll_scene2":
+        s2, rep = generate_nkudo_reportage_scene2(st.get("nkudo_scene1",""))
+        st["nkudo_scene2"] = s2; st["replica"] = rep
+        await q.message.edit_text(f"🔄 Новая сцена 2:\n\n{st['nkudo_scene2']}\n\n💬 Реплика: {rep}",
+                                  reply_markup=kb_nkudo_reportage_edit()); return
 
     if data == "nkudo_edit_scene1":
         st["editing_scene"] = 1; st["awaiting_scene_edit"] = True
-        await q.message.reply_text(f"✏️ Редактирование сцены 1:\n\n{st.get('nkudo_scene1','')}\n\nОтправьте новый текст:", reply_markup=kb_scene_edit()); return
+        await q.message.reply_text(f"✏️ Редактирование сцены 1:\n\n{st.get('nkudo_scene1','')}\n\nОтправьте новый текст:",
+                                   reply_markup=kb_scene_edit()); return
     if data == "nkudo_edit_scene2":
         st["editing_scene"] = 2; st["awaiting_scene_edit"] = True
-        await q.message.reply_text(f"✏️ Редактирование сцены 2:\n\n{st.get('nkudo_scene2','')}\n\nОтправьте новый текст:", reply_markup=kb_scene_edit()); return
+        await q.message.reply_text(f"✏️ Редактирование сцены 2:\n\n{st.get('nkudo_scene2','')}\n\nОтправьте новый текст:",
+                                   reply_markup=kb_scene_edit()); return
     if data == "scene_save":
         st["awaiting_scene_edit"] = False
         await q.message.edit_text("✅ Изменения сохранены!")
@@ -551,21 +768,17 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
 
     if data == "nkudo_new_replica":
-        sys = ("Короткая финальная фраза бабушки для репортажа (3–6 слов, по-русски). Без кавычек/тире/двоеточий.")
+        sys = ("Короткая финальная фраза бабушки (3–6 слов, по-русски). Без кавычек/тире/двоеточий.")
         st["replica"] = _gpt(sys, f"Контекст: {st.get('nkudo_scene2','')}", temperature=0.8, max_tokens=25) or "Поехали уже"
-        base2 = st.get("nkudo_scene2","")
-        if " говорит:" in base2: base2 = base2.split(" говорит:")[0]
-        st["nkudo_scene2"] = f"{base2} говорит: {st['replica']}"
-        st["scene"] = f"{st.get('nkudo_scene1','')}\n\n{st['nkudo_scene2']}"
-        txt = f"💬 Новая реплика: {st['replica']}\n\n🎤 Сцена 2: {st['nkudo_scene2']}"
-        await q.message.edit_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
+        await q.message.edit_text(f"💬 Новая реплика: {st['replica']}", reply_markup=kb_nkudo_reportage_edit()); return
 
     if data == "nkudo_regenerate_report":
         await q.message.edit_text("🔄 Генерирую новый репортаж...")
-        s1, s2, rep = generate_nkudo_reportage()
-        st["nkudo_scene1"] = s1; st["nkudo_scene2"] = s2 if "говорит:" in s2 else f"{s2} говорит: {rep}"
-        st["replica"] = rep; st["scene"] = f"{s1}\n\n{st['nkudo_scene2']}"
-        txt = f"🔮 Новый репортаж\n\n📺 Сцена 1: {s1}\n\n🎤 Сцена 2: {st['nkudo_scene2']}"
+        s1 = generate_nkudo_reportage_scene1()
+        s2, rep = generate_nkudo_reportage_scene2(s1)
+        st["nkudo_scene1"] = s1; st["nkudo_scene2"] = s2; st["replica"] = rep
+        st["scene"] = f"{s1}\n\n{s2}"
+        txt = f"🔮 Новый репортаж\n\n📺 Сцена 1: {s1}\n\n🎤 Сцена 2: {s2}\n\n💬 Реплика: {rep}"
         await q.message.edit_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
 
     if data == "nkudo_improve_report":
@@ -656,20 +869,35 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text("Готово! Можно генерировать другую реплику или смотреть промпт.", reply_markup=kb_after_replica())
         return
 
-    # Показ JSON
+    # Показ JSON + редактирование
     if data == "show_json":
         if st.get("nkudo_type") == "reportage":
-            j1 = to_json_prompt(st.get("nkudo_scene1",""), st.get("style"), None, "reportage")
+            j1 = to_json_prompt(st.get("nkudo_scene1",""), st.get("style"), None, "reportage",
+                                aspect_ratio=st.get("orientation", DEFAULT_ORIENTATION), context=None)
             j2 = to_json_prompt(st.get("nkudo_scene2",""), st.get("style"), st.get("replica"), "reportage",
-                                context=st.get("nkudo_scene1"))
+                                aspect_ratio=st.get("orientation", DEFAULT_ORIENTATION), context=st.get("nkudo_scene1"))
             st["last_json1"], st["last_json2"] = j1, j2
-            await q.message.reply_text("🧾 JSON — Сцена 1:\n```\n" + j1 + "\n```", parse_mode="Markdown")
-            await q.message.reply_text("🧾 JSON — Сцена 2:\n```\n" + j2 + "\n```", parse_mode="Markdown")
+            await q.message.reply_text("🧾 JSON — Сцена 1:\n```\n" + j1 + "\n```", parse_mode="Markdown",
+                                       reply_markup=kb_edit_json("rep1"))
+            await q.message.reply_text("🧾 JSON — Сцена 2:\n```\n" + j2 + "\n```", parse_mode="Markdown",
+                                       reply_markup=kb_edit_json("rep2"))
         else:
-            jj = to_json_prompt(st.get("scene",""), st.get("style"), st.get("replica"), st.get("mode"))
+            jj = to_json_prompt(st.get("scene",""), st.get("style"), st.get("replica"), st.get("mode"),
+                                aspect_ratio=st.get("orientation", DEFAULT_ORIENTATION), context=None)
             st["last_json"] = jj
-            await q.message.reply_text("🧾 JSON-промт:\n```\n" + jj + "\n```", parse_mode="Markdown")
+            await q.message.reply_text("🧾 JSON-промт:\n```\n" + jj + "\n```", parse_mode="Markdown",
+                                       reply_markup=kb_edit_json("single"))
         return
+
+    if data == "edit_json_single":
+        st["awaiting_json_edit"] = True; st["editing_json_index"] = 0
+        await q.message.reply_text("✏️ Вставьте новый JSON (единственная сцена)."); return
+    if data == "edit_json1":
+        st["awaiting_json_edit"] = True; st["editing_json_index"] = 1
+        await q.message.reply_text("✏️ Вставьте новый JSON для Сцены 1."); return
+    if data == "edit_json2":
+        st["awaiting_json_edit"] = True; st["editing_json_index"] = 2
+        await q.message.reply_text("✏️ Вставьте новый JSON для Сцены 2."); return
 
     # Финальный промпт + ориентация
     if data == "show_final":
@@ -701,11 +929,17 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             # REPORTAGE — два видео
             if st.get("nkudo_type") == "reportage" or st.get("mode") == "reportage":
-                prompt1 = to_json_prompt(st.get("nkudo_scene1",""), st.get("style"), None, "reportage")
-                prompt2 = to_json_prompt(st.get("nkudo_scene2",""), st.get("style"), st.get("replica"), "reportage",
-                                         context=st.get("nkudo_scene1"))
+                prompt1 = st.get("last_json1") or to_json_prompt(
+                    st.get("nkudo_scene1",""), st.get("style"), None, "reportage",
+                    aspect_ratio=st["orientation"], context=None
+                )
+                prompt2 = st.get("last_json2") or to_json_prompt(
+                    st.get("nkudo_scene2",""), st.get("style"), st.get("replica"), "reportage",
+                    aspect_ratio=st["orientation"], context=st.get("nkudo_scene1")
+                )
                 st["last_json1"], st["last_json2"] = prompt1, prompt2
 
+                from veo_client import generate_video_sync
                 res1 = await asyncio.to_thread(generate_video_sync, prompt1, duration=8, aspect_ratio=st["orientation"])
                 vids1 = (res1 or {}).get("videos", [])
                 if vids1 and vids1[0].get("file_path") and os.path.exists(vids1[0]["file_path"]):
@@ -724,15 +958,23 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await q.message.reply_text("⚠️ Сцена 2: видео не вернулось.")
 
                 await q.message.reply_text("Готово! Что дальше?", reply_markup=kb_after_video())
+                await q.message.reply_text("Быстрый доступ к связи включён.", reply_markup=reply_main_kb())
                 return
 
             # Обычные режимы — одно видео
-            prompt = to_json_prompt(st["scene"], st.get("style"), st.get("replica"), st.get("mode"))
+            prompt = st.get("last_json") or to_json_prompt(
+                st["scene"], st.get("style"), st.get("replica"), st.get("mode"),
+                aspect_ratio=st["orientation"], context=None
+            )
             st["last_json"] = prompt
+
+            from veo_client import generate_video_sync
             res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"])
             videos = (res or {}).get("videos", [])
             if not videos:
-                await q.message.reply_text("⚠️ Видео не вернулось. Попробуйте ещё раз.", reply_markup=kb_home()); return
+                await q.message.reply_text("⚠️ Видео не вернулось. Попробуйте ещё раз.", reply_markup=kb_home())
+                await q.message.reply_text("Связь с разработчиком:", reply_markup=reply_main_kb())
+                return
 
             v0 = videos[0]; file_path = v0.get("file_path"); uri = v0.get("uri")
             caption = (f"✅ Видео готово!\n\n🎬 Сцена: {st['scene']}\n🎨 Стиль: {st['style']}" +
@@ -746,9 +988,12 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await q.message.reply_text("⚠️ Видео не вернулось. Попробуйте ещё раз.", reply_markup=kb_home())
 
+            await q.message.reply_text("Если что-то пошло не так — напиши:", reply_markup=reply_main_kb())
+
         except Exception as e:
             log.exception("Veo generation failed")
             await q.message.reply_text(f"⚠️ Ошибка генерации: {e}\n\nПопробуйте ещё раз.", reply_markup=kb_home())
+            await q.message.reply_text("Связаться со мной:", reply_markup=reply_main_kb())
         finally:
             try: await msg.delete()
             except: pass
@@ -756,7 +1001,6 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Пост-кнопки после видео
     if data == "edit_from_last":
-        # Возвращаемся к редактированию текущей сцены
         st["awaiting_scene"] = True
         await q.message.reply_text("✏️ Отправьте новый текст сцены. Текущая версия ниже.")
         await q.message.reply_text(f"Текущая сцена:\n\n{st.get('scene','')}", reply_markup=kb_back_only())
@@ -764,6 +1008,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # fallback
     await q.message.reply_text("Команда пока не поддерживается. Возврат в меню.", reply_markup=kb_home())
+    await q.message.reply_text("Связаться со мной:", reply_markup=reply_main_kb())
 
 # ========= ЗАПУСК =========
 def main():
@@ -771,6 +1016,7 @@ def main():
         raise RuntimeError("Не найден TELEGRAM_TOKEN / BOT_TOKEN")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("whereami", cmd_whereami))
     app.add_handler(CallbackQueryHandler(on_cb))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     log.info("Bot is running…")
