@@ -855,62 +855,50 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
             
+        
         msg = await q.message.reply_text("⏳ Генерирую видео… Это может занять несколько минут.")
         try:
             # Определяем длительность видео
             duration = 16 if st.get("nkudo_type") == "reportage" else 8
-            
-try:
-    # Генерация видео в отдельном потоке, чтобы не блокировать event loop
-    res = await asyncio.to_thread(
-        generate_video_sync,
-        st["scene"],                               # prompt
-        duration=16 if st.get("nkudo_type") == "reportage" else 8,
-        aspect_ratio="9:16"                        # или "16:9" для горизонтали
-    )
 
-    mp4_path = res.get("file_path")
-    uri = res.get("uri")
-
-    # Подпись к ролику
-    parts = [
-        "✅ Видео готово!",
-        f"🎬 Сцена: {st.get('scene','')}".strip(),
-        f"🎨 Стиль: {st.get('style','')}".strip()
-    ]
-    if st.get("replica"):
-        parts.append(f"💬 Реплика: {st['replica']}")
-    caption = "\n\n".join([parts[0], "\n".join(parts[1:])]).strip()
-
-    if mp4_path and os.path.exists(mp4_path):
-        with open(mp4_path, "rb") as f:
-            await q.message.reply_video(
-                video=f,
-                caption=caption,
-                supports_streaming=True
+            # Генерация видео в отдельном потоке, чтобы не блокировать event loop
+            res = await asyncio.to_thread(
+                generate_video_sync,
+                st["scene"],                 # prompt
+                duration=duration,
+                aspect_ratio="9:16"          # сменить на "16:9" для горизонтали
             )
-    elif uri:
-        await q.message.reply_text(f"{caption}\n\n🔗 Ссылка на видео: {uri}")
-    else:
-        await q.message.reply_text("⚠️ Видео не вернулось. Попробуйте ещё раз.")
 
-    # Предложение сгенерировать ещё
-    await q.message.reply_text(
-        "Хотите создать ещё одно видео?",
-        reply_markup=ReplyKeyboardMarkup([["Да", "Нет"]], resize_keyboard=True)
-    )
+            mp4_path = res.get("file_path")
+            uri = res.get("uri")
 
-except Exception as e:
-    log.exception("Veo generation failed")
-    await q.message.reply_text(f"⚠️ Ошибка генерации: {e}\n\nПопробуйте ещё раз.")
+            caption = (
+                f"✅ Видео готово!\n\n"
+                f"🎬 Сцена: {st['scene']}\n"
+                f"🎨 Стиль: {st['style']}"
+                + (f"\n💬 Реплика: {st['replica']}" if st.get("replica") else "")
+            )
 
-finally:
-    try:
-        await msg.delete()
-    except Exception:
-        pass
+            if mp4_path and os.path.exists(mp4_path):
+                with open(mp4_path, "rb") as f:
+                    await q.message.reply_video(video=f, caption=caption, supports_streaming=True)
+            elif uri:
+                await q.message.reply_text(f"{caption}\n\n🔗 Ссылка на видео: {uri}")
+            else:
+                await q.message.reply_text("⚠️ Видео не вернулось. Попробуйте ещё раз.", reply_markup=kb_home())
 
-return
+            # После успешной генерации предлагаем создать новое видео
+            await q.message.reply_text("Хотите создать ещё одно видео?", reply_markup=kb_home())
+        except Exception as e:
+            log.exception("Veo generation failed")
+            await q.message.reply_text(f"⚠️ Ошибка генерации: {e}\n\nПопробуйте ещё раз.", reply_markup=kb_home())
+        finally:
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+
+        return
 
     # fallback
     await q.message.reply_text("Команда пока не поддерживается. Возврат в меню.", reply_markup=kb_home())
