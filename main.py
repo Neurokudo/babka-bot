@@ -1,4 +1,4 @@
-# main.py — меню, помощник, NEUROKUDO, мем-рандом, стили, реплика, генерация Veo
+# main.py – меню, помощник, NEUROKUDO, мем-рандом, стили, реплика, генерация Veo
 import os
 import random
 import asyncio
@@ -22,7 +22,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # --- Модель OpenAI (дефолт gpt-4o-mini) ---
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
-# Страховка: если по ошибке указали gemini — форсим gpt-4o-mini
+# Страховка: если по ошибке указали gemini – форсим gpt-4o-mini
 if "gemini" in OPENAI_MODEL.lower():
     OPENAI_MODEL = "gpt-4o-mini"
 
@@ -43,7 +43,7 @@ def _sanitize(text: str) -> str:
     if not text:
         return text
     # убрать кавычки и тире всех видов (важно для озвучки)
-    bad = ['"', '«', '»', '„', '“', '‟', '‹', '›', "'", '’', '‚', '‛', '‐', '-', '‒', '–', '—', '―']
+    bad = ['"', '«', '»', '„', '"', '‟', '‹', '›', "'", ''', '‚', '‛', '"', '-', '–', '—', '—', '―']
     for ch in bad:
         text = text.replace(ch, "")
     while "  " in text:
@@ -67,13 +67,15 @@ def _gpt(system: str, user: str, temperature=0.7, max_tokens=220) -> Optional[st
         log.error("GPT error: %s", e)
         return None
 
-# — Сцена на ~8 сек, максимум 2 смены плана, без поэзии
+# – Сцена на ~8 сек, максимум 2 смены плана, без поэзии
 def improve_scene(user_text: str, mode: str = "normal") -> str:
     style = {
         "normal": "Сделай рабочую сцену.",
-        "absurd": "Сделай сцену более абсурдной и смешной.",
-        "simple": "Сделай сцену проще и короче.",
+        "complex": "Добавь больше деталей, сделай сцену насыщеннее и сложнее визуально.",
+        "simple": "Сделай сцену проще, убери лишние детали, оставь только главное.",
+        "absurd": "Сделай сцену более абсурдной и смешной."  # только для мемного режима
     }.get(mode, "Сделай рабочую сцену.")
+    
     sys = (
         "Ты редактор коротких видеосцен. "
         "Формулируй именно СЦЕНУ: кто где что делает. "
@@ -83,7 +85,8 @@ def improve_scene(user_text: str, mode: str = "normal") -> str:
         "СТРОГО не используй кавычки и тире в тексте. "
         f"{style} Напиши 1–2 коротких предложения."
     )
-    out = _gpt(sys, user_text, temperature=0.65 if mode != "absurd" else 0.9, max_tokens=140)
+    temp = 0.65 if mode == "normal" else 0.85 if mode == "complex" else 0.55 if mode == "simple" else 0.9
+    out = _gpt(sys, user_text, temperature=temp, max_tokens=140)
     return out or _sanitize(user_text)
 
 def suggest_replica(scene: str) -> Optional[str]:
@@ -104,9 +107,9 @@ def nkudo_scene(user_text: str) -> tuple[str, Optional[str]]:
     usr = (
         "Черновик пользователя: " + user_text.strip() + "\n\n"
         "Дай:\n"
-        "A) СЦЕНА — 3–5 коротких предложений, описывающих действия и кадр. "
+        "A) СЦЕНА – 3–5 коротких предложений, описывающих действия и кадр. "
         "Укажи где план 1 и где план 2 если он есть. Без эмо-литературы.\n"
-        "B) РЕПЛИКА — одна короткая фраза персонажа в конце, без кавычек и тире."
+        "B) РЕПЛИКА – одна короткая фраза персонажа в конце, без кавычек и тире."
     )
     resp = _gpt(NKUDO_SYSTEM, usr, temperature=0.55, max_tokens=260) or user_text
     scene, replica = resp, None
@@ -129,8 +132,17 @@ def nkudo_replica(scene: str) -> str:
     return _gpt(sys, "Сцена:\n" + scene, temperature=0.8, max_tokens=30) or "Поехали уже"
 
 # ========= VEO (реальная генерация) =========
-# def generate_video_sync(prompt: str, style: Optional[str], replica: Optional[str], duration_sec: int) -> str
-from veo_client import generate_video_sync
+# Временно отключаем импорт пока не установлены библиотеки
+# from veo_client import generate_video_sync
+
+# Заглушка для тестирования
+def generate_video_sync(prompt: str, style: Optional[str], replica: Optional[str], duration_sec: int) -> str:
+    # Временная заглушка - возвращаем путь к несуществующему файлу
+    # В реальности здесь должна быть генерация видео
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(prefix="veo_", suffix=".mp4", delete=False)
+    tmp.close()
+    return tmp.name
 
 # ========= СОСТОЯНИЕ =========
 State = Dict[str, Any]
@@ -167,9 +179,19 @@ def kb_modes():
     ])
 
 def kb_variants():
+    """Обычные варианты для режима помощника"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔍 Усложни", callback_data="var_complex"),
+         InlineKeyboardButton("✂️ Упрости", callback_data="var_simple")],
+        [InlineKeyboardButton("🔄 Заново", callback_data="var_again"),
+         InlineKeyboardButton("➡️ Дальше", callback_data="go_next")],
+    ])
+
+def kb_variants_nkudo():
+    """Варианты для NEUROKUDO режима"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🤪 Абсурднее", callback_data="var_absurd"),
-         InlineKeyboardButton("🎯 Проще", callback_data="var_simple")],
+         InlineKeyboardButton("✂️ Проще", callback_data="var_simple")],
         [InlineKeyboardButton("🔄 Заново", callback_data="var_again"),
          InlineKeyboardButton("➡️ Дальше", callback_data="go_next")],
     ])
@@ -184,7 +206,7 @@ def kb_styles():
          InlineKeyboardButton("🤖 Киберпанк", callback_data="style_Киберпанк")],
         [InlineKeyboardButton("✨ Pixar", callback_data="style_Pixar"),
          InlineKeyboardButton("✏️ Другой стиль", callback_data="style_custom")],
-        [InlineKeyboardButton("🚀 Без стиля — генерировать", callback_data="style_None")],
+        [InlineKeyboardButton("🚀 Без стиля – генерировать", callback_data="style_None")],
     ])
 
 def kb_after_style():
@@ -194,6 +216,7 @@ def kb_after_style():
     ])
 
 def kb_meme():
+    """Специальная клавиатура для мемного режима"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎲 Крутить ещё", callback_data="meme_again")],
         [InlineKeyboardButton("🧠✨ Улучшить с помощником", callback_data="meme_to_helper")],
@@ -255,7 +278,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "mode": None, "source_text": None, "scene": None, "style": None, "replica": None,
         "awaiting_scene": False, "awaiting_custom_style": False
     })
-    # Только главное меню (экран режимов — по кнопке «Создание видео с помощником»)
     await update.message.reply_text("Привет! Выбирай режим 👇", reply_markup=kb_home())
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -274,25 +296,28 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if st["awaiting_scene"]:
         st["awaiting_scene"] = False
         st["source_text"] = text
+        
         if st["mode"] == "helper" and gpt:
             scene = improve_scene(text, mode="normal")
             st["scene"] = scene
             await update.message.reply_text(f"🧠✨ Улучшено помощником:\n\n{scene}", reply_markup=kb_variants())
             return
+            
         if st["mode"] == "nkudo" and gpt:
             scene, replica = nkudo_scene(text)
             st["scene"], st["replica"] = scene, replica
             msg = f"🧪 Сцена в стиле NEUROKUDO:\n\n{scene}"
             if replica:
                 msg += f"\n\n💬 Реплика: {replica}"
-            await update.message.reply_text(msg, reply_markup=kb_variants())
+            await update.message.reply_text(msg, reply_markup=kb_variants_nkudo())
             return
+            
         # manual
         st["scene"] = text
         await update.message.reply_text(f"📝 Промт принят:\n\n{text}", reply_markup=kb_variants())
         return
 
-    # Вне контекста — вернуть меню
+    # Вне контекста – вернуть меню
     await update.message.reply_text("Главное меню:", reply_markup=kb_home())
 
 async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -310,9 +335,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_alive":
         await q.message.reply_text("🖼️ Оживление изображения: пришлите фото и короткий промт (в разработке)."); return
     if data == "menu_guides":
-        await q.message.reply_text("📚 Гайды и оплата — скоро тут ❤️"); return
+        await q.message.reply_text("📚 Гайды и оплата – скоро тут ❤️"); return
     if data == "menu_profile":
-        await q.message.reply_text("👤 Профиль/Баланс — скоро доступно."); return
+        await q.message.reply_text("👤 Профиль/Баланс – скоро доступно."); return
     if data == "back_home":
         await q.message.reply_text("Главное меню:", reply_markup=kb_home()); return
 
@@ -320,7 +345,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "mode_helper":
         st.update({"mode": "helper", "scene": None, "style": None, "replica": None})
         st["awaiting_scene"] = True
-        await q.message.reply_text("🧠✨ Опиши сцену — сделаю её съёмочной на ~8 секунд.")
+        await q.message.reply_text("🧠✨ Опиши сцену – сделаю её съёмочной на ~8 секунд.")
         return
     if data == "mode_manual":
         st.update({"mode": "manual", "scene": None, "style": None, "replica": None})
@@ -336,16 +361,19 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "mode_nkudo":
         st.update({"mode": "nkudo", "scene": None, "style": None, "replica": None})
         st["awaiting_scene"] = True
-        await q.message.reply_text("🧪 Включён режим «Как у NEUROKUDO». Опиши черновик сцены — соберу фирменный вариант.")
+        await q.message.reply_text("🧪 Включён режим «Как у NEUROKUDO». Опиши черновик сцены – соберу фирменный вариант.")
         return
 
-    # --- Варианты сцены (Helper/NKUDO/general)
-    if data in ("var_absurd", "var_simple", "var_again"):
+    # --- Варианты сцены
+    if data in ("var_complex", "var_simple", "var_absurd", "var_again"):
         scene = st.get("scene")
         if not scene:
             await q.message.reply_text("Сначала опиши сцену."); return
+            
         title = "Новый вариант"
+        
         if st.get("mode") == "nkudo":
+            # В NEUROKUDO режиме абсурд и упрощение
             if data == "var_absurd":
                 st["scene"] = nkudo_refine(scene, "absurd")
                 title = "Вариант (абсурднее)"
@@ -355,15 +383,25 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 base = st.get("source_text") or scene
                 st["scene"], _ = nkudo_scene(base)
+            await q.message.reply_text(f"✏️ {title}:\n\n{st['scene']}", reply_markup=kb_variants_nkudo())
+        elif st.get("mode") == "meme":
+            # В мемном режиме - только абсурд доступен из мемного меню
+            if data == "var_again":
+                st["scene"] = random_meme_scene()
+                title = "Новая мемная сцена"
+            await q.message.reply_text(f"🎲 {title}:\n\n{st['scene']}", reply_markup=kb_meme())
         else:
-            if data == "var_absurd":
-                st["scene"] = improve_scene(scene, mode="absurd"); title = "Вариант (абсурднее)"
+            # В обычных режимах (helper, manual) - усложнение/упрощение
+            if data == "var_complex":
+                st["scene"] = improve_scene(scene, mode="complex")
+                title = "Вариант (усложнённый)"
             elif data == "var_simple":
-                st["scene"] = improve_scene(scene, mode="simple"); title = "Вариант (проще)"
+                st["scene"] = improve_scene(scene, mode="simple")
+                title = "Вариант (упрощённый)"
             else:
                 base = st.get("source_text") or scene
                 st["scene"] = improve_scene(base, mode="normal")
-        await q.message.reply_text(f"✏️ {title}:\n\n{st['scene']}", reply_markup=kb_variants())
+            await q.message.reply_text(f"✏️ {title}:\n\n{st['scene']}", reply_markup=kb_variants())
         return
 
     # --- Мемный режим кнопки
@@ -427,7 +465,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await q.message.reply_video(video=f, caption=caption, supports_streaming=True)
         except Exception as e:
             log.exception("Veo generation failed")
-            await q.message.reply_text(f"❌ Ошибка генерации: {e}")
+            await q.message.reply_text(f"⌒ Ошибка генерации: {e}")
         finally:
             try:
                 await msg.delete()
@@ -451,4 +489,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
