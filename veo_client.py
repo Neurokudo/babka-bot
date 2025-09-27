@@ -183,13 +183,13 @@ def generate_video_sync(
             err_payload = r.text
         raise RuntimeError(f"Vertex start error {r.status_code}: {err_payload}")
 
-    op_name = r.json().get("name")
+ op_name = r.json().get("name")
     if not op_name:
         raise RuntimeError("Не получили имя операции от Veo (ожидали long-running).")
 
-    # ВАЖНО: поллим по глобальному хосту без префикса {LOCATION}-
-    op_url = f"https://aiplatform.googleapis.com/v1/{op_name}"
-    log.info("Polling full op_name at global host: %s", op_url)
+    # Используем региональный endpoint для polling
+    op_url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/{op_name}"
+    log.info("Polling operation at regional endpoint: %s", op_url)
 
     deadline_s = int(os.getenv("VEO_POLL_DEADLINE", "600"))
     interval_s = int(os.getenv("VEO_POLL_INTERVAL", "5"))
