@@ -1,7 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-veo_client.py — безопасный клиент Veo 3 (REST + Long-Running Operation).
-Встроены fallback'и и подробные логи для отладки.
+veo_client.py — финальный рабочий клиент Veo 3 (REST + LRO).
+
+- Старт: POST https://{LOCATION}-aiplatform.googleapis.com/v1/{model_name}:predictLongRunning
+  где model_name = projects/{project}/locations/{location}/publishers/google/models/{model_id}
+
+- Поллинг: GET https://aiplatform.googleapis.com/v1/{op_name}
+  где op_name — полный путь из ответа старта (с publishers/google/models/.../operations/{uuid}).
+  (ВАЖНО: без префикса {LOCATION}- в хосте!)
+
+Креды:
+- ENV GCP_KEY_JSON_B64 (base64 от JSON ключа) ИЛИ GCP_KEY_JSON (one-line JSON)
+- ENV GOOGLE_CLOUD_PROJECT (или GCP_PROJECT_ID)
+- ENV GOOGLE_CLOUD_LOCATION=us-central1
+- ENV VEO_MODEL=veo-3.0-fast-generate-001 (или veo-3.0-generate-001)
+
+Дополнительно:
+- Retry при 429/RESOURCE_EXHAUSTED на старте
+- Опциональный локальный rate-limit между запусками: VEO_RATE_LIMIT_SECONDS
 """
 
 import os, json, time, uuid, base64, pathlib, logging
@@ -14,15 +30,16 @@ if not log.handlers:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     )
 
-PROJECT = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT", "")
-LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1").strip() or "us-central1"
-MODEL_ID = os.getenv("VEO_MODEL", "veo-3.0-fast-generate-001").strip()
+PROJECT: str = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT", "")
+LOCATION: str = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1").strip() or "us-central1"
+MODEL_ID: str = os.getenv("VEO_MODEL", "veo-3.0-fast-generate-001").strip() or "veo-3.0-fast-generate-001"
+
 
 # ----------------------------- Credentials helper -----------------------------
 def _get_credentials():
-    from google.auth.transport.requests import Request
-    from google.oauth2 import service_account
-    from google.auth.exceptions import DefaultCredentialsError
+    from google.auth.transport.requests import Request  # type: ignore
+    from google.oauth2 import service_account  # type: ignore
+    from google.auth.exceptions import DefaultCredentialsError  # type: ignore
 
     js = os.getenv("GCP_KEY_JSON")
     b64 = os.getenv("GCP_KEY_JSON_B64")
@@ -30,9 +47,11 @@ def _get_credentials():
     info = None
     if b64:
         try:
-            info = json.loads(base64.b64decode(b64).decode("utf-8"))
+            data = base64.b64decode(b64).decode("utf-8")
+            info = json.loads(data)
         except Exception as e:
             log.warning("Не удалось декодировать GCP_KEY_JSON_B64: %s", e)
+
     if not info and js:
         try:
             info = json.loads(js)
@@ -40,7 +59,7 @@ def _get_credentials():
             log.warning("Не удалось распарсить GCP_KEY_JSON: %s", e)
 
     if not info:
-        raise DefaultCredentialsError("Нет кредов: добавь GCP_KEY_JSON_B64 или GCP_KEY_JSON")
+        raise DefaultCredentialsError("Нет кредов: добавь GCP_KEY_JSON_B64 (base64) или GCP_KEY_JSON (one-line).")
 
     creds = service_account.Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
@@ -51,8 +70,9 @@ def _get_credentials():
 
 
 def _authorized_session():
-    import requests
-    from google.auth.transport.requests import Request
+    import requests  # type: ignore
+    from google.auth.transport.requests import Request  # type: ignore
+
     creds = _get_credentials()
     if not creds.valid:
         creds.refresh(Request())
@@ -64,91 +84,178 @@ def _authorized_session():
     return _Sess(creds.token)
 
 
-# ------------------------------ Main API --------------------------------------
-def generate_video_sync(prompt: str, duration: int = 8, aspect_ratio: str = "16:9", filename_prefix="veo_video") -> Dict[str, Any]:
-    if not prompt:
-        raise ValueError("prompt must be non-empty string")
+# ------------------------------ Retry helper ----------------------------------
+def _post_with_retries(sess, url, json_body, *,
+                       timeout=60,
+                       max_retries:int=int(os.getenv("VEO_RETRIES", "6")),
+                       base_sleep:float=float(os.getenv("VEO_BACKOFF_BASE", "4")),
+                       multiplier:float=float(os.getenv("VEO_BACKOFF_MULT", "1.8")),
+                       max_sleep:float=float(os.getenv("VEO_BACKOFF_MAX", "45"))):
+    import time as _t, random
+    last = None
+    for attempt in range(max_retries):
+        r = sess.post(url, json=json_body, timeout=timeout)
+        last = r
+        need_retry = False
+        if r.status_code in (429, 503):
+            need_retry = True
+        else:
+            try:
+                j = r.json()
+                err = (j.get("error") or {})
+                if err.get("status") in ("RESOURCE_EXHAUSTED",) or "quota" in (err.get("message","").lower()):
+                    need_retry = True
+            except Exception:
+                pass
+        if not need_retry:
+            return r
+        sleep_s = min(base_sleep * (multiplier ** attempt), max_sleep)
+        sleep_s += random.uniform(0, 0.5)
+        log.warning("Quota/429 (attempt %d/%d). Сплю %.1fs и повторяю…", attempt+1, max_retries, sleep_s)
+        _t.sleep(sleep_s)
+    return last
 
-    model_name = f"projects/{PROJECT}/locations/{LOCATION}/publishers/google/models/{MODEL_ID}"
-    log.info("Запуск Veo LRO | model=%s | project=%s | location=%s", MODEL_ID, PROJECT, LOCATION)
+
+# --------------------------------- Utilities ----------------------------------
+def _make_model_name(project: str, location: str, model_id: str) -> str:
+    return f"projects/{project}/locations/{location}/publishers/google/models/{model_id}"
+
+def _ensure_output_dir() -> pathlib.Path:
+    out_dir = pathlib.Path(os.getenv("OUTPUT_DIR", "/app/output")).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
+
+
+# --------------------------------- Public API ---------------------------------
+def generate_video_sync(
+    prompt: str,
+    duration: int = 8,
+    aspect_ratio: str = "16:9",
+    filename_prefix: str = "veo_video"
+) -> Dict[str, Any]:
+    if not prompt or not isinstance(prompt, str):
+        raise ValueError("prompt must be a non-empty string")
+
+    model_name = _make_model_name(PROJECT, LOCATION, MODEL_ID)
+    log.info("VEO LRO start | model=%s | project=%s | location=%s | duration=%ss | AR=%s",
+             MODEL_ID, PROJECT, LOCATION, duration, aspect_ratio)
+
+    # Optional local rate limit
+    _rate_limit = float(os.getenv("VEO_RATE_LIMIT_SECONDS", "0"))
+    if _rate_limit > 0:
+        import time as _rt, os as _os
+        _stamp_file = "/tmp/veo_last_start"
+        try:
+            last_t = 0.0
+            if _os.path.exists(_stamp_file):
+                with open(_stamp_file, "r") as fh:
+                    last_t = float(fh.read().strip() or "0")
+            now = _rt.time()
+            delta = now - last_t
+            if delta < _rate_limit:
+                sleep_need = _rate_limit - delta
+                log.info("Local rate limit: сплю %.2fs", sleep_need)
+                _rt.sleep(sleep_need)
+            with open(_stamp_file, "w") as fh:
+                fh.write(str(_rt.time()))
+        except Exception:
+            pass
 
     sess = _authorized_session()
     endpoint = f"https://{LOCATION}-aiplatform.googleapis.com/v1/{model_name}:predictLongRunning"
-    body = {"instances": [{"prompt": prompt.strip()}],
-            "parameters": {"aspectRatio": aspect_ratio, "duration": duration, "sampleCount": 1, "seed": 0}}
+    body = {
+        "instances": [{"prompt": prompt.strip()}],
+        "parameters": {
+            "aspectRatio": aspect_ratio,
+            "duration": duration,
+            "sampleCount": 1,
+            "seed": 0
+        }
+    }
 
-    r = sess.post(endpoint, json=body, timeout=60)
+    r = _post_with_retries(sess, endpoint, body, timeout=60)
+    if r.status_code == 404:
+        raise RuntimeError(f"404 Model not found. Проверь GOOGLE_CLOUD_LOCATION='{LOCATION}' и VEO_MODEL='{MODEL_ID}'.")
     if r.status_code >= 300:
-        raise RuntimeError(f"Ошибка запуска Veo: {r.status_code} {r.text}")
+        try:
+            err_payload = r.json()
+        except Exception:
+            err_payload = r.text
+        raise RuntimeError(f"Vertex start error {r.status_code}: {err_payload}")
 
     op_name = r.json().get("name")
     if not op_name:
-        raise RuntimeError("Не получили name операции от Veo.")
+        raise RuntimeError("Не получили имя операции от Veo (ожидали long-running).")
 
-    log.info("Получили op_name: %s", op_name)
-    op_id = op_name.split("/")[-1]
+    # ВАЖНО: поллим по глобальному хосту без префикса {LOCATION}-
+    op_url = f"https://aiplatform.googleapis.com/v1/{op_name}"
+    log.info("Polling full op_name at global host: %s", op_url)
 
-    # --- Попытка 1: global operations ---
-    global_url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{LOCATION}/operations/{op_id}"
-    log.info("Пробую poll global ops: %s", global_url)
+    deadline_s = int(os.getenv("VEO_POLL_DEADLINE", "600"))
+    interval_s = int(os.getenv("VEO_POLL_INTERVAL", "5"))
+    t0 = time.time()
+    while True:
+        rr = sess.get(op_url, timeout=60)
+        if rr.status_code >= 300:
+            try:
+                errp = rr.json()
+            except Exception:
+                errp = rr.text
+            raise RuntimeError(f"Vertex poll error {rr.status_code}: {errp}")
 
-    payload = _poll(sess, global_url)
-    if not payload:
-        # --- Попытка 2: полный путь ---
-        alt_url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/{op_name}"
-        log.warning("Global ops дал 404. Пробую poll по полному пути: %s", alt_url)
-        payload = _poll(sess, alt_url)
+        payload = rr.json()
+        if payload.get("done"):
+            break
+        if (time.time() - t0) > deadline_s:
+            raise RuntimeError("Таймаут ожидания Veo операции.")
+        time.sleep(interval_s)
 
-    if not payload:
-        raise RuntimeError(
-            f"Poll не удался ни по global, ни по full op_name.\n"
-            f"Проверь:\n"
-            f"- GOOGLE_CLOUD_LOCATION={LOCATION}\n"
-            f"- PROJECT={PROJECT}\n"
-            f"- VEO_MODEL={MODEL_ID}\n"
-            f"- Роли сервис-аккаунта (Vertex AI User)\n"
-        )
-
-    # --- результат ---
-    resp = payload.get("response") or {}
+    resp = payload.get("response") or payload.get("result") or {}
     uri, file_bytes = _extract_video_from_operation_response(resp)
-    result = {}
+
+    result: Dict[str, Any] = {}
     if file_bytes:
-        out_dir = pathlib.Path("/app/output"); out_dir.mkdir(parents=True, exist_ok=True)
-        fpath = out_dir / f"{filename_prefix}_{int(time.time())}.mp4"
-        fpath.write_bytes(file_bytes)
+        out_dir = _ensure_output_dir()
+        fname = f"{filename_prefix}_{int(time.time())}_{uuid.uuid4().hex[:8]}.mp4"
+        fpath = out_dir / fname
+        with open(fpath, "wb") as f:
+            f.write(file_bytes)
         result["file_path"] = str(fpath)
     if uri:
         result["uri"] = uri
+
+    if not result:
+        raise RuntimeError("Операция завершилась без URI/bytes. Проверь ответ Veо.")
+
+    log.info("VEO LRO done | %s", result)
     return result
 
 
-def _poll(sess, url: str, deadline: int = 600, interval: int = 5) -> Optional[Dict[str, Any]]:
-    t0 = time.time()
-    while True:
-        r = sess.get(url, timeout=60)
-        if r.status_code == 404:
-            return None
-        if r.status_code >= 300:
-            raise RuntimeError(f"Vertex poll error {r.status_code}: {r.text}")
-        payload = r.json()
-        if payload.get("done"):
-            return payload
-        if time.time() - t0 > deadline:
-            raise RuntimeError("Таймаут ожидания операции Veo.")
-        time.sleep(interval)
-
-
+# ------------------------------ Parsers ---------------------------------------
 def _extract_video_from_operation_response(resp: Dict[str, Any]) -> Tuple[Optional[str], Optional[bytes]]:
-    uri, file_bytes = None, None
+    uri = None
+    file_bytes = None
     try:
-        outputs = resp.get("outputs") or []
+        outputs = resp.get("outputs") or resp.get("predictions") or []
         if outputs and isinstance(outputs, list):
             out0 = outputs[0] or {}
-            uri = out0.get("fileUri") or out0.get("videoUri")
-            b64 = out0.get("bytesBase64Encoded") or out0.get("videoBytesBase64")
-            if b64:
-                file_bytes = base64.b64decode(b64)
+            if isinstance(out0, dict):
+                uri = out0.get("fileUri") or out0.get("videoUri") or uri
+                b64 = out0.get("bytesBase64Encoded") or out0.get("videoBytesBase64")
+                if b64 and not file_bytes:
+                    try:
+                        file_bytes = base64.b64decode(b64)
+                    except Exception:
+                        pass
+                v = out0.get("video")
+                if isinstance(v, dict):
+                    uri = v.get("fileUri") or uri
+                    b64 = v.get("bytesBase64Encoded") or v.get("data")
+                    if b64 and not file_bytes:
+                        try:
+                            file_bytes = base64.b64decode(b64)
+                        except Exception:
+                            pass
     except Exception as e:
-        log.warning("Ошибка парсинга ответа Veo: %s", e)
+        log.debug("parse LRO response error: %s", e)
     return uri, file_bytes
