@@ -111,9 +111,9 @@ def nkudo_scene(user_text: str) -> tuple[str, Optional[str]]:
     usr = (
         "Черновик пользователя: " + user_text.strip() + "\n\n"
         "Дай:\n"
-        "A) СЦЕНА – 3–5 коротких предложений, описывающих действия и кадр. "
+        "A) СЦЕНУ – 3–5 коротких предложений, описывающих действия и кадр. "
         "Укажи где план 1 и где план 2 если он есть. Без эмо-литературы.\n"
-        "B) РЕПЛИКА – одна короткая фраза персонажа в конце, без кавычек и тире."
+        "B) РЕПЛИКУ – одна короткая фраза персонажа в конце, без кавычек и тире."
     )
     resp = _gpt(NKUDO_SYSTEM, usr, temperature=0.55, max_tokens=260) or user_text
     scene, replica = resp, None
@@ -170,14 +170,14 @@ def kb_home():
         [InlineKeyboardButton("🎬 Создание видео с помощником", callback_data="menu_make")],
         [InlineKeyboardButton("🖼️ Оживление изображения", callback_data="menu_alive")],
         [InlineKeyboardButton("📚 Гайды / Оплата", callback_data="menu_guides")],
-        [InlineKeyboardButton("👤 Профиль / Баланс", callback_data="menu_profile")],
+        [InlineKeyboardButton("💤 Профиль / Баланс", callback_data="menu_profile")],
     ])
 
 def kb_modes():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🧠✨ Умный помощник", callback_data="mode_helper")],
         [InlineKeyboardButton("🧪 Как у NEUROKUDO", callback_data="mode_nkudo")],
-        [InlineKeyboardButton("✍️ Я сам напишу промт", callback_data="mode_manual")],
+        [InlineKeyboardButton("✏️ Я сам напишу промт", callback_data="mode_manual")],
         [InlineKeyboardButton("🎲 Мемный режим", callback_data="mode_meme")],
         [InlineKeyboardButton("⬅️ Назад в меню", callback_data="back_home")],
     ])
@@ -210,13 +210,20 @@ def kb_styles():
          InlineKeyboardButton("🤖 Киберпанк", callback_data="style_Киберпанк")],
         [InlineKeyboardButton("✨ Pixar", callback_data="style_Pixar"),
          InlineKeyboardButton("✏️ Другой стиль", callback_data="style_custom")],
-        [InlineKeyboardButton("🚀 Без стиля – генерировать", callback_data="style_None")],
+        [InlineKeyboardButton("⏩ Без стиля – далее", callback_data="style_None")],
     ])
 
 def kb_after_style():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("💬 Придумать реплику", callback_data="add_replica")],
-        [InlineKeyboardButton("🚀 Сгенерировать сейчас", callback_data="generate_now")],
+        [InlineKeyboardButton("🚀 Создать видео", callback_data="show_final")],
+    ])
+
+def kb_final_prompt():
+    """Кнопки для финального просмотра промпта"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚀 Создать видео", callback_data="generate_now")],
+        [InlineKeyboardButton("🔄 Переделать", callback_data="go_next")],
     ])
 
 def kb_meme():
@@ -293,8 +300,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if st["awaiting_custom_style"]:
         st["awaiting_custom_style"] = False
         st["style"] = text
-        await update.message.reply_text(f"🎨 Стиль выбран: {st['style']}")
-        await update.message.reply_text("Теперь можно добавить реплику или сразу сгенерировать.", reply_markup=kb_after_style())
+        await update.message.reply_text(f"✅ Выбран стиль: **{st['style']}**")
+        await update.message.reply_text("Что делаем дальше?", reply_markup=kb_after_style())
         return
 
     if st["awaiting_scene"]:
@@ -335,37 +342,46 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Главное меню
     if data == "menu_make":
-        await q.message.reply_text("Выберите режим генерации:", reply_markup=kb_modes()); return
+        await q.message.edit_text("Выберите режим генерации:", reply_markup=kb_modes())
+        return
     if data == "menu_alive":
-        await q.message.reply_text("🖼️ Оживление изображения: пришлите фото и короткий промт (в разработке)."); return
+        await q.message.edit_text("🖼️ Оживление изображения: пришлите фото и короткий промт (в разработке).")
+        return
     if data == "menu_guides":
-        await q.message.reply_text("📚 Гайды и оплата – скоро тут ❤️"); return
+        await q.message.edit_text("📚 Гайды и оплата — скоро тут ❤️")
+        return
     if data == "menu_profile":
-        await q.message.reply_text("👤 Профиль/Баланс – скоро доступно."); return
+        await q.message.edit_text("💤 Профиль/Баланс — скоро доступно.")
+        return
     if data == "back_home":
-        await q.message.reply_text("Главное меню:", reply_markup=kb_home()); return
+        await q.message.edit_text("Главное меню:", reply_markup=kb_home())
+        return
 
     # --- Режимы
     if data == "mode_helper":
         st.update({"mode": "helper", "scene": None, "style": None, "replica": None})
         st["awaiting_scene"] = True
-        await q.message.reply_text("🧠✨ Опиши сцену – сделаю её съёмочной на ~8 секунд.")
+        await q.message.edit_text("🧠✨ Режим умного помощника активирован!")
+        await q.message.reply_text("Опиши сцену — сделаю её съёмочной на ~8 секунд.")
         return
     if data == "mode_manual":
         st.update({"mode": "manual", "scene": None, "style": None, "replica": None})
         st["awaiting_scene"] = True
-        await q.message.reply_text("✍️ Введи свою сцену (я ничего не меняю).")
+        await q.message.edit_text("✏️ Режим ручного ввода активирован!")
+        await q.message.reply_text("Введи свою сцену (я ничего не меняю).")
         return
     if data == "mode_meme":
         st.update({"mode": "meme", "style": None, "replica": None})
         scene = random_meme_scene()
         st["scene"] = scene
-        await q.message.reply_text(f"🎭 Мемная сцена:\n\n{scene}", reply_markup=kb_meme())
+        await q.message.edit_text("🎲 Мемный режим активирован!")
+        await q.message.reply_text(f"🎭 Случайная сцена:\n\n{scene}", reply_markup=kb_meme())
         return
     if data == "mode_nkudo":
         st.update({"mode": "nkudo", "scene": None, "style": None, "replica": None})
         st["awaiting_scene"] = True
-        await q.message.reply_text("🧪 Включён режим «Как у NEUROKUDO». Опиши черновик сцены – соберу фирменный вариант.")
+        await q.message.edit_text("🧪 Включён режим «Как у NEUROKUDO»!")
+        await q.message.reply_text("Опиши черновик сцены — соберу фирменный вариант.")
         return
 
     # --- Варианты сцены
@@ -387,13 +403,13 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 base = st.get("source_text") or scene
                 st["scene"], _ = nkudo_scene(base)
-            await q.message.reply_text(f"✏️ {title}:\n\n{st['scene']}", reply_markup=kb_variants_nkudo())
+            await q.message.edit_text(f"✏️ {title}:\n\n{st['scene']}", reply_markup=kb_variants_nkudo())
         elif st.get("mode") == "meme":
             # В мемном режиме - только абсурд доступен из мемного меню
             if data == "var_again":
                 st["scene"] = random_meme_scene()
                 title = "Новая мемная сцена"
-            await q.message.reply_text(f"🎲 {title}:\n\n{st['scene']}", reply_markup=kb_meme())
+            await q.message.edit_text(f"🎲 {title}:\n\n{st['scene']}", reply_markup=kb_meme())
         else:
             # В обычных режимах (helper, manual) - усложнение/упрощение
             if data == "var_complex":
@@ -405,34 +421,40 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 base = st.get("source_text") or scene
                 st["scene"] = improve_scene(base, mode="normal")
-            await q.message.reply_text(f"✏️ {title}:\n\n{st['scene']}", reply_markup=kb_variants())
+            await q.message.edit_text(f"✏️ {title}:\n\n{st['scene']}", reply_markup=kb_variants())
         return
 
     # --- Мемный режим кнопки
     if data == "meme_again":
         st["scene"] = random_meme_scene()
-        await q.message.reply_text(f"🎭 Мемная сцена:\n\n{st['scene']}", reply_markup=kb_meme())
+        await q.message.edit_text(f"🎭 Мемная сцена:\n\n{st['scene']}", reply_markup=kb_meme())
         return
     if data == "meme_to_helper":
         st["scene"] = improve_scene(st.get("scene", ""), mode="normal")
         st["mode"] = "helper"
-        await q.message.reply_text(f"🧠✨ Улучшено помощником:\n\n{st['scene']}", reply_markup=kb_variants())
+        await q.message.edit_text(f"🧠✨ Улучшено помощником:\n\n{st['scene']}", reply_markup=kb_variants())
         return
 
     # --- Переход на следующий шаг (выбор стиля)
     if data in ("go_next", "choose_style"):
-        await q.message.reply_text("Выбери стиль:", reply_markup=kb_styles()); return
+        # Сохраняем финальную сцену в сообщении
+        if st.get("scene"):
+            await q.message.edit_text(f"✅ Сцена готова:\n\n{st['scene']}")
+        await q.message.reply_text("Выбери стиль:", reply_markup=kb_styles())
+        return
 
     # --- Стили
     if data.startswith("style_"):
         val = data.split("_", 1)[1]
+        if val == "custom":
+            st["awaiting_custom_style"] = True
+            await q.message.edit_text("✏️ Напишите желаемый стиль для видео:")
+            return
         st["style"] = None if val == "None" else val
-        await q.message.reply_text(f"🎨 Стиль выбран: {st['style']}")
-        await q.message.reply_text("Теперь можно добавить реплику или сразу сгенерировать.", reply_markup=kb_after_style())
+        style_text = st['style'] or "Без стиля"
+        await q.message.edit_text(f"✅ Выбран стиль: **{style_text}**")
+        await q.message.reply_text("Что делаем дальше?", reply_markup=kb_after_style())
         return
-    if data == "style_custom":
-        st["awaiting_custom_style"] = True
-        await q.message.reply_text("Введи свой стиль текстом:"); return
 
     # --- Реплика
     if data == "add_replica":
@@ -443,8 +465,29 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             text = suggest_replica(st["scene"]) or "Поехали уже!"
         st["replica"] = text
-        await q.message.reply_text(f"💬 Реплика предложена: {text}")
-        await q.message.reply_text("Готово! Можно генерировать.", reply_markup=kb_after_style())
+        await q.message.edit_text(f"✅ Создана реплика: **{text}**")
+        await q.message.reply_text("Готово! Давайте посмотрим итоговый промпт.", reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("👁 Посмотреть промпт", callback_data="show_final")]
+        ]))
+        return
+
+    # --- Показ финального промпта
+    if data == "show_final":
+        if not st.get("scene"):
+            await q.message.reply_text("Сначала опиши сцену."); return
+        
+        final_text = f"📝 **Итоговый промпт:**\n\n"
+        final_text += f"🎬 **Сцена:** {st['scene']}\n\n"
+        
+        if st.get("style"):
+            final_text += f"🎨 **Стиль:** {st['style']}\n\n"
+        
+        if st.get("replica"):
+            final_text += f"💬 **Реплика:** {st['replica']}\n\n"
+        
+        final_text += "Всё готово для генерации!"
+        
+        await q.message.reply_text(final_text, reply_markup=kb_final_prompt())
         return
 
     # --- Генерация видео (Veo)
@@ -454,22 +497,31 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if st.get("style") is None:
             st["style"] = DEFAULT_STYLE
 
-        msg = await q.message.reply_text("⏳ Генерирую видео…")
+        # Удаляем кнопки из предыдущего сообщения
+        try:
+            await q.message.edit_reply_markup(reply_markup=None)
+        except:
+            pass
+            
+        msg = await q.message.reply_text("⏳ Генерирую видео… Это может занять несколько минут.")
         try:
             mp4_path = await asyncio.to_thread(
                 generate_video_sync, st["scene"], st["style"], st.get("replica"), 8
             )
             caption = (
-                f"✅ Готово!\n\n"
-                f"📝 Сцена: {st['scene']}\n"
+                f"✅ Видео готово!\n\n"
+                f"🎬 Сцена: {st['scene']}\n"
                 f"🎨 Стиль: {st['style']}"
                 + (f"\n💬 Реплика: {st['replica']}" if st.get("replica") else "")
             )
             with open(mp4_path, "rb") as f:
                 await q.message.reply_video(video=f, caption=caption, supports_streaming=True)
+            
+            # После успешной генерации предлагаем создать новое видео
+            await q.message.reply_text("Хотите создать ещё одно видео?", reply_markup=kb_home())
         except Exception as e:
             log.exception("Veo generation failed")
-            await q.message.reply_text(f"⌒ Ошибка генерации: {e}")
+            await q.message.reply_text(f"⚠️ Ошибка генерации: {e}\n\nПопробуйте ещё раз.", reply_markup=kb_home())
         finally:
             try:
                 await msg.delete()
