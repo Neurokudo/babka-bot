@@ -38,8 +38,20 @@ load_dotenv()
 
 BOT_TOKEN       = os.getenv("BOT_TOKEN", "")
 OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", "")
-LLM_PROVIDER    = os.getenv("LLM_PROVIDER", "openai")
-OPENAI_MODEL    = os.getenv("OPENAI_MODEL") or os.getenv("GENAI_MODEL") or "gpt-4o"
+LLM_PROVIDER    = os.getenv("LLM_PROVIDER", "openai").lower()
+
+# ⚠️ ВАЖНО:
+# Если используем OpenAI — НЕ подхватываем GENAI_MODEL вообще.
+# Либо бери из OPENAI_MODEL, либо по умолчанию 'gpt-4o'.
+if LLM_PROVIDER == "openai":
+    OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o"
+else:
+    # если когда-нибудь вернём других провайдеров, можно читать их модель отсюда
+    OPENAI_MODEL = os.getenv("GENAI_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4o"
+
+# Допзащита: если по ошибке прилетело имя Gemini при провайдере openai — форсим gpt-4o
+if LLM_PROVIDER == "openai" and "gemini" in OPENAI_MODEL.lower():
+    OPENAI_MODEL = "gpt-4o"
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN не задан")
@@ -48,11 +60,7 @@ if LLM_PROVIDER == "openai" and not OPENAI_API_KEY:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s: %(message)s")
 log = logging.getLogger("babka-bot")
-
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-DATA_DIR = Path("data"); DATA_DIR.mkdir(exist_ok=True)
-HISTORY = DATA_DIR / "history.jsonl"
+log.info(f"LLM_PROVIDER={LLM_PROVIDER}, MODEL={OPENAI_MODEL}")
 
 # -----------------------------------------------------------------------------
 # Утилиты
