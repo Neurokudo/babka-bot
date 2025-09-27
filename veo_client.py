@@ -1,110 +1,90 @@
-# -*- coding: utf-8 -*-
-"""
-veo_client.py — клиент для Veo 3 через predictLongRunning + fetchPredictOperation
-"""
-
-import os, json, time, base64, pathlib, uuid, logging
-from typing import Dict, Any, Optional, Tuple
+import os
+import time
+import json
+import logging
+import base64
+import requests
+from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 
 log = logging.getLogger("veo_client")
-if not log.handlers:
-    logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO"),
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-    )
 
-PROJECT = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT", "")
+PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "ornate-producer-473220-g2")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-MODEL_ID = os.getenv("VEO_MODEL", "veo-3.0-fast-generate-001")
+MODEL = os.getenv("VEO_MODEL", "veo-3.0-fast-generate-001")
 
-# --------------------------------------------------------------------------
-def _get_credentials():
-    from google.auth.transport.requests import Request
-    from google.oauth2 import service_account
-
-    js = os.getenv("GCP_KEY_JSON")
-    b64 = os.getenv("GCP_KEY_JSON_B64")
-
-    info = None
-    if b64:
-        info = json.loads(base64.b64decode(b64).decode("utf-8"))
-    elif js:
-        info = json.loads(js)
-
-    creds = service_account.Credentials.from_service_account_info(
-        info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+# Чтение ключа из переменной окружения
+def _load_credentials():
+    key_b64 = os.getenv("GCP_KEY_JSON_B64")
+    if not key_b64:
+        raise RuntimeError("GCP_KEY_JSON_B64 не задан")
+    key_json = base64.b64decode(key_b64).decode("utf-8")
+    creds_info = json.loads(key_json)
+    return service_account.Credentials.from_service_account_info(
+        creds_info,
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
     )
-    if not creds.valid:
-        creds.refresh(Request())
-    return creds
 
 def _authorized_session():
-    import requests
-    creds = _get_credentials()
-    class Sess(requests.Session):
-        def __init__(self, token: str):
-            super().__init__()
-            self.headers.update({"Authorization": f"Bearer {token}"})
-    return Sess(creds.token)
+    creds = _load_credentials()
+    creds.refresh(Request())
+    sess = requests.Session()
+    sess.headers.update({
+        "Authorization": f"Bearer {creds.token}",
+        "Content-Type": "application/json; charset=utf-8",
+    })
+    return sess
 
-# --------------------------------------------------------------------------
-def generate_video_sync(prompt: str,
-                        duration: int = 8,
-                        aspect_ratio: str = "16:9",
-                        filename_prefix: str = "veo_video") -> Dict[str, Any]:
-    if not prompt:
-        raise ValueError("Prompt is empty")
-
+def generate_video_sync(prompt: str, duration: int = 8, aspect_ratio: str = "9:16"):
+    """
+    Синхронная генерация видео через Veo 3 Fast
+    """
     sess = _authorized_session()
-    model_name = f"projects/{PROJECT}/locations/{LOCATION}/publishers/google/models/{MODEL_ID}"
-    endpoint = f"https://{LOCATION}-aiplatform.googleapis.com/v1/{model_name}:predictLongRunning"
+
+    url = (
+        f"https://{LOCATION}-aiplatform.googleapis.com/v1/"
+        f"projects/{PROJECT}/locations/{LOCATION}/publishers/google/models/{MODEL}:predictLongRunning"
+    )
 
     body = {
         "instances": [{"prompt": prompt}],
         "parameters": {
-            "duration": duration,
+            "sampleCount": 1,
+            "resolution": "720p",
+            "durationSeconds": duration,
             "aspectRatio": aspect_ratio,
-            "sampleCount": 1
-        }
+        },
     }
 
-    log.info("Запрос генерации: %s", endpoint)
-    r = sess.post(endpoint, json=body, timeout=60)
+    log.info("Запрос генерации: %s", url)
+    r = sess.post(url, json=body, timeout=60)
     if r.status_code >= 300:
-        raise RuntimeError(f"Start error {r.status_code}: {r.text}")
+        raise RuntimeError(f"Generation error {r.status_code}: {r.text}")
 
-    op_name = r.json().get("name")
+    resp = r.json()
+    op_name = resp.get("name")
     if not op_name:
-        raise RuntimeError("Не получили operation.name")
+        raise RuntimeError(f"Нет operation name в ответе: {resp}")
 
-    # poll через fetchPredictOperation
-    poll_url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/{model_name}:fetchPredictOperation"
+    log.info("Получили op_name: %s", op_name)
+
+    # polling через fetchPredictOperation
+    poll_url = (
+        f"https://{LOCATION}-aiplatform.googleapis.com/v1/{op_name}:fetchPredictOperation"
+    )
     log.info("Poll через fetchPredictOperation: %s", poll_url)
 
     deadline, interval = 600, 5
     t0 = time.time()
     while True:
-        rr = sess.post(poll_url, json={"name": op_name}, timeout=60)
+        rr = sess.post(poll_url, timeout=60)  # 👈 без json
         if rr.status_code >= 300:
             raise RuntimeError(f"Poll error {rr.status_code}: {rr.text}")
 
         payload = rr.json()
         if payload.get("done"):
-            break
+            return payload
         if time.time() - t0 > deadline:
             raise RuntimeError("Таймаут ожидания операции")
         time.sleep(interval)
-
-    resp = payload.get("response", {})
-    result = {}
-    videos = resp.get("videos") or []
-    if videos:
-        # сохраняем первый ролик локально
-        gcs_uri = videos[0].get("gcsUri")
-        result["gcsUri"] = gcs_uri
-        result["mimeType"] = videos[0].get("mimeType")
-    else:
-        raise RuntimeError(f"Нет videos в ответе: {json.dumps(resp)}")
-
-    return result
 
