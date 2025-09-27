@@ -117,7 +117,7 @@ def generate_nkudo_reportage() -> tuple[str, str, str]:
     
     # Здесь логика генерации двух сцен в стиле NEUROKUDO
     # Упрощенная версия для примера
-    scene1 = f"Репортаж из Запупинска. {theme}. Журналистка с микрофоном рассказывает о происшествии."
+    scene1 = f"Репортаж из деревни. {theme}. Журналистка с микрофоном рассказывает о происшествии."
     scene2 = f"Интервью с бабушкой. Она объясняет ситуацию по-своему с народным юмором."
     replica = nkudo_replica(scene1)
     
@@ -223,7 +223,7 @@ def kb_nkudo_menu():
     """Меню режима NEUROKUDO"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🧪 Создать как у Neurokudo", callback_data="nkudo_generate")],
-        [InlineKeyboardButton("📺 Репортаж из Запупинска", callback_data="nkudo_reportage")],
+        [InlineKeyboardButton("🎤 Репортаж из деревни", callback_data="nkudo_reportage")],
         [InlineKeyboardButton("⬅️ Назад к режимам", callback_data="back_modes")],
     ])
 
@@ -450,7 +450,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         explanation = (
             "🧪 Экспериментальный режим создания репортажей в стиле NEUROKUDO!\n\n"
             "Что будет сгенерировано:\n"
-            "• Абсурдный новостной репортаж из Запупинска\n"
+            "• Абсурдный новостной репортаж из деревни\n"
             "• Две сцены по 8 секунд (репортаж + интервью)\n"
             "• Бабушка в нелепой ситуации\n"
             "• Фирменная фраза-бомба в конце\n\n"
@@ -572,7 +572,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         editing = st.get("editing_scene")
         if editing == 1:
             # Перегенерируем только первую сцену
-            st["nkudo_scene1"] = improve_scene(st.get("source_text", "Репортаж из Запупинска"), mode="complex")
+            st["nkudo_scene1"] = improve_scene(st.get("source_text", "Репортаж из деревни"), mode="complex")
         elif editing == 2:
             # Перегенерируем только вторую сцену
             st["nkudo_scene2"] = improve_scene(st.get("source_text", "Интервью с бабушкой"), mode="normal")
