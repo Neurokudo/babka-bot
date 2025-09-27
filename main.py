@@ -94,7 +94,7 @@ def improve_scene(user_text: str, mode: str = "normal") -> str:
     return out or _sanitize(user_text)
 
 def suggest_replica(scene: str) -> Optional[str]:
-    sys = "Придумай короткую реплику героя к сцене, 4–10 слов. Только сама фраза. Без кавычек и тире."
+    sys = "Придумай короткую реплику героя к сцене, 4–10 слов. Только сама фраза. ЗАПРЕЩЕНЫ кавычки, тире, двоеточия, точка с запятой. Можно только запятые, точки, восклицательный и вопросительный знаки."
     return _gpt(sys, scene, temperature=0.9, max_tokens=35)
 
 # ========= NEUROKUDO режим =========
@@ -128,34 +128,29 @@ def generate_nkudo_reportage() -> tuple[str, str, str]:
         "Примеры: бабушка с ламой, дед с павлином, бабушка с огромным кактусом. "
         "НЕ фантастика! Реальные животные и предметы. "
         "Опиши: фраза журналистки (5-8 слов) + что на фоне. "
-        "Без кавычек и тире. 1-2 предложения."
+        "ЗАПРЕЩЕНЫ кавычки, тире, двоеточия. 1-2 предложения."
     )
     scene1 = _gpt(sys1, "Создай сцену репортажа", temperature=0.7, max_tokens=100)
     
-    # Сцена 2 - интервью с бабкой
+    # Сцена 2 - интервью с бабкой с интегрированной репликой
     sys2 = (
         "Придумай ВТОРУЮ сцену репортажа (8 секунд): крупный план бабушки. "
-        "Она коротко объясняет ситуацию простым народным языком. "
+        "Она объясняет ситуацию и в конце говорит короткую фразу-бомбу. "
         "Стиль: деревенский юмор, прямота, без мата. "
-        "Пример тона: 'Да че тут такого, кормлю и кормлю', 'Он добрый, только громко рычит'. "
-        "Опиши её реакцию и что говорит (10-15 слов). "
-        "Без кавычек и тире. 1-2 предложения."
+        "Финальная фраза типа: 'Чего уставились', 'Вот и весь сказ', 'Ну и ладно'. "
+        "ЗАПРЕЩЕНЫ тире, двоеточия, точка с запятой, кавычки. "
+        "Опиши сцену с её объяснением и финальной фразой. 2-3 предложения."
     )
-    scene2 = _gpt(sys2, f"Контекст: {scene1}", temperature=0.75, max_tokens=100)
+    scene2 = _gpt(sys2, f"Контекст: {scene1}", temperature=0.75, max_tokens=120)
     
-    # Финальная фраза-бомба
-    sys3 = (
-        "Придумай короткую финальную фразу бабушки. "
-        "Стиль: народная мудрость с юмором. "
-        "Примеры: 'Чего уставились', 'Вот и весь сказ', 'Ну и ладно'. "
-        "3-6 слов, без кавычек."
-    )
-    replica = _gpt(sys3, f"Контекст: {scene2}", temperature=0.8, max_tokens=25)
+    # Извлекаем финальную фразу из scene2 для отдельного показа
+    # Но она остается частью scene2
+    replica = "Чего смотрите то"  # дефолтная на случай если не извлечется
     
     return (
         scene1 or "Журналистка говорит что пенсионерка завела ламу. На фоне бабушка чешет ламу",
-        scene2 or "Бабушка объясняет что лама лучше собаки сторожит огород",
-        replica or "Чего смотрите то"
+        scene2 or "Бабушка объясняет что лама лучше собаки сторожит огород и говорит: Чего смотрите то",
+        replica
     )
 
 # Временно отключаем импорт пока не установлены библиотеки
@@ -525,9 +520,13 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         scene1, scene2, replica = generate_nkudo_reportage()
         st["nkudo_scene1"] = scene1
-        st["nkudo_scene2"] = scene2
+        # Интегрируем реплику во вторую сцену
+        if replica and " говорит:" not in scene2:
+            st["nkudo_scene2"] = f"{scene2} и говорит: {replica}"
+        else:
+            st["nkudo_scene2"] = scene2
         st["replica"] = replica
-        st["scene"] = f"{scene1}\n\n{scene2}"  # Для совместимости
+        st["scene"] = f"{scene1}\n\n{st['nkudo_scene2']}"  # Для совместимости
         st["nkudo_type"] = "reportage"
         
         result_text = (
@@ -535,8 +534,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📺 Сцена 1 (Репортаж - 8 сек):\n"
             f"{scene1}\n\n"
             "🎤 Сцена 2 (Интервью - 8 сек):\n"
-            f"{scene2}\n\n"
-            f"💬 Фраза-бомба: {replica}\n\n"
+            f"{st['nkudo_scene2']}\n\n"
             "Общая длительность: 16 секунд"
         )
         
@@ -589,21 +587,30 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if data == "nkudo_new_replica":
-        # Генерируем новую реплику для репортажа
+        # Генерируем новую реплику и обновляем её во второй сцене
         sys = (
             "Придумай короткую финальную фразу бабушки для репортажа. "
             "Стиль: народная мудрость с юмором. "
             "Примеры: 'Чего уставились', 'Вот и весь сказ', 'Ну и ладно'. "
-            "3-6 слов, без кавычек."
+            "3-6 слов. ЗАПРЕЩЕНЫ кавычки, тире, двоеточия, точка с запятой."
         )
         new_replica = _gpt(sys, f"Контекст: {st.get('nkudo_scene2', '')}", temperature=0.8, max_tokens=25)
-        st["replica"] = new_replica or "Поехали уже"
+        new_replica = new_replica or "Поехали уже"
+        st["replica"] = new_replica
+        
+        # Обновляем реплику во второй сцене
+        scene2_base = st.get("nkudo_scene2", "")
+        # Удаляем старую реплику если она есть в конце
+        if " и говорит:" in scene2_base or " говорит:" in scene2_base:
+            scene2_base = scene2_base.split(" и говорит:")[0].split(" говорит:")[0]
+        # Добавляем новую реплику к сцене 2
+        st["nkudo_scene2"] = f"{scene2_base} и говорит: {new_replica}"
+        st["scene"] = f"{st.get('nkudo_scene1', '')}\n\n{st['nkudo_scene2']}"
         
         result_text = (
             "💬 Новая реплика сгенерирована!\n\n"
             f"📺 Сцена 1: {st.get('nkudo_scene1', '')}\n\n"
-            f"🎤 Сцена 2: {st.get('nkudo_scene2', '')}\n\n"
-            f"💬 Реплика: {st['replica']}"
+            f"🎤 Сцена 2: {st['nkudo_scene2']}"
         )
         await q.message.edit_text(result_text, reply_markup=kb_nkudo_reportage_edit())
         return
@@ -612,15 +619,18 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_text("🔄 Генерирую новый репортаж...")
         scene1, scene2, replica = generate_nkudo_reportage()
         st["nkudo_scene1"] = scene1
-        st["nkudo_scene2"] = scene2
+        # Интегрируем реплику во вторую сцену
+        if replica and " говорит:" not in scene2:
+            st["nkudo_scene2"] = f"{scene2} и говорит: {replica}"
+        else:
+            st["nkudo_scene2"] = scene2
         st["replica"] = replica
-        st["scene"] = f"{scene1}\n\n{scene2}"
+        st["scene"] = f"{scene1}\n\n{st['nkudo_scene2']}"
         
         result_text = (
             "🔮 Новый репортаж сгенерирован\n\n"
             f"📺 Сцена 1: {scene1}\n\n"
-            f"🎤 Сцена 2: {scene2}\n\n"
-            f"💬 Реплика: {replica}"
+            f"🎤 Сцена 2: {st['nkudo_scene2']}"
         )
         await q.message.edit_text(result_text, reply_markup=kb_nkudo_reportage_edit())
         return
