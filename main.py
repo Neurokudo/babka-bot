@@ -412,6 +412,11 @@ from tryon_client import virtual_tryon   # оставь файл, как при�
 from nano_client import repose_or_relocate  # оставь файл, как присылал ранее
 
 # -----------------------------------------------------------------------------
+# ТРАНСФОРМАЦИИ ИЗОБРАЖЕНИЙ
+# -----------------------------------------------------------------------------
+from transforms_client import process_transform
+
+# -----------------------------------------------------------------------------
 # ГЕНЕРАЦИЯ «БОГАТОГО» JSON ДЛЯ VEO
 # -----------------------------------------------------------------------------
 def _rich_json_template(scene: str, style: Optional[str], replica: Optional[str],
@@ -1855,18 +1860,26 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⏱️ Это может занять 1-2 минуты."
             )
             
-            # Здесь будет вызов функции трансформации
-            # result = await process_transform(transform_type, st["transform_images"], st.get("transform_text"), quality)
+            # Обрабатываем трансформацию
+            result_bytes = await asyncio.to_thread(
+                process_transform, 
+                transform_type, 
+                st["transform_images"], 
+                st.get("transform_text"), 
+                quality
+            )
             
-            # Пока заглушка
-            await asyncio.sleep(2)  # имитация обработки
-            
-            # Симулируем успешный результат
+            # Отмечаем успех
             on_success(st, job_id)
             
-            await update.message.reply_text(
-                f"✅ {transform_type.replace('_', ' ').title()} готово!\n\n"
-                f"🔄 Ещё вариант?",
+            # Отправляем результат
+            caption = f"✅ {transform_type.replace('_', ' ').title()} готово!"
+            if transform_type == "polaroid":
+                caption = "✅ Polaroid готов!"
+            
+            await update.message.reply_photo(
+                photo=result_bytes,
+                caption=caption,
                 reply_markup=kb_transform_result()
             )
             
@@ -2245,10 +2258,31 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🔄 Обрабатываю фото ещё раз...\n"
                 f"💰 {'Списано: ' + str(get_retry_cost(st, job_id)) + ' монет' if get_retry_cost(st, job_id) > 0 else 'Бесплатный ретрай'}"
             )
-            # Здесь будет повторная обработка фото
-            # Пока заглушка
-            await asyncio.sleep(2)
-            await q.message.edit_text("✅ Новый вариант готов!", reply_markup=kb_transform_result())
+            # Повторная обработка фото
+            transform_type = st.get("transform_type")
+            quality = st.get("transform_quality", "basic")
+            
+            result_bytes = await asyncio.to_thread(
+                process_transform, 
+                transform_type, 
+                st["transform_images"], 
+                st.get("transform_text"), 
+                quality
+            )
+            
+            # Отмечаем успех
+            on_success(st, job_id)
+            
+            # Отправляем результат
+            caption = f"✅ Новый вариант готов!"
+            if transform_type == "polaroid":
+                caption = "✅ Новый Polaroid готов!"
+            
+            await q.message.reply_photo(
+                photo=result_bytes,
+                caption=caption,
+                reply_markup=kb_transform_result()
+            )
         return
 
     # -----------------------------------------------------------------------------
