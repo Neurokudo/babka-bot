@@ -922,7 +922,7 @@ def kb_tryon_need_garment():
 
 def kb_tryon_confirm(forward="② → ①"):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🚀 Примерить: 👗 с {forward}", callback_data="tryon_confirm")],
+        [InlineKeyboardButton(f"✨ Примерить", callback_data="tryon_confirm")],
         [InlineKeyboardButton("🔁 Поменять местами", callback_data="tryon_swap")],
         [InlineKeyboardButton("❌ Сбросить", callback_data="tryon_reset")],
     ])
@@ -1947,13 +1947,13 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stt["garment"] = b
         stt["stage"] = "confirm"
         await update.message.reply_text(
-            "① — 🙋 Человек (цель)\n② — 👗 Одежда (источник)\nГотовы примерять?",
+            "Фото получены. Готовы примерять?",
             reply_markup=kb_tryon_confirm("② → ①")
         )
         return
 
     if stt["stage"] == "confirm":
-        await update.message.reply_text("У нас уже есть оба снимка. Нажмите «🚀 Примерить…» или «🔁 Поменять местами».",
+        await update.message.reply_text("У нас уже есть оба снимка. Нажмите «✨ Примерить» или «🔁 Поменять местами».",
                                         reply_markup=kb_tryon_confirm("② → ①"))
 
 # --- Инлайн кнопки ---
@@ -2942,7 +2942,7 @@ Telegram бот "Babka Bot"
             await q.message.edit_text("Нужно два изображения: человек и одежда. Пришлите недостающее.",
                                       reply_markup=kb_tryon_need_garment())
             return
-        await q.message.edit_text("Роли поменяли местами.\n\n① — 🙋 Человек (цель)\n② — 👗 Одежда (источник)\nГотовы?",
+        await q.message.edit_text("Роли поменяли местами.\n\nФото получены. Готовы примерять?",
                                   reply_markup=kb_tryon_confirm("② → ①"))
         stt["stage"] = "confirm"
         return
