@@ -164,10 +164,12 @@ def remove_background(image_bytes: bytes, quality: str = "basic") -> bytes:
         байты изображения без фона (PNG с прозрачностью)
     """
     prompt = (
-        "Remove the background from this image completely. "
-        "Keep only the main subject with clean, precise edges. "
-        "Output should have transparent background (PNG format). "
-        "Preserve all details of the subject including hair, clothing, and accessories."
+        "TASK: Remove background.\n"
+        "INSTRUCTIONS:\n"
+        "- Isolate the main subject with clean, natural edges (hair detail preserved).\n"
+        "- Output with transparent background (alpha), edges anti-aliased.\n"
+        "- Keep original subject colors and sharpness; avoid artificial halos.\n"
+        "OUTPUT: single PNG with transparency."
     )
     
     return _call_gemini([image_bytes], prompt, quality)
@@ -184,12 +186,14 @@ def merge_people(images: List[bytes], quality: str = "basic") -> bytes:
         байты группового фото
     """
     prompt = (
-        "Create a realistic group photo by merging the people from these separate images. "
-        "Place them close together with natural spacing and eye level alignment. "
-        "Unify lighting, color temperature, and exposure so they look like they were photographed together. "
-        "Use a soft, neutral background. "
-        "Preserve each person's identity and facial features. "
-        "Make it look completely natural and realistic."
+        "TASK: Merge people from multiple photos into a single group image.\n"
+        "INSTRUCTIONS:\n"
+        "- Detect and cut each person with clean edges.\n"
+        "- Arrange them close together, natural spacing, eye level aligned.\n"
+        "- Match color temperature and shadows so they look shot together.\n"
+        "- Use neutral studio background.\n"
+        "- Preserve faces, avoid deformation; subtle grain for realism.\n"
+        "OUTPUT: single color photo, 3:4 or 1:1 framing."
     )
     
     return _call_gemini(images, prompt, quality)
@@ -207,12 +211,14 @@ def inject_object(base_image_bytes: bytes, object_description: str, quality: str
         байты изображения с добавленным объектом
     """
     prompt = (
-        f"Add the following object to this image: '{object_description}'. "
-        "Make it look completely natural and realistic. "
-        "Match the lighting, shadows, perspective, and scale of the scene. "
-        "Ensure proper occlusion (objects in front/behind each other). "
-        "Add contact shadows and reflections if appropriate. "
-        "Maintain the original image's quality and style."
+        f"TASK: Insert an object into the base photo so it looks physically real.\n"
+        f"INPUTS:\n"
+        f"- text_object: '{object_description}'\n"
+        f"INSTRUCTIONS:\n"
+        f"- Match perspective, scale, and lighting/shadows to the scene.\n"
+        f"- Respect occlusions; add contact shadows.\n"
+        f"- Avoid over-saturation; keep object noise/grain consistent with base photo.\n"
+        f"OUTPUT: single edited image, same resolution as input."
     )
     
     return _call_gemini([base_image_bytes], prompt, quality)
@@ -230,12 +236,14 @@ def retouch_image(image_bytes: bytes, retouch_description: str, quality: str = "
         байты отретушированного изображения
     """
     prompt = (
-        f"Perform the following retouching on this image: '{retouch_description}'. "
-        "Make the changes look completely natural and realistic. "
-        "If removing objects, fill the space with coherent background elements. "
-        "If adding elements, match the scene's lighting, color, and style. "
-        "Preserve skin texture and fine details. "
-        "Do not alter the person's identity or pose significantly."
+        f"TASK: Smart retouch (remove or add elements).\n"
+        f"INPUTS:\n"
+        f"- text_edit: '{retouch_description}'\n"
+        f"INSTRUCTIONS:\n"
+        f"- If removing: inpaint with background continuation (textures, lines, shadows coherent).\n"
+        f"- If adding: match scene lighting, reflections, and color temperature.\n"
+        f"- Keep skin texture and fine details; avoid plastic smoothing.\n"
+        f"OUTPUT: retouched image, same size as input."
     )
     
     return _call_gemini([image_bytes], prompt, quality)
@@ -252,29 +260,33 @@ def create_polaroid(images: List[bytes], quality: str = "basic", caption: str = 
     Returns:
         байты изображения в стиле Polaroid
     """
-    # Сначала создаем групповое фото
+    # Шаг 1 — Сборка кадра (если 2–4 фото)
     if len(images) > 1:
         group_prompt = (
-            "Create a clean group portrait by merging the people from these separate images. "
-            "Place them close together with natural spacing and eye level alignment. "
-            "Use soft, even lighting and neutral background. "
-            "Preserve each person's identity and facial features."
+            "TASK: Compose a single group photo from provided portraits.\n"
+            "INSTRUCTIONS:\n"
+            "- Align faces to similar scale and eye level.\n"
+            "- Match color balance, add subtle unified grain.\n"
+            "- Neutral background (soft off-white) unless faces are already together.\n"
+            "OUTPUT: composed group photo, square or 3:4."
         )
         group_image = _call_gemini(images, group_prompt, quality)
     else:
         group_image = images[0]
     
-    # Затем применяем Polaroid стиль
+    # Шаг 2 — Стилизация под Polaroid
     polaroid_prompt = (
-        "Transform this image into a vintage Polaroid photograph style. "
-        "Add the characteristic white border with rounded corners. "
-        "Apply vintage film grain and slightly warm color tone. "
-        "Make the image look like it was taken with an instant camera from the 1970s-80s. "
-        "Keep the image sharp and clear but with nostalgic film aesthetic."
+        "TASK: Apply Polaroid aesthetic frame and film look.\n"
+        "INSTRUCTIONS:\n"
+        "- Add classic Polaroid white frame (thicker bottom border).\n"
+        "- Apply subtle film grain, soft contrast, slight warm tint.\n"
+        "- Make it look like vintage instant camera from 1970s-80s.\n"
+        "- Keep image sharp and clear but with nostalgic film aesthetic.\n"
+        "OUTPUT: final Polaroid-style image."
     )
     
     if caption:
-        polaroid_prompt += f" Add handwritten-style caption at the bottom: '{caption[:24]}'"
+        polaroid_prompt += f"\n- Place handwritten-style caption at the bottom: '{caption[:24]}'"
     
     return _call_gemini([group_image], polaroid_prompt, quality)
 
