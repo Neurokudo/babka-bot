@@ -21,7 +21,7 @@ from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
-    ReplyKeyboardMarkup, KeyboardButton
+    ReplyKeyboardMarkup, KeyboardButton, InputMediaPhoto
 )
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -73,7 +73,7 @@ DEFAULT_AUDIO = True  # по умолчанию с аудио
 # КОНФИГУРАЦИЯ И БИЛЛИНГ
 # -----------------------------------------------------------------------------
 from config import (
-    COST_VIDEO, COST_TRANSFORM, COST_TRANSFORM_PREMIUM,
+    COST_VIDEO, COST_TRANSFORM, COST_TRANSFORM_PREMIUM, COST_TRYON,
     FREE_RETRY_PER_JOB, DAILY_CAP_VIDEOS, LOW_COINS_THRESHOLD,
     PLANS, TOP_UPS, ADDONS, IMG_SIZE, QUALITY
 )
@@ -922,7 +922,7 @@ def kb_tryon_need_garment():
 
 def kb_tryon_confirm(forward="② → ①"):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"✨ Примерить", callback_data="tryon_confirm")],
+        [InlineKeyboardButton(f"✨ Примерить (−5 монеток)", callback_data="tryon_confirm")],
         [InlineKeyboardButton("🔁 Поменять местами", callback_data="tryon_swap")],
         [InlineKeyboardButton("❌ Сбросить", callback_data="tryon_reset")],
     ])
@@ -2958,16 +2958,35 @@ Telegram бот "Babka Bot"
             await q.message.reply_text("Нужно два изображения: человек и одежда. Пришлите недостающее.",
                                        reply_markup=kb_tryon_need_garment())
             return
+        
+        # Проверяем ресурсы
+        coins = st.get("coins", 0)
+        if coins < COST_TRYON:
+            await q.message.reply_text(
+                f"❌ Не хватает монеток для примерочной.\n\n"
+                f"💰 Монеток: {coins} (нужно: {COST_TRYON})\n\n"
+                f"💳 Докупить монеты?",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ])
+            )
+            return
+        
+        # Списываем монеты
+        st["coins"] -= COST_TRYON
+        
         await q.message.edit_text("⏳ Делаю примерку…")
         try:
             result_bytes = await asyncio.to_thread(virtual_tryon, stt["person"], stt["garment"], 1)
             stt["dressed"] = result_bytes
-            await q.message.reply_photo(photo=result_bytes,
-                                        caption="✅ Готово! Одежда перенесена на человека.",
-                                        reply_markup=kb_tryon_after())
+            await q.message.edit_media(media=InputMediaPhoto(media=result_bytes, caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {COST_TRYON} монеток"), reply_markup=kb_tryon_after())
             stt["stage"] = "after"
         except Exception as e:
             log.exception("VTO failed")
+            # Возвращаем монеты при ошибке
+            st["coins"] += COST_TRYON
             await q.message.reply_text(f"⚠️ Ошибка примерочной: {e}")
             await q.message.reply_text("Возврат в меню:", reply_markup=kb_home_inline())
         return
