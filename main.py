@@ -720,6 +720,7 @@ def _ensure(uid: int):
             "coins": 0,  # количество монет
             "video_bonus": 2,  # бесплатные видео для новых пользователей
             "photo_bonus": 3,  # бесплатные фото для новых пользователей
+            "tryon_bonus": 1,  # бесплатная примерочная для новых пользователей
             "plan": "lite",  # тарифный план
             "jobs": {},  # история задач
             "daily": {"date": "", "videos": 0},  # дневная статистика
@@ -920,9 +921,14 @@ def kb_tryon_need_garment():
         [InlineKeyboardButton("❌ Сбросить", callback_data="tryon_reset")],
     ])
 
-def kb_tryon_confirm(forward="② → ①"):
+def kb_tryon_confirm(forward="② → ①", tryon_bonus=0):
+    if tryon_bonus > 0:
+        button_text = "✨ Примерить (бесплатно)"
+    else:
+        button_text = "✨ Примерить (−5 монеток)"
+    
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"✨ Примерить (−5 монеток)", callback_data="tryon_confirm")],
+        [InlineKeyboardButton(button_text, callback_data="tryon_confirm")],
         [InlineKeyboardButton("🔁 Поменять местами", callback_data="tryon_swap")],
         [InlineKeyboardButton("❌ Сбросить", callback_data="tryon_reset")],
     ])
@@ -1097,12 +1103,20 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Приветственное сообщение для новых пользователей с бонусами
     video_bonus = st.get("video_bonus", 0)
     photo_bonus = st.get("photo_bonus", 0)
-    if video_bonus > 0 or photo_bonus > 0:
+    tryon_bonus = st.get("tryon_bonus", 0)
+    if video_bonus > 0 or photo_bonus > 0 or tryon_bonus > 0:
+        bonus_text = ""
+        if video_bonus > 0:
+            bonus_text += f"• {video_bonus} бесплатных видео\n"
+        if photo_bonus > 0:
+            bonus_text += f"• {photo_bonus} бесплатных фото-обработок\n"
+        if tryon_bonus > 0:
+            bonus_text += f"• {tryon_bonus} бесплатная примерочная\n"
+        
         await update.message.reply_text(
             f"🎉 Добро пожаловать в Babka Bot!\n\n"
             f"🎁 Приветственные подарки:\n"
-            f"• {video_bonus} бесплатных видео\n"
-            f"• {photo_bonus} бесплатных фото-обработок\n\n"
+            f"{bonus_text}\n"
             f"Эти подарки расходуются в первую очередь при генерации.\n\n"
             f"Выберите функцию:",
             reply_markup=kb_home_inline()
@@ -1963,13 +1977,13 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stt["stage"] = "confirm"
         await update.message.reply_text(
             "Фото получены. Готовы примерять?",
-            reply_markup=kb_tryon_confirm("② → ①")
+            reply_markup=kb_tryon_confirm("② → ①", st.get("tryon_bonus", 0))
         )
         return
 
     if stt["stage"] == "confirm":
         await update.message.reply_text("У нас уже есть оба снимка. Нажмите «✨ Примерить» или «🔁 Поменять местами».",
-                                        reply_markup=kb_tryon_confirm("② → ①"))
+                                        reply_markup=kb_tryon_confirm("② → ①", st.get("tryon_bonus", 0)))
 
 # --- Инлайн кнопки ---
 async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2127,6 +2141,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         coins = st.get("coins", 0)
         video_bonus = st.get("video_bonus", 0)
         photo_bonus = st.get("photo_bonus", 0)
+        tryon_bonus = st.get("tryon_bonus", 0)
         plan = st.get("plan", "lite")
         plan_name = PLANS.get(plan, {}).get("name", "Не выбран")
         videos_left = st.get("videos_left", 0)
@@ -2134,8 +2149,15 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         profile_text = f"👤 Профиль\n\n"
         
-        if video_bonus > 0 or photo_bonus > 0:
-            profile_text += f"🎁 Подарки: {video_bonus} видео, {photo_bonus} фото\n"
+        if video_bonus > 0 or photo_bonus > 0 or tryon_bonus > 0:
+            bonus_items = []
+            if video_bonus > 0:
+                bonus_items.append(f"{video_bonus} видео")
+            if photo_bonus > 0:
+                bonus_items.append(f"{photo_bonus} фото")
+            if tryon_bonus > 0:
+                bonus_items.append(f"{tryon_bonus} примерочная")
+            profile_text += f"🎁 Подарки: {', '.join(bonus_items)}\n"
         
         profile_text += f"💰 Монетки: {coins}\n"
         profile_text += f"📊 Тариф: {plan_name}\n"
@@ -2965,7 +2987,7 @@ Telegram бот "Babka Bot"
                                       reply_markup=kb_tryon_need_garment())
             return
         await q.message.edit_text("Роли поменяли местами.\n\nФото получены. Готовы примерять?",
-                                  reply_markup=kb_tryon_confirm("② → ①"))
+                                  reply_markup=kb_tryon_confirm("② → ①", st.get("tryon_bonus", 0)))
         stt["stage"] = "confirm"
         return
 
@@ -2981,11 +3003,14 @@ Telegram бот "Babka Bot"
                                        reply_markup=kb_tryon_need_garment())
             return
         
-        # Проверяем ресурсы
+        # Проверяем ресурсы (бонусы или монеты)
+        tryon_bonus = st.get("tryon_bonus", 0)
         coins = st.get("coins", 0)
-        if coins < COST_TRYON:
+        
+        if tryon_bonus == 0 and coins < COST_TRYON:
             await q.message.reply_text(
-                f"❌ Не хватает монеток для примерочной.\n\n"
+                f"❌ Не хватает ресурсов для примерочной.\n\n"
+                f"🎁 Бонусных примерок: {tryon_bonus}\n"
                 f"💰 Монеток: {coins} (нужно: {COST_TRYON})\n\n"
                 f"💳 Докупить монеты?",
                 reply_markup=InlineKeyboardMarkup([
@@ -2996,19 +3021,27 @@ Telegram бот "Babka Bot"
             )
             return
         
-        # Списываем монеты
-        st["coins"] -= COST_TRYON
+        # Списываем ресурсы (бонусы или монеты)
+        if tryon_bonus > 0:
+            st["tryon_bonus"] -= 1
+            cost_text = "0 монеток (бонус)"
+        else:
+            st["coins"] -= COST_TRYON
+            cost_text = f"{COST_TRYON} монеток"
         
         await q.message.edit_text("⏳ Делаю примерку…")
         try:
             result_bytes = await asyncio.to_thread(virtual_tryon, stt["person"], stt["garment"], 1)
             stt["dressed"] = result_bytes
-            await q.message.edit_media(media=InputMediaPhoto(media=result_bytes, caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {COST_TRYON} монеток"), reply_markup=kb_tryon_after())
+            await q.message.edit_media(media=InputMediaPhoto(media=result_bytes, caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {cost_text}"), reply_markup=kb_tryon_after())
             stt["stage"] = "after"
         except Exception as e:
             log.exception("VTO failed")
-            # Возвращаем монеты при ошибке
-            st["coins"] += COST_TRYON
+            # Возвращаем ресурсы при ошибке
+            if tryon_bonus > 0:
+                st["tryon_bonus"] += 1
+            else:
+                st["coins"] += COST_TRYON
             await q.message.reply_text(f"⚠️ Ошибка примерочной: {e}")
             await q.message.reply_text("Возврат в меню:", reply_markup=kb_home_inline())
         return
