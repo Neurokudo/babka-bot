@@ -1094,6 +1094,21 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # Приветственное сообщение для новых пользователей с бонусами
+    video_bonus = st.get("video_bonus", 0)
+    photo_bonus = st.get("photo_bonus", 0)
+    if video_bonus > 0 or photo_bonus > 0:
+        await update.message.reply_text(
+            f"🎉 Добро пожаловать в Babka Bot!\n\n"
+            f"🎁 Приветственные подарки:\n"
+            f"• {video_bonus} бесплатных видео\n"
+            f"• {photo_bonus} бесплатных фото-обработок\n\n"
+            f"Эти подарки расходуются в первую очередь при генерации.\n\n"
+            f"Выберите функцию:",
+            reply_markup=kb_home_inline()
+        )
+        return
+    
     await update.message.reply_text("Главное меню:", reply_markup=kb_home_inline())
 
 async def cmd_whereami(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1982,6 +1997,14 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "2) Затем пришлите фото одежды (можно даже на другом человеке)",
             reply_markup=kb_tryon_start()
         ); return
+    # --- Обработка пропуска предупреждения о низком балансе ---
+    if data == "skip_low_coins":
+        await q.message.edit_text(
+            "🏠 Главное меню",
+            reply_markup=kb_home_inline()
+        )
+        return
+
     # --- Трансформации изображений ---
     if data == "menu_transforms":
         coins = st.get("coins", 0)
