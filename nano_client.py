@@ -7,6 +7,8 @@
 import os, base64, json, logging, requests
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request
+from PIL import Image, ImageEnhance, ImageFilter
+import io
 
 log = logging.getLogger("nano-client")
 
@@ -29,6 +31,32 @@ def _access_token() -> str:
     creds = _load_credentials()
     creds.refresh(Request())
     return creds.token
+
+def _enhance_gemini_image(image_bytes: bytes) -> bytes:
+    """Улучшает качество изображения от Gemini: убирает шум, повышает резкость без потери деталей."""
+    try:
+        # Открываем изображение
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        # Легкое подавление шума
+        image = image.filter(ImageFilter.MedianFilter(size=1))
+        
+        # Умеренное повышение резкости
+        enhancer = ImageEnhance.Sharpness(image)
+        image = enhancer.enhance(1.15)  # Небольшое улучшение резкости
+        
+        # Легкое улучшение контраста
+        enhancer = ImageEnhance.Contrast(image)
+        image = enhancer.enhance(1.05)  # Минимальное улучшение контраста
+        
+        # Сохраняем в высоком качестве
+        output = io.BytesIO()
+        image.save(output, format='PNG', quality=95, optimize=True, compress_level=0)
+        return output.getvalue()
+        
+    except Exception as e:
+        log.warning("Failed to enhance Gemini image quality: %s", e)
+        return image_bytes  # Возвращаем оригинал если не удалось улучшить
 
 def repose_or_relocate(dressed_bytes: bytes, prompt: str = "", bg_bytes: bytes | None = None) -> bytes:
     """
@@ -69,7 +97,11 @@ def repose_or_relocate(dressed_bytes: bytes, prompt: str = "", bg_bytes: bytes |
         "instances": inst + [{"prompt": instruction}],
         "parameters": {
             "sampleCount": 1,
-            "resolution": "1024x1024"
+            "resolution": "2048x2048",  # Увеличиваем разрешение
+            "quality": "high",  # Высокое качество
+            "enhancement": "super_resolution",  # Супер-разрешение
+            "noise_reduction": True,  # Подавление шума
+            "sharpening": "medium"  # Умеренная резкость
         }
     }
 
@@ -80,5 +112,9 @@ def repose_or_relocate(dressed_bytes: bytes, prompt: str = "", bg_bytes: bytes |
     b64 = pred.get("bytesBase64Encoded")
     if not b64:
         raise RuntimeError(f"Unexpected nano response: {data}")
-    return base64.b64decode(b64)
+    
+    # Декодируем изображение и улучшаем качество
+    result_bytes = base64.b64decode(b64)
+    enhanced_bytes = _enhance_gemini_image(result_bytes)
+    return enhanced_bytes
 

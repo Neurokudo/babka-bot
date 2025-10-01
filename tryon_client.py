@@ -75,48 +75,28 @@ def _access_token() -> str:
             raise RuntimeError(f"Authentication failed: {e}")
 
 def _enhance_image_quality(image_bytes: bytes) -> bytes:
-    """Максимально улучшает качество изображения: убирает зернистость, повышает резкость, улучшает детали."""
+    """Улучшает качество изображения без потери деталей: убирает шум, повышает резкость."""
     try:
         # Открываем изображение
         image = Image.open(io.BytesIO(image_bytes))
         
-        # Увеличиваем разрешение в 2 раза для лучшего качества
+        # Сохраняем оригинальный размер
         original_size = image.size
-        new_size = (original_size[0] * 2, original_size[1] * 2)
-        image = image.resize(new_size, Image.Resampling.LANCZOS)
         
-        # Убираем зернистость (более мягкий фильтр)
-        image = image.filter(ImageFilter.MedianFilter(size=2))
+        # Легкое подавление шума (более мягкий подход)
+        image = image.filter(ImageFilter.MedianFilter(size=1))
         
-        # Применяем фильтр размытия по Гауссу для сглаживания
-        image = image.filter(ImageFilter.GaussianBlur(radius=0.5))
-        
-        # Значительно повышаем резкость
+        # Умеренное повышение резкости (не слишком агрессивно)
         enhancer = ImageEnhance.Sharpness(image)
-        image = enhancer.enhance(1.8)
+        image = enhancer.enhance(1.2)  # Было 1.8, теперь 1.2
         
-        # Улучшаем контраст
+        # Легкое улучшение контраста
         enhancer = ImageEnhance.Contrast(image)
-        image = enhancer.enhance(1.3)
+        image = enhancer.enhance(1.1)  # Было 1.3, теперь 1.1
         
-        # Улучшаем яркость
-        enhancer = ImageEnhance.Brightness(image)
-        image = enhancer.enhance(1.1)
-        
-        # Улучшаем цветовую насыщенность
-        enhancer = ImageEnhance.Color(image)
-        image = enhancer.enhance(1.2)
-        
-        # Возвращаем к оригинальному размеру с улучшенным качеством
-        image = image.resize(original_size, Image.Resampling.LANCZOS)
-        
-        # Финальная обработка - легкое повышение резкости
-        enhancer = ImageEnhance.Sharpness(image)
-        image = enhancer.enhance(1.1)
-        
-        # Сохраняем в максимальном качестве
+        # Сохраняем в высоком качестве без потери деталей
         output = io.BytesIO()
-        image.save(output, format='PNG', quality=100, optimize=True, compress_level=1)
+        image.save(output, format='PNG', quality=95, optimize=True, compress_level=0)
         return output.getvalue()
         
     except Exception as e:
@@ -150,10 +130,12 @@ def virtual_tryon(person_bytes: bytes, garment_bytes: bytes, sample_count: int =
         "parameters": {
             "sampleCount": int(sample_count),
             "quality": "ultra_high",  # Максимальное качество
-            "resolution": "2048x2048",  # Очень высокое разрешение
+            "resolution": "2048x2048",  # Высокое разрешение
             "enhancement": "super_resolution",  # Супер-разрешение
             "noise_reduction": True,  # Подавление шума
-            "sharpening": "high"  # Высокая резкость
+            "sharpening": "medium",  # Умеренная резкость (не слишком агрессивно)
+            "color_correction": True,  # Коррекция цвета
+            "detail_preservation": True  # Сохранение деталей
             # "storageUri": "gs://your-bucket/path/"  # если хочешь сохранять в GCS
         }
     }
