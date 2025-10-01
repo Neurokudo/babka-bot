@@ -912,13 +912,11 @@ def kb_after_video():
 # --- Примерочная: клавиатуры ---
 def kb_tryon_start():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚶 Загрузить человека", callback_data="tryon_start_person")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
     ])
 
 def kb_tryon_need_garment():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("👗 Загрузить одежду", callback_data="tryon_need_garment")],
         [InlineKeyboardButton("❌ Сбросить", callback_data="tryon_reset")],
     ])
 
@@ -1230,8 +1228,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         st["tryon"] = {"stage": "await_person", "person": None, "garment": None, "dressed": None, "await_bg": False, "await_prompt": False}
         await update.message.reply_text(
             "👗 Виртуальная примерочная\n\n"
-            "1) Пришлите фото человека, которого будем одевать (лицо видно, по пояс/рост).\n"
-            "2) Затем пришлите фото одежды на нейтральном фоне.",
+            "1) Пришлите фото человека, которого будем одевать\n"
+            "2) Затем пришлите фото одежды (можно даже на другом человеке)",
             reply_markup=kb_tryon_start()
         ); return
     if text == "🧾 JSON (для продвинутых)":
@@ -1980,8 +1978,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         st["tryon"] = {"stage": "await_person", "person": None, "garment": None, "dressed": None, "await_bg": False, "await_prompt": False}
         await q.message.edit_text(
             "👗 Виртуальная примерочная\n\n"
-            "1) Пришлите фото человека, которого будем одевать (лицо видно, по пояс/рост).\n"
-            "2) Затем пришлите фото одежды на нейтральном фоне.",
+            "1) Пришлите фото человека, которого будем одевать\n"
+            "2) Затем пришлите фото одежды (можно даже на другом человеке)",
             reply_markup=kb_tryon_start()
         ); return
     # --- Трансформации изображений ---
@@ -2936,15 +2934,6 @@ Telegram бот "Babka Bot"
             return
 
     # --- Примерочная: кнопки флоу ---
-    if data == "tryon_start_person":
-        st["tryon"]["stage"] = "await_person"
-        await q.message.edit_text("Жду фото человека. Пришлите изображение как фото.", reply_markup=kb_tryon_need_garment())
-        return
-
-    if data == "tryon_need_garment":
-        st["tryon"]["stage"] = "await_garment"
-        await q.message.edit_text("Отлично. Теперь пришлите фото одежды.", reply_markup=kb_tryon_need_garment())
-        return
 
     if data == "tryon_swap":
         stt = st["tryon"]
