@@ -964,8 +964,8 @@ def kb_transforms():
 
 def kb_transform_quality():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ Быстрое (1024×1024) −1 монетка", callback_data="quality_basic")],
-        [InlineKeyboardButton("🎨 Премиум (2048×2048) −2 монетки", callback_data="quality_premium")],
+        [InlineKeyboardButton("⚡ Быстрое −1 монетка", callback_data="quality_basic")],
+        [InlineKeyboardButton("🎨 Премиум −2 монетки", callback_data="quality_premium")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
     ])
 
@@ -2030,7 +2030,6 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         st["transform_type"] = "remove_bg"
         await q.message.edit_text(
             "✨ Удалить фон\n\n"
-            "Пришлите фото для удаления фона.\n"
             "Выберите качество обработки:",
             reply_markup=kb_transform_quality()
         )
