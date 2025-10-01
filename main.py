@@ -28,6 +28,9 @@ from telegram.ext import (
     MessageHandler, ContextTypes, filters
 )
 
+# Импорты для работы с базой данных и биллингом
+from database import db
+
 # -----------------------------------------------------------------------------
 # ОКРУЖЕНИЕ / ЛОГИ
 # -----------------------------------------------------------------------------
@@ -694,39 +697,49 @@ users: Dict[int, State] = {}
 
 def _ensure(uid: int):
     if uid not in users:
-        users[uid] = {
-            "mode": None,
-            "source_text": None,
-            "scene": None,
-            "style": None,
-            "replica": None,
-            "awaiting_scene": False,
-            "awaiting_scene_edit": False,
-            "awaiting_support": False,
-            # JSON advanced
-            "jsonpro": {
-                "await_text": False,
-                "last_json": None,
+        # Сначала пытаемся загрузить из базы данных
+        user_data = db.get_user(uid)
+        
+        if user_data:
+            # Пользователь найден в базе данных
+            user_data["user_id"] = uid  # Добавляем user_id
+            users[uid] = user_data
+        else:
+            # Новый пользователь - создаем структуру по умолчанию
+            users[uid] = {
+                "user_id": uid,  # Добавляем user_id для связи с базой данных
+                "mode": None,
+                "source_text": None,
+                "scene": None,
+                "style": None,
+                "replica": None,
+                "awaiting_scene": False,
+                "awaiting_scene_edit": False,
+                "awaiting_support": False,
+                # JSON advanced
+                "jsonpro": {
+                    "await_text": False,
+                    "last_json": None,
+                    "orientation": DEFAULT_ORIENTATION,
+                },
+                # NKudo
+                "nkudo_type": None,
+                "nkudo_scene1": None,
+                "nkudo_scene2": None,
+                # ориентация
                 "orientation": DEFAULT_ORIENTATION,
-            },
-            # NKudo
-            "nkudo_type": None,
-            "nkudo_scene1": None,
-            "nkudo_scene2": None,
-            # ориентация
-            "orientation": DEFAULT_ORIENTATION,
-            "with_audio": DEFAULT_AUDIO,  # настройка аудио
-            # монеты и биллинг
-            "coins": 0,  # количество монет
-            "video_bonus": 2,  # бесплатные видео для новых пользователей
-            "photo_bonus": 3,  # бесплатные фото для новых пользователей
-            "tryon_bonus": 1,  # бесплатная примерочная для новых пользователей
-            "plan": "lite",  # тарифный план
-            "jobs": {},  # история задач
-            "daily": {"date": "", "videos": 0},  # дневная статистика
-            "videos_left": 0,  # оставшиеся ролики
-            "photos_left": 0,  # оставшиеся фотографии
-            "processed_payments": set(),  # обработанные платежи для идемпотентности
+                "with_audio": DEFAULT_AUDIO,  # настройка аудио
+                # монеты и биллинг
+                "coins": 0,  # количество монет
+                "video_bonus": 2,  # бесплатные видео для новых пользователей
+                "photo_bonus": 3,  # бесплатные фото для новых пользователей
+                "tryon_bonus": 1,  # бесплатная примерочная для новых пользователей
+                "plan": "lite",  # тарифный план
+                "jobs": {},  # история задач
+                "daily": {"date": "", "videos": 0},  # дневная статистика
+                "videos_left": 0,  # оставшиеся ролики
+                "photos_left": 0,  # оставшиеся фотографии
+                "processed_payments": set(),  # обработанные платежи для идемпотентности
             # трансформации изображений
             "awaiting_transform": False,  # ожидаем загрузку фото
             "transform_type": None,  # тип трансформации
@@ -744,6 +757,9 @@ def _ensure(uid: int):
                 "await_prompt": False,    # ждём текст описания позы/локации
             },
         }
+        
+        # Сохраняем нового пользователя в базу данных
+        db.save_user(uid, users[uid])
 
 # -----------------------------------------------------------------------------
 # КЛАВИАТУРЫ

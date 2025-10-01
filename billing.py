@@ -9,6 +9,7 @@ from config import (
     COST_VIDEO, COST_TRANSFORM, COST_TRANSFORM_PREMIUM, 
     FREE_RETRY_PER_JOB, DAILY_CAP_VIDEOS, LOW_COINS_THRESHOLD
 )
+from database import db
 
 def new_job_id():
     """Генерирует уникальный ID задачи"""
@@ -50,25 +51,47 @@ def hold_and_start(user, job_type, quality="basic", extra_cost=0):
         quality: "basic" | "premium"
         extra_cost: дополнительные монеты (для сложных операций)
     """
+    user_id = user.get("user_id")
+    
     if job_type == "video":
         cost = COST_VIDEO
         if has_video_bonus(user):
             user["video_bonus"] -= 1
             cost = 0  # Бонусное видео бесплатно
+            bonus_type = "video_bonus"
         elif not can_spend(user, cost):
             raise ValueError("NO_COINS")
         else:
             user["coins"] -= cost
+            bonus_type = None
     else:  # transform
         cost = COST_TRANSFORM_PREMIUM if quality == "premium" else COST_TRANSFORM
         cost += extra_cost
         if has_photo_bonus(user):
             user["photo_bonus"] -= 1
             cost = 0  # Бонусное фото бесплатно
+            bonus_type = "photo_bonus"
         elif not can_spend(user, cost):
             raise ValueError("NO_COINS")
         else:
             user["coins"] -= cost
+            bonus_type = None
+    
+    # Сохраняем изменения в базе данных
+    if user_id:
+        db.save_user(user_id, user)
+        
+        # Создаем транзакцию в базе данных
+        transaction_id = db.add_transaction(
+            user_id=user_id,
+            operation_type=job_type,
+            coins_spent=cost,
+            used_bonus=(cost == 0),
+            bonus_type=bonus_type,
+            quality=quality
+        )
+    else:
+        transaction_id = None
     
     # Создаем задачу
     job_id = new_job_id()
@@ -82,7 +105,8 @@ def hold_and_start(user, job_type, quality="basic", extra_cost=0):
         "status": "pending",
         "quality": quality,
         "created_at": datetime.now().isoformat(),
-        "used_bonus": cost == 0  # Отмечаем, что использовали бонус
+        "used_bonus": cost == 0,  # Отмечаем, что использовали бонус
+        "transaction_id": transaction_id  # Связываем с базой данных
     }
     
     # Обновляем last_job для совместимости
@@ -92,9 +116,22 @@ def hold_and_start(user, job_type, quality="basic", extra_cost=0):
 
 def on_success(user, job_id):
     """Отмечает задачу как успешную"""
+    user_id = user.get("user_id")
+    
     if "jobs" in user and job_id in user["jobs"]:
         user["jobs"][job_id]["status"] = "ok"
         user["jobs"][job_id]["completed_at"] = datetime.now().isoformat()
+        
+        # Обновляем статус транзакции в базе данных
+        if user_id and user["jobs"][job_id].get("transaction_id"):
+            db.update_transaction_status(
+                user["jobs"][job_id]["transaction_id"], 
+                "completed"
+            )
+        
+        # Сохраняем изменения пользователя
+        if user_id:
+            db.save_user(user_id, user)
         
         # Обновляем last_job
         user["last_job"] = user["jobs"][job_id]
@@ -105,6 +142,8 @@ def on_success(user, job_id):
 
 def on_error(user, job_id):
     """Возвращает ресурсы (бонусы или монеты) при ошибке"""
+    user_id = user.get("user_id")
+    
     if "jobs" not in user or job_id not in user["jobs"]:
         return
     
@@ -122,6 +161,14 @@ def on_error(user, job_id):
         job["status"] = "error"
         job["error_at"] = datetime.now().isoformat()
         
+        # Обновляем статус транзакции в базе данных
+        if user_id and job.get("transaction_id"):
+            db.update_transaction_status(job["transaction_id"], "error")
+        
+        # Сохраняем изменения пользователя
+        if user_id:
+            db.save_user(user_id, user)
+        
         # Обновляем last_job
         user["last_job"] = job
 
@@ -132,6 +179,8 @@ def retry(user, job_id):
     Returns:
         bool: True если ретрай разрешен, False если не хватает ресурсов
     """
+    user_id = user.get("user_id")
+    
     if "jobs" not in user or job_id not in user["jobs"]:
         return False
     
@@ -141,6 +190,11 @@ def retry(user, job_id):
     if job["retry_used"] < FREE_RETRY_PER_JOB:
         # Бесплатный ретрай
         job["retry_used"] += 1
+        
+        # Сохраняем изменения
+        if user_id:
+            db.save_user(user_id, user)
+        
         return True
     
     # Платный ретрай - используем бонусы или монеты
@@ -148,22 +202,38 @@ def retry(user, job_id):
         if has_video_bonus(user):
             user["video_bonus"] -= 1
             job["retry_used"] += 1
-            return True
+            bonus_type = "video_bonus"
         elif can_spend(user, job["cost"]):
             user["coins"] -= job["cost"]
             job["retry_used"] += 1
-            return True
+            bonus_type = None
+        else:
+            return False
     else:  # transform
         if has_photo_bonus(user):
             user["photo_bonus"] -= 1
             job["retry_used"] += 1
-            return True
+            bonus_type = "photo_bonus"
         elif can_spend(user, job["cost"]):
             user["coins"] -= job["cost"]
             job["retry_used"] += 1
-            return True
+            bonus_type = None
+        else:
+            return False
     
-    return False
+    # Создаем новую транзакцию для ретрая
+    if user_id:
+        db.save_user(user_id, user)
+        db.add_transaction(
+            user_id=user_id,
+            operation_type=f"{job['type']}_retry",
+            coins_spent=job["cost"] if bonus_type is None else 0,
+            used_bonus=(bonus_type is not None),
+            bonus_type=bonus_type,
+            quality=job.get("quality", "basic")
+        )
+    
+    return True
 
 def check_daily_cap(user, job_type):
     """
