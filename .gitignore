@@ -1,0 +1,7 @@
+veo-bot-key.json
+*.json
+.env
+.env
+.env
+__pycache__/
+*.pyc

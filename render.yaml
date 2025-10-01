@@ -1,0 +1,17 @@
+services:
+  - type: worker
+    name: babka-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GCP_PROJECT_ID
+        sync: false
+      - key: GCP_LOCATION
+        sync: false
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
