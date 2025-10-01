@@ -22,9 +22,27 @@ def can_spend(user, cost):
     """Проверяет, может ли пользователь потратить указанное количество монет"""
     return user.get("coins", 0) >= cost
 
+def has_video_bonus(user):
+    """Проверяет, есть ли у пользователя бонусные видео"""
+    return user.get("video_bonus", 0) > 0
+
+def has_photo_bonus(user):
+    """Проверяет, есть ли у пользователя бонусные фото"""
+    return user.get("photo_bonus", 0) > 0
+
+def can_generate_video(user):
+    """Проверяет, может ли пользователь сгенерировать видео (бонус или монеты)"""
+    return has_video_bonus(user) or can_spend(user, COST_VIDEO)
+
+def can_generate_photo(user, cost=None):
+    """Проверяет, может ли пользователь сгенерировать фото (бонус или монеты)"""
+    if cost is None:
+        cost = COST_TRANSFORM
+    return has_photo_bonus(user) or can_spend(user, cost)
+
 def hold_and_start(user, job_type, quality="basic", extra_cost=0):
     """
-    Резервирует монеты и создает задачу
+    Резервирует ресурсы (бонусы или монеты) и создает задачу
     
     Args:
         user: состояние пользователя
@@ -34,15 +52,23 @@ def hold_and_start(user, job_type, quality="basic", extra_cost=0):
     """
     if job_type == "video":
         cost = COST_VIDEO
+        if has_video_bonus(user):
+            user["video_bonus"] -= 1
+            cost = 0  # Бонусное видео бесплатно
+        elif not can_spend(user, cost):
+            raise ValueError("NO_COINS")
+        else:
+            user["coins"] -= cost
     else:  # transform
         cost = COST_TRANSFORM_PREMIUM if quality == "premium" else COST_TRANSFORM
         cost += extra_cost
-    
-    if not can_spend(user, cost):
-        raise ValueError("NO_COINS")
-    
-    # Списываем монеты
-    user["coins"] -= cost
+        if has_photo_bonus(user):
+            user["photo_bonus"] -= 1
+            cost = 0  # Бонусное фото бесплатно
+        elif not can_spend(user, cost):
+            raise ValueError("NO_COINS")
+        else:
+            user["coins"] -= cost
     
     # Создаем задачу
     job_id = new_job_id()
@@ -55,7 +81,8 @@ def hold_and_start(user, job_type, quality="basic", extra_cost=0):
         "retry_used": 0,
         "status": "pending",
         "quality": quality,
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now().isoformat(),
+        "used_bonus": cost == 0  # Отмечаем, что использовали бонус
     }
     
     # Обновляем last_job для совместимости
@@ -77,14 +104,21 @@ def on_success(user, job_id):
             inc_daily_video(user)
 
 def on_error(user, job_id):
-    """Возвращает монеты при ошибке"""
+    """Возвращает ресурсы (бонусы или монеты) при ошибке"""
     if "jobs" not in user or job_id not in user["jobs"]:
         return
     
     job = user["jobs"][job_id]
     if job["status"] == "pending":
-        # Возвращаем монеты
-        user["coins"] += job["cost"]
+        if job.get("used_bonus", False):
+            if job["type"] == "video":
+                user["video_bonus"] += 1
+            else:  # transform
+                user["photo_bonus"] += 1
+        else:
+            # Возвращаем монеты
+            user["coins"] += job["cost"]
+        
         job["status"] = "error"
         job["error_at"] = datetime.now().isoformat()
         
@@ -96,7 +130,7 @@ def retry(user, job_id):
     Пытается сделать ретрай задачи
     
     Returns:
-        bool: True если ретрай разрешен, False если не хватает монет
+        bool: True если ретрай разрешен, False если не хватает ресурсов
     """
     if "jobs" not in user or job_id not in user["jobs"]:
         return False
@@ -109,12 +143,25 @@ def retry(user, job_id):
         job["retry_used"] += 1
         return True
     
-    # Платный ретрай
-    cost = job["cost"]
-    if can_spend(user, cost):
-        user["coins"] -= cost
-        job["retry_used"] += 1
-        return True
+    # Платный ретрай - используем бонусы или монеты
+    if job["type"] == "video":
+        if has_video_bonus(user):
+            user["video_bonus"] -= 1
+            job["retry_used"] += 1
+            return True
+        elif can_spend(user, job["cost"]):
+            user["coins"] -= job["cost"]
+            job["retry_used"] += 1
+            return True
+    else:  # transform
+        if has_photo_bonus(user):
+            user["photo_bonus"] -= 1
+            job["retry_used"] += 1
+            return True
+        elif can_spend(user, job["cost"]):
+            user["coins"] -= job["cost"]
+            job["retry_used"] += 1
+            return True
     
     return False
 

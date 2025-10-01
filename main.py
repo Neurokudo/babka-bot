@@ -81,7 +81,8 @@ from payment_yookassa import create_payment_link, process_payment_webhook
 from billing import (
     can_spend, hold_and_start, on_success, on_error, retry,
     check_daily_cap, inc_daily_video, get_daily_videos_left,
-    check_low_coins, get_retry_cost, can_retry
+    check_low_coins, get_retry_cost, can_retry,
+    has_video_bonus, has_photo_bonus, can_generate_video, can_generate_photo
 )
 
 # -----------------------------------------------------------------------------
@@ -712,6 +713,8 @@ def _ensure(uid: int):
             "with_audio": DEFAULT_AUDIO,  # настройка аудио
             # монеты и биллинг
             "coins": 0,  # количество монет
+            "video_bonus": 2,  # бесплатные видео для новых пользователей
+            "photo_bonus": 3,  # бесплатные фото для новых пользователей
             "plan": "lite",  # тарифный план
             "jobs": {},  # история задач
             "daily": {"date": "", "videos": 0},  # дневная статистика
@@ -1134,7 +1137,7 @@ Telegram бот "Babka Bot"
 • Первая повторная генерация: без списания
 
 4.2. Приветственные бонусы:
-• 3 бесплатные видео-генерации
+• 2 бесплатные видео-генерации
 • 3 бесплатные фото-обработки
 
 4.3. Тарифные планы:
@@ -1825,11 +1828,15 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             quality = st.get("transform_quality", "basic")
             cost = 1 if quality == "basic" else 2
             
-            if not can_spend(st, cost):
+            if not can_generate_photo(st, cost):
+                photo_bonus = st.get("photo_bonus", 0)
+                coins = st.get("coins", 0)
+                
                 await update.message.reply_text(
-                f"❌ Не хватает монеток.\n"
-                f"Нужно: {cost} монетка, у вас: {st.get('coins', 0)} монеток.\n\n"
-                f"Докупить 20 монеток за 390 ₽?",
+                    f"❌ Не хватает ресурсов для обработки фото.\n\n"
+                    f"🎁 Бонусных фото: {photo_bonus}\n"
+                    f"💰 Монеток: {coins} (нужно: {cost})\n\n"
+                    f"💳 Докупить монеты?",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("💳 Докупить", callback_data="buy_coins_20")],
                         [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
@@ -2085,18 +2092,26 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data == "menu_profile":
         coins = st.get("coins", 0)
+        video_bonus = st.get("video_bonus", 0)
+        photo_bonus = st.get("photo_bonus", 0)
         plan = st.get("plan", "lite")
         plan_name = PLANS.get(plan, {}).get("name", "Не выбран")
         videos_left = st.get("videos_left", 0)
         photos_left = st.get("photos_left", 0)
         
+        profile_text = f"👤 Профиль\n\n"
+        
+        if video_bonus > 0 or photo_bonus > 0:
+            profile_text += f"🎁 Подарки: {video_bonus} видео, {photo_bonus} фото\n"
+        
+        profile_text += f"💰 Монетки: {coins}\n"
+        profile_text += f"📊 Тариф: {plan_name}\n"
+        profile_text += f"🎬 Видео: {videos_left}\n"
+        profile_text += f"📸 Фотографий: {photos_left}\n\n"
+        profile_text += f"💡 Пример: видео = 10 монеток, преобразование = 1 монетка"
+        
         await q.message.edit_text(
-            f"👤 Профиль\n\n"
-            f"💰 Осталось: {coins} монеток\n"
-            f"📊 Тариф: {plan_name}\n"
-            f"🎬 Видео: {videos_left}\n"
-            f"📸 Фотографий: {photos_left}\n\n"
-            f"💡 Пример: видео = 10 монеток, преобразование = 1 монетка",
+            profile_text,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
                 [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
@@ -2377,7 +2392,7 @@ Telegram бот "Babka Bot"
 • Первая повторная генерация: без списания
 
 4.2. Приветственные бонусы:
-• 3 бесплатные видео-генерации
+• 2 бесплатные видео-генерации
 • 3 бесплатные фото-обработки
 
 4.3. Тарифные планы:
@@ -3329,19 +3344,24 @@ Telegram бот "Babka Bot"
         if st.get("style") is None: st["style"] = DEFAULT_STYLE
         if not st.get("orientation"): st["orientation"] = DEFAULT_ORIENTATION
 
-        # Проверяем монеты
-        if not can_spend(st, COST_VIDEO):
-            await q.message.reply_text(
-                f"❌ Не хватает монеток.\n"
-                f"Нужно: {COST_VIDEO} монеток, у вас: {st.get('coins', 0)} монеток.\n\n"
-                f"💳 Докупить монеты?",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
-                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
-                ])
-            )
-            return
+        # Проверяем ресурсы (бонусы или монеты)
+        if not can_generate_video(st):
+            video_bonus = st.get("video_bonus", 0)
+            coins = st.get("coins", 0)
+            
+            if video_bonus == 0 and coins < COST_VIDEO:
+                await q.message.reply_text(
+                    f"❌ Не хватает ресурсов для генерации видео.\n\n"
+                    f"🎁 Бонусных видео: {video_bonus}\n"
+                    f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
+                    f"💳 Докупить монеты?",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                        [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                        [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                    ])
+                )
+                return
 
         # Проверяем дневной лимит
         if not check_daily_cap(st, "video"):
