@@ -60,9 +60,9 @@ class Database:
                     CREATE TABLE IF NOT EXISTS users (
                         user_id BIGINT PRIMARY KEY,
                         coins INTEGER DEFAULT 0,
-                        video_bonus INTEGER DEFAULT 2,
-                        photo_bonus INTEGER DEFAULT 3,
-                        tryon_bonus INTEGER DEFAULT 1,
+                        video_bonus INTEGER DEFAULT 0,
+                        photo_bonus INTEGER DEFAULT 0,
+                        tryon_bonus INTEGER DEFAULT 0,
                         plan VARCHAR(20) DEFAULT 'lite',
                         videos_left INTEGER DEFAULT 0,
                         photos_left INTEGER DEFAULT 0,

@@ -697,12 +697,20 @@ State = Dict[str, Any]
 users: Dict[int, State] = {}
 
 def _ensure(uid: int):
+    """
+    КРИТИЧНО: Эта функция ВСЕГДА синхронизируется с БД!
+    1. Если пользователь в памяти - ничего не делаем (используем кэш)
+    2. Если НЕТ в памяти - загружаем из БД
+    3. Если НЕТ в БД - создаем нового с правильными бонусами
+    """
     if uid not in users:
         # Сначала пытаемся загрузить из базы данных
         user_data = db.get_user(uid)
         
         if user_data:
-            # Пользователь найден в базе данных
+            # Пользователь найден в базе данных - ИСПОЛЬЗУЕМ ЕГО ДАННЫЕ!
+            log.info(f"Loaded user {uid} from DB: video_bonus={user_data.get('video_bonus', 0)}, "
+                    f"photo_bonus={user_data.get('photo_bonus', 0)}, coins={user_data.get('coins', 0)}")
             user_data["user_id"] = uid  # Добавляем user_id
             users[uid] = user_data
         else:
@@ -716,12 +724,14 @@ def _ensure(uid: int):
                 video_bonus = 30
                 photo_bonus = 50
                 tryon_bonus = 10
+                log.info(f"Creating NEW ADMIN user {uid} with GENEROUS bonuses!")
             else:
                 # Обычные стартовые бонусы для новых пользователей
                 coins = 0
                 video_bonus = 2
                 photo_bonus = 3
                 tryon_bonus = 1
+                log.info(f"Creating new regular user {uid} with standard bonuses")
             
             users[uid] = {
                 "user_id": uid,  # Добавляем user_id для связи с базой данных
@@ -1314,12 +1324,14 @@ async def cmd_add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     st["tryon_bonus"] = 10  # 10 бесплатных примерок
     st["coins"] = 500  # 500 монеток для полного тестирования
     
-    # Сохраняем в базу данных
+    # КРИТИЧНО: Сохраняем в базу данных И в память!
     db.save_user(uid, st)
+    log.info(f"ADMIN {uid} bonus update: video={st['video_bonus']}, photo={st['photo_bonus']}, "
+             f"tryon={st['tryon_bonus']}, coins={st['coins']}")
     
     # Показываем текущее состояние
     await update.message.reply_text(
-        "🎁 БОНУСЫ ОБНОВЛЕНЫ!\n\n"
+        "🎁 БОНУСЫ ОБНОВЛЕНЫ В БД И ПАМЯТИ!\n\n"
         "✨ Ваши текущие ресурсы:\n\n"
         "🎁 БОНУСЫ:\n"
         f"   🎬 Видео: {st['video_bonus']}\n"
@@ -1327,7 +1339,38 @@ async def cmd_add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"   👗 Примерки: {st['tryon_bonus']}\n\n"
         f"💰 Монеток: {st['coins']}\n\n"
         "🚀 Теперь можете тестировать все функции бота!\n"
-        "✨ Бонусы расходуются в первую очередь.",
+        "✨ Бонусы расходуются в первую очередь.\n\n"
+        "📊 Проверьте профиль через меню!",
+        reply_markup=kb_home_inline()
+    )
+
+async def cmd_reload_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """СЛУЖЕБНАЯ КОМАНДА: Принудительно перезагрузить профиль из БД - ТОЛЬКО ДЛЯ АДМИНА"""
+    uid = update.effective_user.id
+    
+    # Проверка: только владелец
+    ADMIN_ID = 5015100177
+    if uid != ADMIN_ID:
+        return
+    
+    # УДАЛЯЕМ из памяти
+    if uid in users:
+        del users[uid]
+        log.info(f"Deleted user {uid} from memory cache")
+    
+    # ПЕРЕЗАГРУЖАЕМ из БД
+    _ensure(uid)
+    st = users[uid]
+    
+    await update.message.reply_text(
+        "🔄 ПРОФИЛЬ ПЕРЕЗАГРУЖЕН ИЗ БАЗЫ ДАННЫХ!\n\n"
+        "📊 Текущее состояние:\n\n"
+        "🎁 БОНУСЫ:\n"
+        f"   🎬 Видео: {st.get('video_bonus', 0)}\n"
+        f"   📸 Фото: {st.get('photo_bonus', 0)}\n"
+        f"   👗 Примерки: {st.get('tryon_bonus', 0)}\n\n"
+        f"💰 Монеток: {st.get('coins', 0)}\n\n"
+        "✅ Данные загружены напрямую из PostgreSQL!",
         reply_markup=kb_home_inline()
     )
 
@@ -3858,6 +3901,7 @@ def main():
     app.add_handler(CommandHandler("terms", cmd_terms))  # пользовательское соглашение
     app.add_handler(CommandHandler("test_payment", cmd_test_payment))  # тестовая команда
     app.add_handler(CommandHandler("add_bonus", cmd_add_bonus))  # команда для тестовых бонусов
+    app.add_handler(CommandHandler("reload_profile", cmd_reload_profile))  # перезагрузка профиля из БД
     app.add_handler(CallbackQueryHandler(on_cb))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))  # приём фото (примерочная)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
