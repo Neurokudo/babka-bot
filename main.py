@@ -1274,6 +1274,35 @@ async def cmd_test_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.error(f"Error in test payment: {e}")
         await update.message.reply_text(f"❌ Ошибка тестовой оплаты: {e}")
 
+async def cmd_add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для начисления тестовых бонусов"""
+    if not await check_access(update): return
+    uid = update.effective_user.id
+    _ensure(uid)
+    
+    st = users[uid]
+    
+    # Начисляем щедрые бонусы для тестирования
+    st["video_bonus"] = st.get("video_bonus", 0) + 30  # 30 бесплатных видео
+    st["photo_bonus"] = st.get("photo_bonus", 0) + 50  # 50 бесплатных фото
+    st["tryon_bonus"] = st.get("tryon_bonus", 0) + 10  # 10 бесплатных примерок
+    st["coins"] = st.get("coins", 0) + 500  # 500 монеток для полного тестирования
+    
+    # Сохраняем в базу данных
+    db.save_user(uid, st)
+    
+    await update.message.reply_text(
+        "🎁 ТЕСТОВЫЕ БОНУСЫ НАЧИСЛЕНЫ!\n\n"
+        "✨ Что получили:\n"
+        f"• 30 бесплатных видео\n"
+        f"• 50 бесплатных фото-обработок\n"
+        f"• 10 бесплатных примерок\n"
+        f"• 500 монеток\n\n"
+        "🚀 Теперь можете тестировать все функции бота!\n"
+        "Бонусы расходуются в первую очередь.",
+        reply_markup=kb_home_inline()
+    )
+
 # --- Reply-кнопки (нижнее меню) как текст ---
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_access(update): return
@@ -3799,6 +3828,7 @@ def main():
     app.add_handler(CommandHandler("whereami", cmd_whereami))  # утилита
     app.add_handler(CommandHandler("terms", cmd_terms))  # пользовательское соглашение
     app.add_handler(CommandHandler("test_payment", cmd_test_payment))  # тестовая команда
+    app.add_handler(CommandHandler("add_bonus", cmd_add_bonus))  # команда для тестовых бонусов
     app.add_handler(CallbackQueryHandler(on_cb))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))  # приём фото (примерочная)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
