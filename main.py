@@ -1258,10 +1258,10 @@ async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextT
                             message = (
                                 f"✅ <b>Тариф активирован!</b>\n\n"
                                 f"📋 Тариф: {plan_name}\n"
-                                f"🎬 Видео: {plan_info.get('videos', 0)}\n"
-                                f"📸 Фото: {plan_info.get('photos', 0)}\n\n"
+                                f"{plan_info.get('description', '')}\n"
+                                f"💎 Получено: {plan_info.get('coins', 0)} монеток\n\n"
                                 f"⏰ Тариф действует 30 дней\n"
-                                f"💡 Монетки покупаются отдельно для дополнительных операций\n\n"
+                                f"💡 Подписки выгоднее разовых покупок!\n\n"
                                 f"Приятного использования! 🎉"
                             )
                         elif payment_data.get("metadata", {}).get("type") == "coins":
@@ -2368,8 +2368,25 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             # Создаем задачу
-            job_id = hold_and_start(st, "transform", quality)
-            st["current_job_id"] = job_id
+            try:
+                job_id = hold_and_start(st, "transform", quality)
+                st["current_job_id"] = job_id
+            except Exception as e:
+                # Проверяем, недостаток ли это монеток
+                from billing import check_insufficient_coins
+                insufficient_msg = check_insufficient_coins(st, "photo")
+                if insufficient_msg:
+                    await update.message.reply_text(
+                        insufficient_msg,
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
+                            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                        ])
+                    )
+                else:
+                    await update.message.reply_text(f"❌ Ошибка создания задачи: {str(e)}")
+                return
             
             # Отправляем в обработку
             await update.message.reply_text(
@@ -2988,11 +3005,29 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # --- Новые callback'ы для системы тарифов ---
-    if data == "show_profile":
+    if data == "show_profile" or data == "menu_profile":
         from subscription_system import format_user_status
         status_text = format_user_status(st)
         await q.message.edit_text(
             status_text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("💰 Монетки", callback_data="show_coins")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+            ])
+        )
+        return
+    
+    if data == "show_payment_options":
+        text = "💳 <b>Пополнить баланс</b>\n\n"
+        text += "Выберите способ пополнения:\n\n"
+        text += "📋 <b>Тарифы</b> — выгодные подписки на 30 дней\n"
+        text += "💰 <b>Монетки</b> — разовые пакеты для докупа\n\n"
+        text += "💡 <i>Подписки всегда выгоднее разовых покупок!</i>"
+        
+        await q.message.edit_text(
+            text,
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
@@ -3048,10 +3083,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.edit_text(
                 f"💳 <b>Оплата тарифа {plan_info['name']}</b>\n\n"
                 f"💰 Сумма: {plan_info['price_rub']:,} ₽\n"
-                f"🎬 Видео: {plan_info['videos']}\n"
-                f"📸 Фото: {plan_info['photos']}\n\n"
+                f"{plan_info['description']}\n"
+                f"💎 {plan_info['coins']} монеток\n\n"
                 f"⏰ Тариф действует 30 дней\n"
-                f"💡 Монетки покупаются отдельно для дополнительных операций\n\n"
+                f"💡 Подписки выгоднее разовых покупок!\n\n"
                 f"Нажмите кнопку ниже для оплаты:",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
@@ -4223,7 +4258,20 @@ Telegram бот "Babka Bot"
             job_id = hold_and_start(st, "video")
             st["current_job_id"] = job_id
         except Exception as e:
-            await q.message.reply_text(f"❌ Ошибка создания задачи: {str(e)}")
+            # Проверяем, недостаток ли это монеток
+            from billing import check_insufficient_coins
+            insufficient_msg = check_insufficient_coins(st, "video")
+            if insufficient_msg:
+                await q.message.reply_text(
+                    insufficient_msg,
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
+                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                    ])
+                )
+            else:
+                await q.message.reply_text(f"❌ Ошибка создания задачи: {str(e)}")
             return
 
         msg = await q.message.reply_text(
@@ -4418,11 +4466,7 @@ def main():
     
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("profile", cmd_profile))  # профиль пользователя
-    app.add_handler(CommandHandler("plans", cmd_plans))  # список тарифов
-    app.add_handler(CommandHandler("buy", cmd_buy))  # покупка тарифа
-    app.add_handler(CommandHandler("coins", cmd_coins))  # покупка монеток
-    app.add_handler(CommandHandler("status", cmd_status))  # краткий статус
+    # Все остальные команды убраны - используем только инлайн кнопки
     app.add_handler(CommandHandler("whereami", cmd_whereami))  # утилита
     app.add_handler(CommandHandler("terms", cmd_terms))  # пользовательское соглашение
     app.add_handler(CommandHandler("test_payment", cmd_test_payment))  # тестовая команда
