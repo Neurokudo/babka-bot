@@ -30,7 +30,7 @@ from telegram.ext import (
 )
 
 # Импорты для работы с базой данных и биллингом
-from database import db
+from app.db.queries import db
 
 # -----------------------------------------------------------------------------
 # ОКРУЖЕНИЕ / ЛОГИ
@@ -76,13 +76,13 @@ DEFAULT_AUDIO = True  # по умолчанию с аудио
 # -----------------------------------------------------------------------------
 # КОНФИГУРАЦИЯ И БИЛЛИНГ
 # -----------------------------------------------------------------------------
-from config import (
+from app.billing.config import (
     COST_VIDEO, COST_TRANSFORM, COST_TRANSFORM_PREMIUM, COST_TRYON,
     LOW_COINS_THRESHOLD,
     PLANS, TOP_UPS, ADDONS, IMG_SIZE, QUALITY
 )
 from payment_yookassa import create_payment_link, process_payment_webhook
-from billing import (
+from app.billing import (
     can_spend,
     hold_and_start,
     on_success,
@@ -1094,20 +1094,13 @@ def kb_video_result():
 def pricing_text() -> str:
     return (
         "💰 Тарифы\n\n"
+        "💳 *Подписки (на 30 дней)*\n\n"
         "✨ *Лайт — 1 990 ₽*\n"
-        "💎 120 монет (~16,6 ₽/монета)\n"
-        "Отлично, чтобы начать и протестировать возможности.\n\n"
+        "🎟 120 монет\n\n"
         "⭐ *Стандарт — 2 490 ₽* ⭐ РЕКОМЕНДУЕМ\n"
-        "💎 210 монет (~11,8 ₽/монета)\n"
-        "Самый удобный баланс цены и объёма.\n\n"
+        "🎟 210 монет\n\n"
         "💎 *Про — 4 990 ₽*\n"
-        "💎 440 монет (~11,3 ₽/монета)\n"
-        "Полный набор для мощного контент-плана.\n\n"
-        "📸 *Монеты тратятся на:*\n"
-        "• Видео: 10 монет\n"
-        "• Фото (быстрое): 1 монета\n"
-        "• Фото (премиум): 2 монеты\n"
-        "• Виртуальная примерочная: 1 монета\n\n"
+        "🎟 440 монет\n\n"
         "💡 *Подписки выгоднее разовых покупок!*"
     )
 
@@ -1116,22 +1109,34 @@ def pricing_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("Купить «Лайт»", callback_data="plan:lite")],
         [InlineKeyboardButton("Купить «Стандарт»", callback_data="plan:std")],
         [InlineKeyboardButton("Купить «Про»", callback_data="plan:pro")],
-        [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+        [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
+        [InlineKeyboardButton("💰 Разовые пополнения", callback_data="show_coins")],
+        [InlineKeyboardButton("🎬 Стоимость операций", callback_data="show_costs")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
     ])
 
 def addons_text() -> str:
     return (
-        "⚡ Быстрые докупки\n\n"
+        "📦 Дополнительные пакеты\n\n"
         "🎬 Видео:\n"
-        "• Video 5 — 1 190 ₽ → 50 монет (~23,8 ₽/монета)\n"
-        "• Video 10 — 2 190 ₽ → 100 монет (~21,9 ₽/монета)\n\n"
+        "• Video 5 — 1 190 ₽ → 🎟 50 монет\n"
+        "• Video 10 — 2 190 ₽ → 🎟 100 монет\n\n"
         "📸 Фото:\n"
-        "• Photo 20 — 590 ₽ → 20 монет (~29,5 ₽/монета)\n"
-        "• Photo 50 — 1 190 ₽ → 50 монет (~23,8 ₽/монета)\n\n"
+        "• Photo 20 — 590 ₽ → 🎟 20 монет\n"
+        "• Photo 50 — 1 190 ₽ → 🎟 50 монет\n\n"
         "🎛️ Микс:\n"
-        "• Mix — 1 690 ₽ → 70 монет (~24,1 ₽/монета)\n\n"
+        "• Mix — 1 690 ₽ → 🎟 70 монет (5 видео + 20 фото)\n\n"
         "💡 *Разовые покупки дороже подписок за монету!*"
+    )
+
+def costs_text() -> str:
+    return (
+        "🎬 Стоимость операций\n\n"
+        "Видео (любое) → 10 монет\n\n"
+        "Фото базовое (ретушь, фон, полароид и т.п.) → 1 монета\n\n"
+        "Фото премиум (улучшенное качество) → 2 монеты\n\n"
+        "Виртуальная примерочная → 1 монета\n\n"
+        "💡 *Все операции списывают монеты с вашего баланса*"
     )
 
 def addons_keyboard(order=None) -> InlineKeyboardMarkup:
@@ -1355,7 +1360,7 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     plan_name = args[0].lower()
-    from config import PLANS
+    from app.billing.config import PLANS
     
     if plan_name not in PLANS:
         await update.message.reply_text(
@@ -1406,7 +1411,7 @@ async def cmd_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     _ensure(uid)
     
-    from config import TOP_UPS
+    from app.billing.config import TOP_UPS
     
     text = "💰 <b>Покупка монеток</b>\n\n"
     text += "Монетки — это внутриботовая валюта для дополнительных операций.\n\n"
@@ -2877,7 +2882,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if data.startswith("buy_plan_"):
         plan_name = data.replace("buy_plan_", "")
-        from config import PLANS
+        from app.billing.config import PLANS
         
         if plan_name not in PLANS:
             await q.message.edit_text("❌ Неизвестный тариф")
@@ -2924,7 +2929,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Обработка покупки монеток ---
     if data.startswith("buy_coins_"):
         coins_amount = int(data.replace("buy_coins_", ""))
-        from config import TOP_UPS
+        from app.billing.config import TOP_UPS
         
         # Находим пакет монеток
         package = None
@@ -2973,29 +2978,41 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if data == "show_coins":
-        from config import TOP_UPS
+        from app.billing.config import TOP_UPS
         
-        text = "💰 <b>Покупка монеток</b>\n\n"
-        text += "Монетки — это внутриботовая валюта для дополнительных операций.\n\n"
-        text += "<b>Доступные пакеты:</b>\n"
+        text = "💰 Разовые пополнения\n\n"
+        text += "20 монет — 390 ₽\n"
+        text += "50 монет — 890 ₽\n"
+        text += "100 монет — 1 490 ₽\n"
+        text += "300 монет — 3 990 ₽\n"
+        text += "700 монет — 9 990 ₽\n\n"
+        text += "💡 *Разовые покупки дороже подписок за монету!*"
         
         keyboard = []
         for package in TOP_UPS:
-            text += f"💎 {package['coins']} монет — {package['price_rub']:,} ₽ ({package['label']})\n"
             keyboard.append([InlineKeyboardButton(
                 f"💎 {package['coins']} монет — {package['price_rub']:,} ₽",
                 callback_data=f"buy_coins_{package['coins']}"
             )])
-        
-        text += "\n💡 <i>Монеты списываются за каждую генерацию</i>"
         
         keyboard.append([InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")])
         keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
         
         await q.message.edit_text(
             text,
-            parse_mode="HTML",
+            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+    
+    # Стоимость операций
+    if data == "show_costs":
+        await q.edit_message_text(
+            costs_text(),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+            ])
         )
         return
     

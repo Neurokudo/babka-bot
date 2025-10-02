@@ -15,26 +15,17 @@ PLANS = {
         "name": "Лайт", 
         "price_rub": 1990, 
         "coins": 120,  # ~16.6 ₽/монета
-        "videos": 10,
-        "photos": 20,
-        "description": "🎬 10 видео + 📸 20 фото"
     },
     "std": {
         "name": "Стандарт", 
         "price_rub": 2490, 
         "coins": 210,  # ~11.9 ₽/монета ⭐ выгоднее
-        "videos": 16,
-        "photos": 50,
-        "description": "🎬 16 видео + 📸 50 фото",
         "recommended": True
     },
     "pro": {
         "name": "Про", 
         "price_rub": 4990, 
         "coins": 440,  # ~11.3 ₽/монета ⭐ самый выгодный
-        "videos": 32,
-        "photos": 120,
-        "description": "🎬 32 видео + 📸 120 фото"
     },
 }
 
@@ -47,13 +38,13 @@ TOP_UPS = [
     {"coins": 700, "price_rub": 9990, "label": "~14,2 ₽/монета"},
 ]
 
-# Маркетинговые бандлы (дороже обычных пакетов)
+# Дополнительные пакеты (дороже обычных пакетов)
 ADDONS = {
-    "v5": {"title": "Video 5 — 1 190 ₽", "price_rub": 1190, "coins": 50, "videos": 5, "photos": 0},
-    "v10": {"title": "Video 10 — 2 190 ₽", "price_rub": 2190, "coins": 100, "videos": 10, "photos": 0},
-    "p20": {"title": "Photo 20 — 590 ₽", "price_rub": 590, "coins": 20, "videos": 0, "photos": 20},
-    "p50": {"title": "Photo 50 — 1 190 ₽", "price_rub": 1190, "coins": 50, "videos": 0, "photos": 50},
-    "mix": {"title": "Mix — 1 690 ₽", "price_rub": 1690, "coins": 70, "videos": 5, "photos": 20},
+    "v5": {"title": "Video 5 — 1 190 ₽", "price_rub": 1190, "coins": 50, "description": "5 видео"},
+    "v10": {"title": "Video 10 — 2 190 ₽", "price_rub": 2190, "coins": 100, "description": "10 видео"},
+    "p20": {"title": "Photo 20 — 590 ₽", "price_rub": 590, "coins": 20, "description": "20 фото"},
+    "p50": {"title": "Photo 50 — 1 190 ₽", "price_rub": 1190, "coins": 50, "description": "50 фото"},
+    "mix": {"title": "Mix — 1 690 ₽", "price_rub": 1690, "coins": 70, "description": "5 видео + 20 фото"},
 }
 
 # Качество/размер изображений
