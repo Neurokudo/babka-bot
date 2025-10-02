@@ -2528,7 +2528,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_text(
             profile_text,
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
                 [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
                 [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
             ])
@@ -2730,7 +2730,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "После оплаты монеты поступят на баланс автоматически.\n\n"
                     f"📋 Что включено:\n"
                     f"• {plan['coins']} монет\n"
-                    f"• Примерно {plan['videos']} видео и {plan['photos']} фото\n\n"
+                    f"• Тариф действует 30 дней\n\n"
                     f"📋 Соглашаясь на оплату, вы принимаете условия оферты:\n"
                     f"/terms — Пользовательское соглашение",
                     reply_markup=InlineKeyboardMarkup([
@@ -3619,7 +3619,7 @@ Telegram бот "Babka Bot"
                 f"💰 Монеток: {coins} (нужно: {COST_TRYON})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                    [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
                     [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
@@ -4049,7 +4049,7 @@ Telegram бот "Babka Bot"
                 f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                    [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
                     [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
@@ -4066,7 +4066,7 @@ Telegram бот "Babka Bot"
                 f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                    [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
                     [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
@@ -4186,7 +4186,7 @@ Telegram бот "Babka Bot"
                 f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                    [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
                     [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
@@ -4203,7 +4203,7 @@ Telegram бот "Babka Bot"
                 f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                    [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
                     [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
