@@ -164,15 +164,12 @@ def remove_background(image_bytes: bytes, quality: str = "basic") -> bytes:
         байты изображения без фона (PNG с прозрачностью)
     """
     prompt = (
-        "TASK: Профессиональное удаление фона с изображения.\n"
-        "ИНСТРУКЦИИ:\n"
-        "- Точно выделить главный объект/человека с сохранением всех деталей (волосы, мех, тонкие элементы)\n"
-        "- Создать идеально прозрачный фон (альфа-канал)\n"
-        "- Сохранить естественные края без искусственных ореолов или артефактов\n"
-        "- Применить качественное сглаживание краев (anti-aliasing)\n"
-        "- Сохранить оригинальные цвета, контрастность и резкость объекта\n"
-        "- Убрать все следы фона, включая тени и отражения\n"
-        "РЕЗУЛЬТАТ: PNG файл с полной прозрачностью фона и высоким качеством краев."
+        "TASK: Remove background.\n"
+        "INSTRUCTIONS:\n"
+        "- Isolate the main subject with clean, natural edges (hair detail preserved).\n"
+        "- Output with transparent background (alpha), edges anti-aliased.\n"
+        "- Keep original subject colors and sharpness; avoid artificial halos.\n"
+        "OUTPUT: single PNG with transparency."
     )
     
     return _call_gemini([image_bytes], prompt, quality)
@@ -307,33 +304,15 @@ def process_transform(transform_type: str, images: List[bytes], text: Optional[s
     Returns:
         байты обработанного изображения
     """
-    try:
-        if transform_type == "remove_bg":
-            if not images:
-                raise ValueError("Не предоставлено изображение для удаления фона")
-            return remove_background(images[0], quality)
-        elif transform_type == "merge_people":
-            if len(images) < 2:
-                raise ValueError("Для совмещения людей нужно минимум 2 фотографии")
-            return merge_people(images, quality)
-        elif transform_type == "inject_object":
-            if not images:
-                raise ValueError("Не предоставлено базовое изображение")
-            if not text:
-                raise ValueError("Не указано описание объекта для добавления")
-            return inject_object(images[0], text, quality)
-        elif transform_type == "retouch":
-            if not images:
-                raise ValueError("Не предоставлено изображение для ретуши")
-            if not text:
-                raise ValueError("Не указано описание ретуши")
-            return retouch_image(images[0], text, quality)
-        elif transform_type == "polaroid":
-            if not images:
-                raise ValueError("Не предоставлено изображение для Polaroid")
-            return create_polaroid(images, quality)
-        else:
-            raise ValueError(f"Неизвестный тип трансформации: {transform_type}")
-    except Exception as e:
-        log.error("Transform processing failed for type %s: %s", transform_type, e)
-        raise RuntimeError(f"Ошибка обработки {transform_type}: {str(e)}")
+    if transform_type == "remove_bg":
+        return remove_background(images[0], quality)
+    elif transform_type == "merge_people":
+        return merge_people(images, quality)
+    elif transform_type == "inject_object":
+        return inject_object(images[0], text or "", quality)
+    elif transform_type == "retouch":
+        return retouch_image(images[0], text or "", quality)
+    elif transform_type == "polaroid":
+        return create_polaroid(images, quality)
+    else:
+        raise ValueError(f"Unknown transform type: {transform_type}")
