@@ -130,7 +130,7 @@ def virtual_tryon(person_bytes: bytes, garment_bytes: bytes, sample_count: int =
         "parameters": {
             "sampleCount": int(sample_count),
             "quality": "ultra_high",  # Максимальное качество
-            "resolution": "2048x2048",  # Высокое разрешение
+            "resolution": "high",  # Высокое разрешение
             "enhancement": "super_resolution",  # Супер-разрешение
             "noise_reduction": True,  # Подавление шума
             "sharpening": "medium",  # Умеренная резкость (не слишком агрессивно)
