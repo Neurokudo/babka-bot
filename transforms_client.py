@@ -115,7 +115,7 @@ def _call_gemini(images: List[bytes], prompt: str, quality: str = "basic") -> by
     instances.append({"prompt": prompt})
 
     # Определяем разрешение
-    resolution = "2048x2048" if quality == "premium" else "1024x1024"
+    resolution = "high" if quality == "premium" else "medium"
 
     payload = {
         "instances": instances,

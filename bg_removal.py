@@ -95,7 +95,7 @@ def _call_gemini_for_bg_removal(image_bytes: bytes, quality: str = "basic") -> b
     )
 
     # Определяем разрешение
-    resolution = "2048x2048" if quality == "premium" else "1024x1024"
+    resolution = "high" if quality == "premium" else "medium"
 
     payload = {
         "instances": [

@@ -18,9 +18,17 @@ load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 log = logging.getLogger("babka-bot")
 
 # Конфигурация ЮKassa
-YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID", "1147356")
-YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY", "test_9ABcICTErBa5ps3UNBq8N1zQTKFQgCvnBB6EV89-Wag")
 YOOKASSA_BASE_URL = "https://api.yookassa.ru/v3"
+
+def get_yookassa_config():
+    """Получить конфигурацию YooKassa (ленивая загрузка)"""
+    shop_id = os.getenv("YOOKASSA_SHOP_ID")
+    secret_key = os.getenv("YOOKASSA_SECRET_KEY")
+    
+    if not shop_id or not secret_key:
+        raise YooKassaError("YooKassa credentials not configured. Set YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY environment variables.")
+    
+    return shop_id, secret_key
 
 class YooKassaError(Exception):
     pass
@@ -118,24 +126,14 @@ def get_yookassa_client():
     """Получить клиент YooKassa (ленивая инициализация)"""
     global yookassa_client
     if yookassa_client is None:
-        yookassa_client = YooKassaClient(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY)
+        shop_id, secret_key = get_yookassa_config()
+        yookassa_client = YooKassaClient(shop_id, secret_key)
     return yookassa_client
 
 def create_payment_link(user_id: int, amount: float, description: str, 
                        metadata: Dict[str, Any] = None) -> str:
     """Создать ссылку для оплаты"""
     try:
-        # Проверяем, что у нас есть настоящие ключи
-        if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET_KEY:
-            raise YooKassaError("YooKassa credentials not configured")
-        
-        # Режим разработки - создаем заглушку для тестирования
-        if YOOKASSA_SHOP_ID == "1147356" and "test_" in YOOKASSA_SECRET_KEY:
-            # Тестовый режим - создаем заглушку
-            log.warning(f"Test mode: creating test payment link for user {user_id}, amount {amount}")
-            log.warning("⚠️ ВНИМАНИЕ: Используются тестовые ключи YooKassa! Реальные платежи не работают!")
-            return f"https://yoomoney.ru/checkout/payments/v2/?orderId=test_{user_id}_{int(amount)}"
-        
         payment_metadata = {
             "user_id": str(user_id),
             "telegram_bot": True
@@ -163,14 +161,14 @@ def create_payment_link(user_id: int, amount: float, description: str,
         
     except Exception as e:
         log.error(f"Error creating payment link: {e}")
-        # В случае ошибки НЕ возвращаем тестовую ссылку, а показываем ошибку
         raise YooKassaError(f"Не удалось создать платеж: {str(e)}")
 
 def verify_webhook_signature(payload: str, signature: str) -> bool:
     """Проверить подпись webhook'а от ЮKassa"""
     try:
+        shop_id, secret_key = get_yookassa_config()
         expected_signature = hmac.new(
-            YOOKASSA_SECRET_KEY.encode(),
+            secret_key.encode(),
             payload.encode(),
             hashlib.sha256
         ).hexdigest()

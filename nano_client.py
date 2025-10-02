@@ -97,7 +97,7 @@ def repose_or_relocate(dressed_bytes: bytes, prompt: str = "", bg_bytes: bytes |
         "instances": inst + [{"prompt": instruction}],
         "parameters": {
             "sampleCount": 1,
-            "resolution": "2048x2048",  # Увеличиваем разрешение
+            "resolution": "high",  # Высокое разрешение
             "quality": "high",  # Высокое качество
             "enhancement": "super_resolution",  # Супер-разрешение
             "noise_reduction": True,  # Подавление шума
