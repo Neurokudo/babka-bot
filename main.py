@@ -1087,6 +1087,25 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_access(update): return
     uid = update.effective_user.id
     _ensure(uid)
+    
+    # Проверяем аргументы команды /start
+    args = context.args
+    if args and len(args) > 0:
+        if args[0] == "payment_success":
+            await update.message.reply_text(
+                "✅ Спасибо за оплату!\n\n"
+                "💳 Ваш платеж обрабатывается. Как только он будет подтвержден, "
+                "монеты автоматически поступят на ваш баланс.\n\n"
+                "⏱️ Обычно это занимает несколько минут.\n\n"
+                "Если у вас есть вопросы, обратитесь в поддержку.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                    [InlineKeyboardButton("💰 Мой баланс", callback_data="show_balance")],
+                    [InlineKeyboardButton("📞 Поддержка", callback_data="support")],
+                ])
+            )
+            return
+    
     # сброс ключевых флагов
     st = users[uid]
     st.update({

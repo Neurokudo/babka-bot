@@ -52,7 +52,7 @@ class YooKassaClient:
                 },
                 "confirmation": {
                     "type": "redirect",
-                    "return_url": return_url or "https://t.me/your_bot"
+                    "return_url": return_url or "https://t.me/babkakudo_bot"
                 },
                 "description": description,
                 "metadata": metadata or {},
@@ -146,7 +146,7 @@ def create_payment_link(user_id: int, amount: float, description: str,
             amount=amount,
             description=description,
             metadata=payment_metadata,
-            return_url=f"https://t.me/babka_ai_bot"
+            return_url="https://t.me/babkakudo_bot?start=payment_success"
         )
         
         # Получаем URL для оплаты
