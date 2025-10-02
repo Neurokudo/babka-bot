@@ -354,6 +354,36 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
                 log.error(f"Failed to activate plan {plan} for user {user_id}")
                 return False
         
+        # Если это покупка монеток
+        elif payment_data.get("metadata", {}).get("type") == "coins":
+            coins_amount = payment_data.get("metadata", {}).get("coins", 0)
+            if coins_amount > 0:
+                # Получаем данные пользователя
+                user = db.get_user(user_id)
+                if user:
+                    before_value = user.get("coins", 0)
+                    user["coins"] = before_value + coins_amount
+                    after_value = user.get("coins", 0)
+                    
+                    db.save_user(user_id, user)
+                    
+                    # Логируем покупку монеток
+                    db.add_transaction(
+                        user_id=user_id,
+                        operation_type="coins_purchase",
+                        coins_spent=0,
+                        used_bonus=False,
+                        before_value=before_value,
+                        after_value=after_value,
+                        delta=coins_amount,
+                        reason="coins_purchase",
+                        metadata={"coins": coins_amount, "amount": payment_data.get("amount", 0)}
+                    )
+                    
+                    log.info(f"Granted {coins_amount} coins to user {user_id}")
+                    return True
+            return False
+        
         # Если это обычная покупка монет (старая система)
         else:
             amount = payment_data.get("amount", 0)

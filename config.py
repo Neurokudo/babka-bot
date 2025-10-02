@@ -17,19 +17,17 @@ DAILY_CAP_VIDEOS = {
     "pro": 10
 }
 
-# Тарифы (новые согласно brief)
+# Тарифы (подписки с фиксированными ресурсами)
 PLANS = {
     "lite": {
         "name": "Лайт", 
         "price_rub": 1990, 
-        "coins": 120,
         "videos": 10, 
         "photos": 20
     },
     "std": {
         "name": "Стандарт", 
         "price_rub": 2490, 
-        "coins": 200,
         "videos": 16, 
         "photos": 50, 
         "recommended": True
@@ -37,7 +35,6 @@ PLANS = {
     "pro": {
         "name": "Про", 
         "price_rub": 4990, 
-        "coins": 400,
         "videos": 32, 
         "photos": 120
     },

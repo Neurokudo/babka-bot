@@ -48,7 +48,7 @@ def can_generate_photo_with_plan(user: Dict[str, Any], cost: int = None) -> bool
     return can_spend(user, cost)
 
 def spend_video_resource(user: Dict[str, Any]) -> bool:
-    """Списать ресурс для видео (приоритет: бонусы -> тариф -> монеты)"""
+    """Списать ресурс для видео (приоритет: бонусы -> тарифные лимиты -> монеты)"""
     user_id = user.get("user_id")
     if not user_id:
         return False
@@ -97,7 +97,7 @@ def spend_video_resource(user: Dict[str, Any]) -> bool:
         db.save_user(user_id, user)
         return True
     
-    # В последнюю очередь списываем монеты
+    # В последнюю очередь списываем монеты (внутриботовая валюта)
     from billing import COST_VIDEO, can_spend
     if can_spend(user, COST_VIDEO):
         before_value = user.get("coins", 0)
@@ -236,12 +236,12 @@ def activate_plan(user_id: int, plan_name: str) -> bool:
         db.activate_plan(user_id, plan_name)
         log.info(f"Activated plan {plan_name} for user {user_id}")
     
-    # Начисляем ресурсы по тарифу
+    # Начисляем ресурсы по тарифу (только видео и фото, без монеток)
     user = db.get_user(user_id)  # Обновляем данные
     if user:
         user["videos_allowed"] = plan_info["videos"]
         user["photos_allowed"] = plan_info["photos"]
-        user["coins"] = user.get("coins", 0) + plan_info["coins"]
+        # НЕ начисляем монетки - они покупаются отдельно
         
         db.save_user(user_id, user)
         
@@ -252,14 +252,14 @@ def activate_plan(user_id: int, plan_name: str) -> bool:
             coins_spent=0,
             used_bonus=False,
             before_value=0,
-            after_value=plan_info["videos"] + plan_info["photos"] + plan_info["coins"],
-            delta=plan_info["videos"] + plan_info["photos"] + plan_info["coins"],
+            after_value=plan_info["videos"] + plan_info["photos"],
+            delta=plan_info["videos"] + plan_info["photos"],
             reason=f"plan_{plan_name}_activation",
             metadata={"plan": plan_name, "videos": plan_info["videos"], 
-                     "photos": plan_info["photos"], "coins": plan_info["coins"]}
+                     "photos": plan_info["photos"]}
         )
         
-        log.info(f"Granted resources for plan {plan_name}: {plan_info['videos']} videos, {plan_info['photos']} photos, {plan_info['coins']} coins")
+        log.info(f"Granted resources for plan {plan_name}: {plan_info['videos']} videos, {plan_info['photos']} photos")
         return True
     
     return False
@@ -353,10 +353,10 @@ def format_plans_list() -> str:
         recommended = " ⭐ РЕКОМЕНДУЕМ" if plan_info.get("recommended") else ""
         
         text += f"{emoji} <b>{plan_info['name']}</b> — {plan_info['price_rub']:,} ₽{recommended}\n"
-        text += f"🎬 {plan_info['videos']} видео + 📸 {plan_info['photos']} фото\n"
-        text += f"💎 {plan_info['coins']} монет\n\n"
+        text += f"🎬 {plan_info['videos']} видео + 📸 {plan_info['photos']} фото\n\n"
     
     text += "💡 <i>Тариф действует 30 дней с момента покупки</i>\n"
-    text += "🔄 <i>При продлении до окончания добавляется +30 дней</i>"
+    text += "🔄 <i>При продлении до окончания добавляется +30 дней</i>\n"
+    text += "💰 <i>Монетки покупаются отдельно для дополнительных операций</i>"
     
     return text
