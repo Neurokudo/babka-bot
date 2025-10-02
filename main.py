@@ -1918,16 +1918,60 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Отмечаем успех
             on_success(st, job_id)
             
-            # Отправляем результат
-            caption = f"✅ {transform_type.replace('_', ' ').title()} готово!"
-            if transform_type == "polaroid":
-                caption = "✅ Polaroid готов!"
-            
-            await update.message.reply_photo(
-                photo=result_bytes,
-                caption=caption,
-                reply_markup=kb_transform_result()
-            )
+            # Специальная обработка для удаления фона - отправляем два файла
+            if transform_type == "remove_bg":
+                # PNG с прозрачным фоном
+                await update.message.reply_document(
+                    document=result_bytes,
+                    filename="без_фона.png",
+                    caption="✅ PNG файл с прозрачным фоном"
+                )
+                
+                # Создаем JPG на зеленом фоне
+                try:
+                    from PIL import Image
+                    import io
+                    
+                    # Открываем PNG с прозрачностью
+                    png_image = Image.open(io.BytesIO(result_bytes)).convert("RGBA")
+                    
+                    # Создаем зеленый фон
+                    green_bg = Image.new("RGB", png_image.size, (0, 255, 0))  # Ярко-зеленый
+                    
+                    # Накладываем объект на зеленый фон
+                    green_bg.paste(png_image, (0, 0), png_image)
+                    
+                    # Сохраняем как JPG
+                    jpg_buffer = io.BytesIO()
+                    green_bg.save(jpg_buffer, format="JPEG", quality=95)
+                    jpg_bytes = jpg_buffer.getvalue()
+                    
+                    await update.message.reply_document(
+                        document=jpg_bytes,
+                        filename="на_зеленом_фоне.jpg",
+                        caption="✅ JPG файл на зеленом фоне",
+                        reply_markup=kb_transform_result()
+                    )
+                    
+                except Exception as e:
+                    log.error("Failed to create green background version: %s", e)
+                    # Если не удалось создать зеленый фон, отправляем обычное фото
+                    await update.message.reply_photo(
+                        photo=result_bytes,
+                        caption="✅ Фон удален!",
+                        reply_markup=kb_transform_result()
+                    )
+            else:
+                # Для всех остальных трансформаций - обычная отправка
+                caption = f"✅ {transform_type.replace('_', ' ').title()} готово!"
+                if transform_type == "polaroid":
+                    caption = "✅ Polaroid готов!"
+                
+                await update.message.reply_photo(
+                    photo=result_bytes,
+                    caption=caption,
+                    reply_markup=kb_transform_result()
+                )
             
             # Очищаем состояние
             st["awaiting_transform"] = False
