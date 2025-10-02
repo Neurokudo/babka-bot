@@ -707,6 +707,22 @@ def _ensure(uid: int):
             users[uid] = user_data
         else:
             # Новый пользователь - создаем структуру по умолчанию
+            ADMIN_ID = 5015100177  # ID администратора
+            
+            # Определяем бонусы: щедрые для админа, обычные для остальных
+            if uid == ADMIN_ID:
+                # ЩЕДРЫЕ БОНУСЫ ТОЛЬКО ДЛЯ АДМИНИСТРАТОРА!
+                coins = 500
+                video_bonus = 30
+                photo_bonus = 50
+                tryon_bonus = 10
+            else:
+                # Обычные стартовые бонусы для новых пользователей
+                coins = 0
+                video_bonus = 2
+                photo_bonus = 3
+                tryon_bonus = 1
+            
             users[uid] = {
                 "user_id": uid,  # Добавляем user_id для связи с базой данных
                 "mode": None,
@@ -731,10 +747,10 @@ def _ensure(uid: int):
                 "orientation": DEFAULT_ORIENTATION,
                 "with_audio": DEFAULT_AUDIO,  # настройка аудио
                 # монеты и биллинг
-                "coins": 500,  # количество монет (щедрые бонусы для тестирования!)
-                "video_bonus": 30,  # бесплатные видео для новых пользователей (увеличено для теста!)
-                "photo_bonus": 50,  # бесплатные фото для новых пользователей (увеличено для теста!)
-                "tryon_bonus": 10,  # бесплатная примерочная для новых пользователей (увеличено для теста!)
+                "coins": coins,
+                "video_bonus": video_bonus,
+                "photo_bonus": photo_bonus,
+                "tryon_bonus": tryon_bonus
                 "plan": "lite",  # тарифный план
                 "jobs": {},  # история задач
                 "daily": {"date": "", "videos": 0},  # дневная статистика
