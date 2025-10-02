@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
 from database import db
-from subscription_system import check_and_reset_expired_plans
+from billing import check_and_reset_expired_plans
 
 # Настройка логирования
 logging.basicConfig(

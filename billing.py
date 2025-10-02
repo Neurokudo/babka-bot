@@ -1,245 +1,221 @@
 # -*- coding: utf-8 -*-
-"""
-Модуль биллинга и управления монетами
-"""
+"""Биллинг Babka Bot: единая монетная система и управление тарифами."""
 
-import uuid
-from datetime import datetime, date
-from config import (
-    COST_VIDEO, COST_TRANSFORM, COST_TRANSFORM_PREMIUM, 
-    FREE_RETRY_PER_JOB, LOW_COINS_THRESHOLD
-)
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
+
+from config import COST_TRANSFORM, COST_TRANSFORM_PREMIUM, COST_TRYON, COST_VIDEO, PLANS, LOW_COINS_THRESHOLD
 from database import db
 
-def new_job_id():
-    """Генерирует уникальный ID задачи"""
-    return str(uuid.uuid4())
+State = Dict[str, Any]
 
-def today():
-    """Возвращает сегодняшнюю дату в формате YYYY-MM-DD"""
-    return date.today().strftime("%Y-%m-%d")
 
-def can_spend(user, cost):
-    """Проверяет, может ли пользователь потратить указанное количество монет"""
+# ---------------------------------------------------------------------------
+# Утилиты
+# ---------------------------------------------------------------------------
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def can_spend(user: State, cost: int) -> bool:
     return user.get("coins", 0) >= cost
 
-def has_video_bonus(user):
-    """Проверяет, есть ли у пользователя бонусные видео"""
-    return user.get("video_bonus", 0) > 0
 
-def has_photo_bonus(user):
-    """Проверяет, есть ли у пользователя бонусные фото"""
-    return user.get("photo_bonus", 0) > 0
+def check_subscription(user_or_id) -> State:
+    """Проверяет срок действия тарифа и при необходимости сбрасывает его на lite."""
+    if isinstance(user_or_id, dict):
+        user = user_or_id
+        user_id = user.get("user_id")
+    else:
+        user_id = user_or_id
+        user = None
 
-def can_generate_video(user):
-    """Проверяет, может ли пользователь сгенерировать видео (бонус или монеты)"""
-    # Используем новую систему тарифов
-    from subscription_system import can_generate_video_with_plan
-    return can_generate_video_with_plan(user)
+    if not user_id:
+        return user or {}
 
-def can_generate_photo(user, cost=None):
-    """Проверяет, может ли пользователь сгенерировать фото (бонус или монеты)"""
-    # Используем новую систему тарифов
-    from subscription_system import can_generate_photo_with_plan
-    return can_generate_photo_with_plan(user, cost)
+    if user is None:
+        user = db.get_user(user_id) or {"user_id": user_id, "plan": "lite", "plan_expiry": None, "coins": 0}
 
-def hold_and_start(user, job_type, quality="basic", extra_cost=0):
-    """
-    Резервирует ресурсы (бонусы или монеты) и создает задачу
-    
-    Args:
-        user: состояние пользователя
-        job_type: "video" | "transform"
-        quality: "basic" | "premium"
-        extra_cost: дополнительные монеты (для сложных операций)
-    """
-    user_id = user.get("user_id")
-    
-    # Используем новую систему списания ресурсов
-    from subscription_system import spend_video_resource, spend_photo_resource
-    
-    if job_type == "video":
-        if not spend_video_resource(user):
-            raise ValueError("NO_COINS")
-        cost = 0  # Ресурс уже списан в spend_video_resource
-        bonus_type = "video_bonus" if user.get("video_bonus", 0) > 0 else "coins"
-    else:  # transform
-        cost = COST_TRANSFORM_PREMIUM if quality == "premium" else COST_TRANSFORM
-        cost += extra_cost
-        
-        if not spend_photo_resource(user, cost):
-            raise ValueError("NO_COINS")
-        cost = 0  # Ресурс уже списан в spend_photo_resource
-        bonus_type = "photo_bonus" if user.get("photo_bonus", 0) > 0 else "coins"
-    
-    # Создаем задачу
-    job_id = new_job_id()
-    if "jobs" not in user:
-        user["jobs"] = {}
-    
-    user["jobs"][job_id] = {
+    plan = user.get("plan", "lite")
+    plan_expiry = user.get("plan_expiry")
+
+    if plan != "lite" and plan_expiry:
+        try:
+            expiry_dt = plan_expiry if isinstance(plan_expiry, datetime) else datetime.fromisoformat(str(plan_expiry).replace("Z", "+00:00"))
+            if expiry_dt < _now_utc():
+                db.reset_expired_plan(user_id)
+                user["plan"] = "lite"
+                user["plan_expiry"] = None
+        except Exception:
+            pass
+
+    return user
+
+
+# ---------------------------------------------------------------------------
+# Основное списание / возврат
+# ---------------------------------------------------------------------------
+
+def _base_cost(job_type: str, quality: str = "basic", extra_cost: int = 0) -> int:
+    if job_type == "transform":
+        base = COST_TRANSFORM_PREMIUM if quality == "premium" else COST_TRANSFORM
+    elif job_type == "tryon":
+        base = COST_TRYON
+    else:  # video и json
+        base = COST_VIDEO
+    return base + max(0, extra_cost)
+
+
+def hold_and_start(user: State, job_type: str, quality: str = "basic", extra_cost: int = 0) -> str:
+    user = check_subscription(user)
+    cost = _base_cost(job_type, quality, extra_cost)
+
+    tx_id = db.atomic_spend_coins(user["user_id"], cost, operation_type=job_type)
+    if tx_id is None:
+        raise ValueError("NO_COINS")
+
+    user["coins"] = max(user.get("coins", 0) - cost, 0)
+
+    jobs = user.setdefault("jobs", {})
+    job_id = f"{job_type}:{tx_id}"
+    jobs[job_id] = {
         "type": job_type,
-        "cost": cost,
-        "retry_used": 0,
+        "operation": job_type,
+        "coin_cost": cost,
         "status": "pending",
         "quality": quality,
-        "created_at": datetime.now().isoformat(),
-        "used_bonus": cost == 0,  # Отмечаем, что использовали бонус
-        "transaction_id": None  # Транзакция уже создана в spend_*_resource
+        "transaction_id": tx_id,
+        "retry_used": 0,
+        "created_at": _now_utc().isoformat(),
     }
-    
-    # Обновляем last_job для совместимости
-    user["last_job"] = user["jobs"][job_id]
-    
+    user["last_job"] = jobs[job_id]
     return job_id
 
-def on_success(user, job_id):
-    """Отмечает задачу как успешную"""
-    user_id = user.get("user_id")
-    
-    if "jobs" in user and job_id in user["jobs"]:
-        user["jobs"][job_id]["status"] = "ok"
-        user["jobs"][job_id]["completed_at"] = datetime.now().isoformat()
-        
-        # Обновляем статус транзакции в базе данных
-        if user_id and user["jobs"][job_id].get("transaction_id"):
-            db.update_transaction_status(
-                user["jobs"][job_id]["transaction_id"], 
-                "completed"
-            )
-        
-        # Сохраняем изменения пользователя
-        if user_id:
-            db.save_user(user_id, user)
-        
-        # Обновляем last_job
-        user["last_job"] = user["jobs"][job_id]
-        
-        # Увеличиваем счетчик видео за день (устарело - теперь используются монетки)
-        # if user["jobs"][job_id]["type"] == "video":
-        #     inc_daily_video(user)
 
-def on_error(user, job_id):
-    """Возвращает ресурсы (бонусы или монеты) при ошибке"""
-    user_id = user.get("user_id")
-    
-    if "jobs" not in user or job_id not in user["jobs"]:
+def on_success(user: State, job_id: str) -> None:
+    job = user.get("jobs", {}).get(job_id)
+    if not job:
         return
-    
-    job = user["jobs"][job_id]
-    if job["status"] == "pending":
-        if job.get("used_bonus", False):
-            if job["type"] == "video":
-                user["video_bonus"] += 1
-            else:  # transform
-                user["photo_bonus"] += 1
-        else:
-            # Возвращаем монеты
-            user["coins"] += job["cost"]
-        
-        job["status"] = "error"
-        job["error_at"] = datetime.now().isoformat()
-        
-        # Обновляем статус транзакции в базе данных
-        if user_id and job.get("transaction_id"):
-            db.update_transaction_status(job["transaction_id"], "error")
-        
-        # Сохраняем изменения пользователя
-        if user_id:
-            db.save_user(user_id, user)
-        
-        # Обновляем last_job
-        user["last_job"] = job
+    job["status"] = "completed"
+    job["completed_at"] = _now_utc().isoformat()
+    tx_id = job.get("transaction_id")
+    if tx_id:
+        db.update_transaction_status(tx_id, "completed")
+    db.save_user(user["user_id"], user)
 
-def retry(user, job_id):
-    """
-    Пытается сделать ретрай задачи
-    
-    Returns:
-        bool: True если ретрай разрешен, False если не хватает ресурсов
-    """
-    user_id = user.get("user_id")
-    
-    if "jobs" not in user or job_id not in user["jobs"]:
+
+def on_error(user: State, job_id: str, reason: str = "error") -> None:
+    job = user.get("jobs", {}).get(job_id)
+    if not job or job.get("status") != "pending":
+        return
+
+    cost = job.get("coin_cost", 0)
+    tx_id = job.get("transaction_id")
+
+    if cost > 0:
+        user["coins"] = user.get("coins", 0) + cost
+        db.add_refund_transaction(user["user_id"], cost, tx_id)
+        if tx_id:
+            db.update_transaction_status(tx_id, "refunded")
+
+    job["status"] = "error"
+    job["error_at"] = _now_utc().isoformat()
+    db.save_user(user["user_id"], user)
+
+
+def retry(user: State, job_id: str) -> bool:
+    """Ретраи выполняют новое списание монет."""
+    job = user.get("jobs", {}).get(job_id)
+    if not job:
         return False
-    
-    job = user["jobs"][job_id]
-    
-    # Проверяем количество использованных ретраев
-    if job["retry_used"] < FREE_RETRY_PER_JOB:
-        # Бесплатный ретрай
-        job["retry_used"] += 1
-        
-        # Сохраняем изменения
-        if user_id:
-            db.save_user(user_id, user)
-        
-        return True
-    
-    # Платный ретрай - используем бонусы или монеты
-    if job["type"] == "video":
-        if has_video_bonus(user):
-            user["video_bonus"] -= 1
-            job["retry_used"] += 1
-            bonus_type = "video_bonus"
-        elif can_spend(user, job["cost"]):
-            user["coins"] -= job["cost"]
-            job["retry_used"] += 1
-            bonus_type = None
-        else:
-            return False
-    else:  # transform
-        if has_photo_bonus(user):
-            user["photo_bonus"] -= 1
-            job["retry_used"] += 1
-            bonus_type = "photo_bonus"
-        elif can_spend(user, job["cost"]):
-            user["coins"] -= job["cost"]
-            job["retry_used"] += 1
-            bonus_type = None
-        else:
-            return False
-    
-    # Создаем новую транзакцию для ретрая
-    if user_id:
-        db.save_user(user_id, user)
-        db.add_transaction(
-            user_id=user_id,
-            operation_type=f"{job['type']}_retry",
-            coins_spent=job["cost"] if bonus_type is None else 0,
-            used_bonus=(bonus_type is not None),
-            bonus_type=bonus_type,
-            quality=job.get("quality", "basic")
-        )
-    
+
+    job_type = job.get("type", "video")
+    quality = job.get("quality", "basic")
+    new_job_id = hold_and_start(user, job_type, quality)
+    job.update(user["jobs"][new_job_id])
     return True
 
-def check_low_coins(user):
-    """Проверяет, нужно ли показать уведомление о низком балансе"""
-    return user.get("coins", 0) < LOW_COINS_THRESHOLD
 
-def get_retry_cost(user, job_id):
-    """Возвращает стоимость ретрая для задачи"""
-    if "jobs" not in user or job_id not in user["jobs"]:
-        return 0
-    
-    job = user["jobs"][job_id]
-    
-    if job["retry_used"] < FREE_RETRY_PER_JOB:
-        return 0  # Бесплатный ретрай
-    
-    return job["cost"]  # Платный ретрай
+def get_retry_cost(user: State, job_id: str) -> int:
+    job = user.get("jobs", {}).get(job_id)
+    return job.get("coin_cost", COST_VIDEO) if job else COST_VIDEO
 
-def can_retry(user, job_id):
-    """Проверяет, может ли пользователь сделать ретрай"""
-    if "jobs" not in user or job_id not in user["jobs"]:
+
+def can_retry(user: State, job_id: str) -> bool:
+    job = user.get("jobs", {}).get(job_id)
+    if not job:
         return False
-    
-    job = user["jobs"][job_id]
-    
-    # Бесплатный ретрай
-    if job["retry_used"] < FREE_RETRY_PER_JOB:
-        return True
-    
-    # Платный ретрай
-    return can_spend(user, job["cost"])
+    return can_spend(user, job.get("coin_cost", COST_VIDEO))
+
+
+def check_low_coins(user: State, threshold: int = LOW_COINS_THRESHOLD) -> bool:
+    return user.get("coins", 0) < threshold
+
+
+# ---------------------------------------------------------------------------
+# Тарифы и пополнения
+# ---------------------------------------------------------------------------
+
+def activate_plan(user_id: int, plan_key: str) -> Optional[Dict[str, Any]]:
+    plan = PLANS.get(plan_key)
+    if not plan:
+        return None
+
+    user = db.get_user(user_id) or {"user_id": user_id, "coins": 0, "plan": "lite", "plan_expiry": None}
+    check_subscription(user)
+
+    coins_before = user.get("coins", 0)
+    coins_after = coins_before + plan.get("coins", 0)
+    expiry_dt = (_now_utc() + timedelta(days=30)).replace(tzinfo=None) if plan_key != "lite" else None
+
+    user.update({
+        "coins": coins_after,
+        "plan": plan_key,
+        "plan_expiry": expiry_dt,
+    })
+    db.save_user(user_id, user)
+    db.activate_plan(user_id, plan_key)
+    return user
+
+
+def apply_top_up(user_id: int, coins: int, label: str) -> Dict[str, Any]:
+    user = db.get_user(user_id) or {"user_id": user_id, "coins": 0}
+    user["coins"] = user.get("coins", 0) + coins
+    db.save_user(user_id, user)
+    return user
+
+
+def spend_tax(user: State, amount: int, label: str) -> bool:
+    tx = db.atomic_spend_coins(user.get("user_id"), amount, label)
+    if tx is None:
+        return False
+    user["coins"] = max(user.get("coins", 0) - amount, 0)
+    return True
+
+
+def can_generate_video(user: State) -> bool:
+    return can_spend(check_subscription(user), COST_VIDEO)
+
+
+def can_generate_photo(user: State, cost: Optional[int] = None) -> bool:
+    return can_spend(check_subscription(user), cost if cost is not None else COST_TRANSFORM)
+
+
+def can_generate_tryon(user: State) -> bool:
+    return can_spend(check_subscription(user), COST_TRYON)
+
+
+def can_generate_json(user: State) -> bool:
+    return can_spend(check_subscription(user), COST_VIDEO)
+
+
+def check_and_reset_expired_plans() -> list[int]:
+    expired = db.check_expired_plans()
+    reset = []
+    for user_id in expired:
+        if db.reset_expired_plan(user_id):
+            reset.append(user_id)
+    return reset

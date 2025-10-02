@@ -38,39 +38,25 @@ DATABASE_URL=postgresql://postgres:password@host:port/database
 ## 📊 Структура базы данных
 
 ### Таблица `users`
-- `user_id` (BIGINT) - ID пользователя Telegram
-- `coins` (INTEGER) - количество монеток
-- `video_bonus` (INTEGER) - бонусные видео
-- `photo_bonus` (INTEGER) - бонусные фото
-- `tryon_bonus` (INTEGER) - бонусные примерки
-- `plan` (VARCHAR) - тарифный план
-- `videos_left` (INTEGER) - оставшиеся видео
-- `photos_left` (INTEGER) - оставшиеся фото
-- `daily_date` (VARCHAR) - дата последнего использования
-- `daily_videos` (INTEGER) - видео за день
-- `created_at` (TIMESTAMP) - дата создания
-- `updated_at` (TIMESTAMP) - дата обновления
+- `user_id` (BIGINT) — ID пользователя Telegram
+- `coins` (INTEGER) — текущий баланс монет
+- `admin_coins` (INTEGER) — служебный баланс для админа
+- `plan` (VARCHAR) — активный тариф (`lite` по умолчанию)
+- `plan_expiry` (TIMESTAMP) — срок действия тарифа
+- `created_at` / `updated_at` (TIMESTAMP) — метаданные
 
 ### Таблица `transactions`
 - `id` (SERIAL) - уникальный ID транзакции
 - `user_id` (BIGINT) - ID пользователя
 - `operation_type` (VARCHAR) - тип операции
 - `coins_spent` (INTEGER) - потрачено монет
-- `used_bonus` (BOOLEAN) - использован ли бонус
-- `bonus_type` (VARCHAR) - тип бонуса
 - `quality` (VARCHAR) - качество обработки
 - `status` (VARCHAR) - статус (pending/completed/error)
 - `created_at` (TIMESTAMP) - дата создания
 - `completed_at` (TIMESTAMP) - дата завершения
 - `error_at` (TIMESTAMP) - дата ошибки
-
-### Таблица `processed_payments`
-- `payment_id` (VARCHAR) - ID платежа
-- `user_id` (BIGINT) - ID пользователя
-- `amount` (DECIMAL) - сумма платежа
-- `currency` (VARCHAR) - валюта
-- `metadata` (JSONB) - дополнительные данные
-- `created_at` (TIMESTAMP) - дата создания
+- `before_value` / `after_value` / `delta` — движение баланса
+- `reason`, `metadata` — причина и дополнительная информация
 
 ## 🔧 Альтернативные варианты
 

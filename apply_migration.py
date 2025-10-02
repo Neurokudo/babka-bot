@@ -47,55 +47,55 @@ def apply_migration(database_url):
         # Проверяем результат
         log.info("🔍 Проверяем результат миграции...")
         
-        # Проверяем, что колонка admin_coins добавлена
         cursor.execute("""
-            SELECT column_name, data_type, is_nullable, column_default 
-            FROM information_schema.columns 
-            WHERE table_name = 'users' AND column_name = 'admin_coins'
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'users'
+              AND column_name IN ('coins', 'admin_coins', 'plan', 'plan_expiry')
         """)
-        
-        admin_coins_column = cursor.fetchone()
-        if admin_coins_column:
-            log.info(f"✅ Колонка admin_coins найдена: {admin_coins_column}")
+        present_columns = {row[0] for row in cursor.fetchall()}
+        missing = {"coins", "admin_coins", "plan", "plan_expiry"} - present_columns
+        if missing:
+            log.warning("⚠️ Не найдены колонки: %s", ", ".join(sorted(missing)))
         else:
-            log.warning("⚠️ Колонка admin_coins не найдена!")
-        
-        # Проверяем админские данные
+            log.info("✅ Все нужные колонки (coins, admin_coins, plan, plan_expiry) на месте")
+
         cursor.execute("""
-            SELECT user_id, video_bonus, photo_bonus, tryon_bonus, admin_coins 
-            FROM users 
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'users'
+              AND column_name IN ('video_bonus', 'photo_bonus', 'tryon_bonus', 'videos_allowed', 'photos_allowed')
+        """)
+        legacy = [row[0] for row in cursor.fetchall()]
+        if legacy:
+            log.warning("⚠️ Устаревшие колонки не удалены: %s", ", ".join(legacy))
+        else:
+            log.info("✅ Устаревшие бонусные колонки удалены")
+
+        cursor.execute("""
+            SELECT user_id, coins, admin_coins, plan, plan_expiry
+            FROM users
             WHERE user_id = 5015100177
         """)
-        
-        admin_data = cursor.fetchone()
-        if admin_data:
-            log.info(f"✅ Админские данные найдены: user_id={admin_data[0]}, video_bonus={admin_data[1]}, photo_bonus={admin_data[2]}, tryon_bonus={admin_data[3]}, admin_coins={admin_data[4]}")
+        admin_row = cursor.fetchone()
+        if admin_row:
+            log.info(
+                "✅ Админская запись: id=%s, coins=%s, admin_coins=%s, plan=%s, plan_expiry=%s",
+                *admin_row
+            )
         else:
-            log.warning("⚠️ Админские данные не найдены!")
-        
-        # Проверяем исправление старых пользователей
-        cursor.execute("""
-            SELECT COUNT(*) 
-            FROM users 
-            WHERE video_bonus = 2 AND photo_bonus = 3 AND tryon_bonus = 1 AND user_id <> 5015100177
-        """)
-        
-        old_users_count = cursor.fetchone()[0]
-        if old_users_count == 0:
-            log.info("✅ Все старые пользователи с неправильными бонусами исправлены!")
-        else:
-            log.warning(f"⚠️ Осталось {old_users_count} пользователей с неправильными бонусами!")
+            log.warning("⚠️ Админская запись с ID 5015100177 не найдена")
         
         cursor.close()
         conn.close()
         
         log.info("")
-        log.info("📊 Что было сделано:")
-        log.info("  • Добавлена колонка admin_coins в таблицу users")
-        log.info("  • Установлены админские бонусы для ID = 5015100177: 30 видео, 50 фото, 10 примерочных, 500 админских монеток")
-        log.info("  • Исправлены старые пользователи с неправильными бонусами (2/3/1) на правильные (2/2/2)")
+        log.info("📊 Что сделала миграция:")
+        log.info("  • Обновила таблицу users под монетную систему (coins, plan, plan_expiry, admin_coins)")
+        log.info("  • Очистила старые бонусные поля и добавила processed_payments")
+        log.info("  • Привела transactions к унифицированному виду (before/after/delta/metadata)")
         log.info("")
-        log.info("🎉 Система бонусов готова к работе!")
+        log.info("🎉 Монетная система готова. Можно деплоить! 🚀")
         
         return True
         

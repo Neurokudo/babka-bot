@@ -190,21 +190,15 @@ def create_payment_link(user_id: int, amount: float, description: str,
                        plan: str = None) -> str:
     """Создать ссылку для оплаты"""
     try:
-        payment_metadata = {
-            "user_id": str(user_id),
-            "telegram_bot": True,
-            "timestamp": str(int(time.time()))
-        }
-        if metadata:
-            payment_metadata.update(metadata)
-        if plan:
-            payment_metadata["plan"] = plan
-            
         client = get_yookassa_client()
         payment = client.create_payment(
             amount=amount,
             description=description,
-            metadata=payment_metadata,
+            metadata={
+                "user_id": str(user_id),
+                "plan": plan,
+                **(metadata or {})
+            },
             return_url="https://t.me/babkakudo_bot?start=payment_success",
             customer_email=customer_email
         )
@@ -218,20 +212,24 @@ def create_payment_link(user_id: int, amount: float, description: str,
             
         payment_id = payment.get("id")
         
-        # Сохраняем платеж в базе данных для идемпотентности
+        # Сохраняем платеж в базе данных
         from database import db
-        idempotency_key = str(uuid.uuid4())
         db.create_payment(
             payment_id=payment_id,
-            idempotency_key=idempotency_key,
             user_id=user_id,
+            subscription_type=plan or (metadata or {}).get("type"),
             amount=amount,
-            currency="RUB",
-            plan=plan,
-            metadata=payment_metadata
+            status="pending",
+            idempotent_key=str(uuid.uuid4()),
         )
         
-        log.info(f"Payment created successfully: user={user_id}, amount={amount}, payment_id={payment_id}, plan={plan}")
+        log.info(
+            "Payment created successfully: user=%s, amount=%s, payment_id=%s, plan=%s",
+            user_id,
+            amount,
+            payment_id,
+            plan,
+        )
         
         return payment_url
         
@@ -327,70 +325,35 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
     """Обработать успешный платеж и активировать тариф"""
     try:
         from database import db
-        from subscription_system import activate_plan
-        
+        from billing import activate_plan, apply_top_up
+
         payment_id = payment_data.get("payment_id")
         user_id = payment_data.get("user_id")
-        plan = payment_data.get("metadata", {}).get("plan")
-        
+        meta = payment_data.get("metadata", {})
+        plan = meta.get("plan")
+
         if not payment_id or not user_id:
             log.error("Missing payment_id or user_id in payment data")
             return False
-        
-        # Проверяем, не обработан ли уже этот платеж
-        if db.is_payment_exists(payment_id):
-            log.info(f"Payment {payment_id} already processed")
-            return True
-        
+
         # Обновляем статус платежа
         db.update_payment_status(payment_id, "succeeded")
-        
-        # Если это покупка тарифа, активируем его
-        if plan and plan in ["lite", "std", "pro"]:
-            if activate_plan(user_id, plan):
-                log.info(f"Successfully activated plan {plan} for user {user_id}")
-                return True
-            else:
-                log.error(f"Failed to activate plan {plan} for user {user_id}")
-                return False
-        
-        # Если это покупка монеток
-        elif payment_data.get("metadata", {}).get("type") == "coins":
-            coins_amount = payment_data.get("metadata", {}).get("coins", 0)
-            if coins_amount > 0:
-                # Получаем данные пользователя
-                user = db.get_user(user_id)
-                if user:
-                    before_value = user.get("coins", 0)
-                    user["coins"] = before_value + coins_amount
-                    after_value = user.get("coins", 0)
-                    
-                    db.save_user(user_id, user)
-                    
-                    # Логируем покупку монеток
-                    db.add_transaction(
-                        user_id=user_id,
-                        operation_type="coins_purchase",
-                        coins_spent=0,
-                        used_bonus=False,
-                        before_value=before_value,
-                        after_value=after_value,
-                        delta=coins_amount,
-                        reason="coins_purchase",
-                        metadata={"coins": coins_amount, "amount": payment_data.get("amount", 0)}
-                    )
-                    
-                    log.info(f"Granted {coins_amount} coins to user {user_id}")
-                    return True
-            return False
-        
-        # Если это обычная покупка монет (старая система)
-        else:
-            amount = payment_data.get("amount", 0)
-            # Здесь можно добавить логику для покупки монет
-            log.info(f"Processed coin purchase for user {user_id}, amount: {amount}")
+
+        if plan in ("lite", "std", "pro"):
+            activate_plan(user_id, plan)
+            log.info("Plan %s activated for user %s", plan, user_id)
             return True
-        
+
+        if meta.get("type") == "coins":
+            coins_amount = int(meta.get("coins", 0))
+            if coins_amount > 0:
+                apply_top_up(user_id, coins_amount, "coins_topup")
+                log.info("Coins top-up processed for user %s: +%s", user_id, coins_amount)
+                return True
+
+        log.info("Payment %s processed without matching plan or top-up metadata", payment_id)
+        return True
+
     except Exception as e:
         log.error(f"Error processing successful payment: {e}")
         return False

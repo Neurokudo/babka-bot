@@ -3,6 +3,7 @@ veo-bot-key.json
 *.json
 .env
 .env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -24,3 +25,6 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+# Deployment artifacts
+backups/
+video_*.mp4

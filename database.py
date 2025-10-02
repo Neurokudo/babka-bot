@@ -1,589 +1,404 @@
 # -*- coding: utf-8 -*-
-"""
-Модуль для работы с базой данных PostgreSQL
-"""
+"""Работа с PostgreSQL для Babka Bot (монетная модель)."""
 
-import os
 import json
 import logging
+import os
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
 try:
     import psycopg2
     from psycopg2.extras import RealDictCursor
     PSYCOPG2_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover
     PSYCOPG2_AVAILABLE = False
-    log = logging.getLogger("database")
-    log.warning("psycopg2 not installed. Database features disabled. Install with: pip install psycopg2-binary")
+    logging.getLogger("database").warning(
+        "psycopg2 not installed. Database features disabled. Install with: pip install psycopg2-binary"
+    )
 
 log = logging.getLogger("database")
-
-# Настройки подключения к базе данных
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+
 class Database:
-    def __init__(self):
+    def __init__(self) -> None:
         self.connection = None
         if PSYCOPG2_AVAILABLE:
             self.connect()
             self.init_tables()
-        else:
-            log.warning("Database features disabled - psycopg2 not available")
-    
-    def connect(self):
-        """Подключение к базе данных"""
-        if not PSYCOPG2_AVAILABLE:
+
+    # ------------------------------------------------------------------
+    # Low level helpers
+    # ------------------------------------------------------------------
+    def connect(self) -> None:
+        if not PSYCOPG2_AVAILABLE or not DATABASE_URL:
+            log.warning("DATABASE_URL not set, database features disabled")
             return
-            
         try:
-            if DATABASE_URL:
-                self.connection = psycopg2.connect(DATABASE_URL)
-                log.info("Connected to PostgreSQL database")
-            else:
-                log.warning("DATABASE_URL not set, database features disabled")
-                self.connection = None
-        except Exception as e:
-            log.error(f"Failed to connect to database: {e}")
+            self.connection = psycopg2.connect(DATABASE_URL)
+            log.info("Connected to PostgreSQL database")
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to connect to database: %s", exc)
             self.connection = None
-    
-    def init_tables(self):
-        """Создание таблиц если их нет"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
+
+    def init_tables(self) -> None:
+        if not self.connection:
             return
-        
         try:
             with self.connection.cursor() as cursor:
-                # Таблица пользователей
-                cursor.execute("""
+                cursor.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS users (
                         user_id BIGINT PRIMARY KEY,
-                        coins INTEGER DEFAULT 0,
-                        video_bonus INTEGER DEFAULT 2,
-                        photo_bonus INTEGER DEFAULT 2,
-                        tryon_bonus INTEGER DEFAULT 2,
-                        admin_coins INTEGER DEFAULT 0,
-                        welcome_granted BOOLEAN DEFAULT FALSE,
-                        plan VARCHAR(20) DEFAULT 'lite',
+                        coins INTEGER NOT NULL DEFAULT 0,
+                        plan VARCHAR(20) NOT NULL DEFAULT 'lite',
                         plan_expiry TIMESTAMP NULL,
-                        created_at TIMESTAMP DEFAULT NOW(),
-                        updated_at TIMESTAMP DEFAULT NOW()
+                        admin_coins INTEGER NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
-                """)
-                
-                # Таблица транзакций
-                cursor.execute("""
+                    """
+                )
+
+                cursor.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS transactions (
                         id SERIAL PRIMARY KEY,
-                        user_id BIGINT NOT NULL,
-                        operation_type VARCHAR(20) NOT NULL,
-                        coins_spent INTEGER DEFAULT 0,
-                        used_bonus BOOLEAN DEFAULT FALSE,
-                        bonus_type VARCHAR(20),
-                        quality VARCHAR(20),
-                        before_value INTEGER,
-                        after_value INTEGER,
-                        delta INTEGER,
-                        reason VARCHAR(50),
-                        metadata JSONB,
-                        status VARCHAR(20) DEFAULT 'pending',
-                        created_at TIMESTAMP DEFAULT NOW(),
-                        completed_at TIMESTAMP,
-                        error_at TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users (user_id)
+                        user_id BIGINT NOT NULL REFERENCES users(user_id),
+                        operation_type VARCHAR(50) NOT NULL,
+                        coins_spent INTEGER NOT NULL,
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
-                """)
-                
-                # Таблица платежей (новая система)
-                cursor.execute("""
+                    """
+                )
+
+                cursor.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS payments (
-                        payment_id VARCHAR(255) PRIMARY KEY,
-                        idempotency_key VARCHAR(255) UNIQUE,
-                        user_id BIGINT NOT NULL,
-                        amount DECIMAL(10,2) DEFAULT 0,
-                        currency VARCHAR(3) DEFAULT 'RUB',
-                        plan VARCHAR(20),
-                        metadata JSONB,
-                        status VARCHAR(20) DEFAULT 'pending',
-                        created_at TIMESTAMP DEFAULT NOW()
+                        id VARCHAR(255) PRIMARY KEY,
+                        user_id BIGINT NOT NULL REFERENCES users(user_id),
+                        subscription_type VARCHAR(50),
+                        amount DECIMAL(10,2) NOT NULL,
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        idempotent_key VARCHAR(255) UNIQUE
                     )
-                """)
-                
-                # Создаем уникальный индекс для идемпотентности
-                cursor.execute("""
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_idempotency
-                    ON payments (idempotency_key)
-                """)
-                
-                # Создаем индексы для быстрого поиска
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_transactions_user_id 
-                    ON transactions(user_id)
-                """)
-                
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_transactions_created_at 
-                    ON transactions(created_at)
-                """)
-                
-                self.connection.commit()
-                log.info("Database tables initialized successfully")
-                
-        except Exception as e:
-            log.error(f"Failed to initialize tables: {e}")
+                    """
+                )
+
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id)"
+                )
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_transactions_created ON transactions(created_at)"
+                )
+            self.connection.commit()
+            log.info("Database tables initialized successfully")
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to initialize tables: %s", exc)
             if self.connection:
                 self.connection.rollback()
-    
+
+    # ------------------------------------------------------------------
+    # Users
+    # ------------------------------------------------------------------
     def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """Получить данные пользователя"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
+        if not self.connection:
             return None
-        
         try:
             with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(
-                    "SELECT * FROM users WHERE user_id = %s",
-                    (user_id,)
-                )
-                result = cursor.fetchone()
-                
-                if result:
-                    # Конвертируем в обычный dict
-                    user_data = dict(result)
-                    # Добавляем структуру для совместимости с существующим кодом
-                    user_data["daily"] = {
-                        "date": "",
-                        "videos": 0
-                    }
-                    user_data["processed_payments"] = set()
-                    user_data["jobs"] = {}
-                    # Админские монетки отдельно (по умолчанию 0)
-                    user_data["admin_coins"] = user_data.get("admin_coins", 0)
-                    # Новые поля для системы тарифов
-                    user_data["welcome_granted"] = user_data.get("welcome_granted", False)
-                    user_data["plan"] = user_data.get("plan", "lite")
-                    user_data["plan_expiry"] = user_data.get("plan_expiry")
-                    
-                    return user_data
-                return None
-                
-        except Exception as e:
-            log.error(f"Failed to get user {user_id}: {e}")
-            return None
-    
-    def save_user(self, user_id: int, user_data: Dict[str, Any]):
-        """Сохранить данные пользователя"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return
-        
-        try:
-            with self.connection.cursor() as cursor:
-                
-                cursor.execute("""
-                    INSERT INTO users (
-                        user_id, coins, video_bonus, photo_bonus, tryon_bonus,
-                        admin_coins, welcome_granted, plan, plan_expiry, updated_at
-                    ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
-                    )
-                    ON CONFLICT (user_id) DO UPDATE SET
-                        coins = EXCLUDED.coins,
-                        video_bonus = EXCLUDED.video_bonus,
-                        photo_bonus = EXCLUDED.photo_bonus,
-                        tryon_bonus = EXCLUDED.tryon_bonus,
-                        admin_coins = EXCLUDED.admin_coins,
-                        welcome_granted = EXCLUDED.welcome_granted,
-                        plan = EXCLUDED.plan,
-                        plan_expiry = EXCLUDED.plan_expiry,
-                        updated_at = NOW()
-                """, (
-                    user_id,
-                    user_data.get("coins", 0),
-                    user_data.get("video_bonus", 0),
-                    user_data.get("photo_bonus", 0),
-                    user_data.get("tryon_bonus", 0),
-                    user_data.get("admin_coins", 0),
-                    user_data.get("welcome_granted", False),
-                    user_data.get("plan", "lite"),
-                    user_data.get("plan_expiry")
-                ))
-                
-                self.connection.commit()
-                log.debug(f"User {user_id} saved to database")
-                
-        except Exception as e:
-            log.error(f"Failed to save user {user_id}: {e}")
-            if self.connection:
-                self.connection.rollback()
-    
-    def add_transaction(self, user_id: int, operation_type: str, 
-                       coins_spent: int = 0, used_bonus: bool = False,
-                       bonus_type: str = None, quality: str = "basic",
-                       before_value: int = None, after_value: int = None,
-                       delta: int = None, reason: str = None,
-                       metadata: Dict = None, status: str = "pending") -> Optional[int]:
-        """Добавить транзакцию"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return None
-        
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO transactions (
-                        user_id, operation_type, coins_spent, used_bonus,
-                        bonus_type, quality, before_value, after_value,
-                        delta, reason, metadata, status
-                    ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                    ) RETURNING id
-                """, (user_id, operation_type, coins_spent, used_bonus, 
-                     bonus_type, quality, before_value, after_value,
-                     delta, reason, json.dumps(metadata) if metadata else None, status))
-                
-                transaction_id = cursor.fetchone()[0]
-                self.connection.commit()
-                
-                log.debug(f"Transaction {transaction_id} added for user {user_id}")
-                return transaction_id
-                
-        except Exception as e:
-            log.error(f"Failed to add transaction for user {user_id}: {e}")
-            if self.connection:
-                self.connection.rollback()
-            return None
-    
-    def update_transaction_status(self, transaction_id: int, status: str):
-        """Обновить статус транзакции"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return
-        
-        try:
-            with self.connection.cursor() as cursor:
-                if status == "completed":
-                    cursor.execute("""
-                        UPDATE transactions 
-                        SET status = %s, completed_at = NOW()
-                        WHERE id = %s
-                    """, (status, transaction_id))
-                elif status == "error":
-                    cursor.execute("""
-                        UPDATE transactions 
-                        SET status = %s, error_at = NOW()
-                        WHERE id = %s
-                    """, (status, transaction_id))
-                else:
-                    cursor.execute("""
-                        UPDATE transactions 
-                        SET status = %s
-                        WHERE id = %s
-                    """, (status, transaction_id))
-                
-                self.connection.commit()
-                
-        except Exception as e:
-            log.error(f"Failed to update transaction {transaction_id}: {e}")
-            if self.connection:
-                self.connection.rollback()
-    
-    def is_payment_processed(self, payment_id: str) -> bool:
-        """Проверить, был ли платеж уже обработан"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return False
-        
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT 1 FROM processed_payments WHERE payment_id = %s",
-                    (payment_id,)
-                )
-                return cursor.fetchone() is not None
-                
-        except Exception as e:
-            log.error(f"Failed to check payment {payment_id}: {e}")
-            return False
-    
-    def mark_payment_processed(self, payment_id: str, user_id: int, 
-                             amount: float, currency: str, metadata: Dict):
-        """Отметить платеж как обработанный"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return
-        
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO processed_payments (
-                        payment_id, user_id, amount, currency, metadata
-                    ) VALUES (
-                        %s, %s, %s, %s, %s
-                    )
-                """, (payment_id, user_id, amount, currency, json.dumps(metadata)))
-                
-                self.connection.commit()
-                
-        except Exception as e:
-            log.error(f"Failed to mark payment {payment_id} as processed: {e}")
-            if self.connection:
-                self.connection.rollback()
-    
-    def get_user_transactions(self, user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
-        """Получить историю транзакций пользователя"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return []
-        
-        try:
-            with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute("""
-                    SELECT * FROM transactions 
-                    WHERE user_id = %s 
-                    ORDER BY created_at DESC 
-                    LIMIT %s
-                """, (user_id, limit))
-                
-                results = cursor.fetchall()
-                return [dict(row) for row in results]
-                
-        except Exception as e:
-            log.error(f"Failed to get transactions for user {user_id}: {e}")
-            return []
-    
-    def create_payment(self, payment_id: str, idempotency_key: str, user_id: int,
-                       amount: float, currency: str = "RUB", plan: str = None,
-                       metadata: Dict = None) -> bool:
-        """Создать запись о платеже"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return False
-        
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO payments (
-                        payment_id, idempotency_key, user_id, amount, currency, plan, metadata
-                    ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s
-                    )
-                """, (payment_id, idempotency_key, user_id, amount, currency, plan,
-                     json.dumps(metadata) if metadata else None))
-                
-                self.connection.commit()
-                return True
-                
-        except Exception as e:
-            log.error(f"Failed to create payment {payment_id}: {e}")
-            if self.connection:
-                self.connection.rollback()
-            return False
-    
-    def update_payment_status(self, payment_id: str, status: str) -> bool:
-        """Обновить статус платежа"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return False
-        
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE payments 
-                    SET status = %s
-                    WHERE payment_id = %s
-                """, (status, payment_id))
-                
-                self.connection.commit()
-                return True
-                
-        except Exception as e:
-            log.error(f"Failed to update payment {payment_id}: {e}")
-            if self.connection:
-                self.connection.rollback()
-            return False
-    
-    def get_payment(self, payment_id: str) -> Optional[Dict[str, Any]]:
-        """Получить информацию о платеже"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return None
-        
-        try:
-            with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(
-                    "SELECT * FROM payments WHERE payment_id = %s",
-                    (payment_id,)
-                )
-                result = cursor.fetchone()
-                
-                if result:
-                    return dict(result)
-                return None
-                
-        except Exception as e:
-            log.error(f"Failed to get payment {payment_id}: {e}")
-            return None
-    
-    def is_payment_exists(self, payment_id: str) -> bool:
-        """Проверить существование платежа"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return False
-        
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT 1 FROM payments WHERE payment_id = %s",
-                    (payment_id,)
-                )
-                return cursor.fetchone() is not None
-                
-        except Exception as e:
-            log.error(f"Failed to check payment {payment_id}: {e}")
-            return False
-    
-    def activate_plan(self, user_id: int, plan: str) -> bool:
-        """Активировать тариф для пользователя"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return False
-        
-        try:
-            with self.connection.cursor() as cursor:
-                # Обновляем план и дату окончания (30 дней)
-                cursor.execute("""
-                    UPDATE users 
-                    SET plan = %s, plan_expiry = NOW() + INTERVAL '30 days'
-                    WHERE user_id = %s
-                """, (plan, user_id))
-                
-                self.connection.commit()
-                return True
-                
-        except Exception as e:
-            log.error(f"Failed to activate plan {plan} for user {user_id}: {e}")
-            if self.connection:
-                self.connection.rollback()
-            return False
-    
-    def grant_welcome_bonus(self, user_id: int) -> bool:
-        """Выдать приветственный бонус новому пользователю"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return False
-        
-        try:
-            with self.connection.cursor() as cursor:
-                # Проверяем, не получал ли уже пользователь приветственный бонус
-                cursor.execute("""
-                    SELECT welcome_granted FROM users WHERE user_id = %s
-                """, (user_id,))
-                
-                result = cursor.fetchone()
-                if result and result[0]:
-                    return False  # Уже получал
-                
-                # Выдаем бонусы 2/2/2
-                cursor.execute("""
-                    UPDATE users 
-                    SET video_bonus = 2, photo_bonus = 2, tryon_bonus = 2,
-                        welcome_granted = TRUE
-                    WHERE user_id = %s
-                """, (user_id,))
-                
-                self.connection.commit()
-                return True
-                
-        except Exception as e:
-            log.error(f"Failed to grant welcome bonus for user {user_id}: {e}")
-            if self.connection:
-                self.connection.rollback()
-            return False
-    
-    def check_expired_plans(self) -> List[int]:
-        """Проверить истекшие тарифы"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return []
-        
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute("""
-                    SELECT user_id FROM users 
-                    WHERE plan_expiry IS NOT NULL 
-                    AND plan_expiry < NOW() 
-                    AND plan != 'lite'
-                """)
-                
-                results = cursor.fetchall()
-                return [row[0] for row in results]
-                
-        except Exception as e:
-            log.error(f"Failed to check expired plans: {e}")
-            return []
-    
-    def atomic_spend_coins(self, user_id: int, cost: int, operation_type: str, 
-                          reason: str = None, metadata: Dict = None) -> bool:
-        """Атомарно списывает монетки с проверкой баланса"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return False
-        
-        try:
-            with self.connection.cursor() as cursor:
-                # Атомарная операция: проверяем баланс и списываем в одной транзакции
-                cursor.execute("""
-                    UPDATE users 
-                    SET coins = coins - %s, updated_at = NOW()
-                    WHERE user_id = %s AND coins >= %s
-                    RETURNING coins + %s as old_coins, coins as new_coins
-                """, (cost, user_id, cost, cost))
-                
+                cursor.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
                 result = cursor.fetchone()
                 if not result:
-                    # Недостаточно монеток или пользователь не найден
-                    return False
-                
-                old_coins, new_coins = result
-                
-                # Логируем транзакцию
-                cursor.execute("""
-                    INSERT INTO transactions (
-                        user_id, operation_type, coins_spent, used_bonus,
-                        before_value, after_value, delta, reason, metadata
-                    ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s
-                    )
-                """, (
-                    user_id, operation_type, cost, False,
-                    old_coins, new_coins, -cost, reason or f"{operation_type}_spend",
-                    json.dumps(metadata) if metadata else None
-                ))
-                
-                self.connection.commit()
-                return True
-                
-        except Exception as e:
-            log.error(f"Error in atomic_spend_coins for user {user_id}: {e}")
-            if self.connection:
-                self.connection.rollback()
-            return False
+                    return None
+                user = dict(result)
+                user.setdefault("coins", 0)
+                user.setdefault("admin_coins", 0)
+                user.setdefault("plan", "lite")
+                user.setdefault("plan_expiry", None)
+                user.setdefault("created_at", datetime.utcnow())
+                user.setdefault("updated_at", datetime.utcnow())
+                user.setdefault("jobs", {})
+                user.setdefault("last_job", None)
+                return user
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to get user %s: %s", user_id, exc)
+            return None
 
-    def reset_expired_plan(self, user_id: int) -> bool:
-        """Сбросить истекший тариф на lite"""
-        if not PSYCOPG2_AVAILABLE or not self.connection:
-            return False
-        
+    def save_user(self, user_id: int, data: Dict[str, Any]) -> None:
+        if not self.connection:
+            return
         try:
             with self.connection.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE users 
-                    SET plan = 'lite', plan_expiry = NULL
-                    WHERE user_id = %s
-                """, (user_id,))
-                
-                self.connection.commit()
-                return True
-                
-        except Exception as e:
-            log.error(f"Failed to reset expired plan for user {user_id}: {e}")
-            if self.connection:
-                self.connection.rollback()
+                cursor.execute(
+                    """
+                    INSERT INTO users (user_id, coins, plan, plan_expiry, admin_coins, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        coins = EXCLUDED.coins,
+                        plan = EXCLUDED.plan,
+                        plan_expiry = EXCLUDED.plan_expiry,
+                        admin_coins = EXCLUDED.admin_coins,
+                        updated_at = NOW()
+                    """,
+                    (
+                        user_id,
+                        data.get("coins", 0),
+                        data.get("plan", "lite"),
+                        data.get("plan_expiry"),
+                        data.get("admin_coins", 0),
+                    ),
+                )
+            self.connection.commit()
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to save user %s: %s", user_id, exc)
+            self.connection.rollback()
+
+    # ------------------------------------------------------------------
+    # Transactions
+    # ------------------------------------------------------------------
+    def add_transaction(
+        self,
+        user_id: int,
+        operation_type: str,
+        coins_spent: int,
+        status: str = "pending",
+    ) -> Optional[int]:
+        if not self.connection:
+            return None
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO transactions (user_id, operation_type, coins_spent, status)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (user_id, operation_type, coins_spent, status),
+                )
+                tx_id = cursor.fetchone()[0]
+            self.connection.commit()
+            return tx_id
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to add transaction for user %s: %s", user_id, exc)
+            self.connection.rollback()
+            return None
+
+    def update_transaction_status(self, transaction_id: int, status: str) -> None:
+        if not self.connection:
+            return
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE transactions SET status = %s WHERE id = %s",
+                    (status, transaction_id),
+                )
+            self.connection.commit()
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to update transaction %s: %s", transaction_id, exc)
+            self.connection.rollback()
+
+    def atomic_spend_coins(
+        self,
+        user_id: int,
+        cost: int,
+        operation_type: str,
+        status: str = "pending",
+    ) -> Optional[int]:
+        if not self.connection:
+            return None
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE users
+                    SET coins = coins - %s, updated_at = NOW()
+                    WHERE user_id = %s AND coins >= %s
+                    RETURNING coins
+                    """,
+                    (cost, user_id, cost),
+                )
+                result = cursor.fetchone()
+                if not result:
+                    return None
+                cursor.execute(
+                    """
+                    INSERT INTO transactions (user_id, operation_type, coins_spent, status)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (user_id, operation_type, cost, status),
+                )
+                tx_id = cursor.fetchone()[0]
+            self.connection.commit()
+            return tx_id
+        except Exception as exc:  # pragma: no cover
+            log.error("Error in atomic_spend_coins for user %s: %s", user_id, exc)
+            self.connection.rollback()
+            return None
+
+    def add_refund_transaction(
+        self,
+        user_id: int,
+        amount: int,
+        original_transaction_id: Optional[int] = None,
+    ) -> Optional[int]:
+        if not self.connection:
+            return None
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO transactions (user_id, operation_type, coins_spent, status)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (user_id, "refund", -amount, "completed"),
+                )
+                tx_id = cursor.fetchone()[0]
+            self.connection.commit()
+            return tx_id
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to log refund for user %s: %s", user_id, exc)
+            self.connection.rollback()
+            return None
+
+    # ------------------------------------------------------------------
+    # Payments
+    # ------------------------------------------------------------------
+    def create_payment(
+        self,
+        payment_id: str,
+        user_id: int,
+        subscription_type: Optional[str],
+        amount: float,
+        status: str = "pending",
+        idempotent_key: Optional[str] = None,
+    ) -> bool:
+        if not self.connection:
+            return False
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO payments (id, user_id, subscription_type, amount, status, idempotent_key)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    (payment_id, user_id, subscription_type, amount, status, idempotent_key),
+                )
+            self.connection.commit()
+            return True
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to create payment %s: %s", payment_id, exc)
+            self.connection.rollback()
             return False
 
-    def close(self):
-        """Закрыть соединение с базой данных"""
-        if PSYCOPG2_AVAILABLE and self.connection:
-            self.connection.close()
-            log.info("Database connection closed")
+    def update_payment_status(self, payment_id: str, status: str) -> bool:
+        if not self.connection:
+            return False
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute("UPDATE payments SET status = %s WHERE id = %s", (status, payment_id))
+            self.connection.commit()
+            return True
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to update payment %s: %s", payment_id, exc)
+            self.connection.rollback()
+            return False
 
-# Глобальный экземпляр базы данных
-db = Database()
+    def get_payment(self, payment_id: str) -> Optional[Dict[str, Any]]:
+        if not self.connection:
+            return None
+        try:
+            with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("SELECT * FROM payments WHERE id = %s", (payment_id,))
+                result = cursor.fetchone()
+                return dict(result) if result else None
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to get payment %s: %s", payment_id, exc)
+            return None
+
+    # ------------------------------------------------------------------
+    # Business helpers
+    # ------------------------------------------------------------------
+    def activate_plan(self, user_id: int, plan: str) -> bool:
+        if not self.connection:
+            return False
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE users
+                    SET plan = %s,
+                        plan_expiry = NOW() + INTERVAL '30 days',
+                        updated_at = NOW()
+                    WHERE user_id = %s
+                    """,
+                    (plan, user_id),
+                )
+            self.connection.commit()
+            return True
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to activate plan %s for user %s: %s", plan, user_id, exc)
+            self.connection.rollback()
+            return False
+
+    def check_expired_plans(self) -> List[int]:
+        if not self.connection:
+            return []
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT user_id FROM users
+                    WHERE plan != 'lite'
+                      AND plan_expiry IS NOT NULL
+                      AND plan_expiry < NOW()
+                    """
+                )
+                return [row[0] for row in cursor.fetchall()]
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to check expired plans: %s", exc)
+            return []
+
+    def reset_expired_plan(self, user_id: int) -> bool:
+        if not self.connection:
+            return False
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE users
+                    SET plan = 'lite', plan_expiry = NULL, updated_at = NOW()
+                    WHERE user_id = %s
+                    """,
+                    (user_id,),
+                )
+            self.connection.commit()
+            return True
+        except Exception as exc:  # pragma: no cover
+            log.error("Failed to reset expired plan for user %s: %s", user_id, exc)
+            self.connection.rollback()
+            return False
+
+
+# Глобальный экземпляр
+_db_instance: Optional[Database] = None
+
+
+def _get_db() -> Database:
+    global _db_instance
+    if _db_instance is None:
+        _db_instance = Database()
+    return _db_instance
+
+
+def reset_connection_for_tests():  # pragma: no cover - используется в тестах
+    global _db_instance
+    _db_instance = Database()
+
+
+db = _get_db()

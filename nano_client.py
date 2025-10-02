@@ -4,7 +4,7 @@
 # - заменить фон (новая локация)
 # Использует Gemini 2.5 Flash Image (preview).
 
-import os, base64, json, logging, requests
+import os, base64, json, logging, time, requests
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request
 from PIL import Image, ImageEnhance, ImageFilter
@@ -16,6 +16,8 @@ PROJECT_ID = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT", ""
 LOCATION   = os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 SCOPES     = ["https://www.googleapis.com/auth/cloud-platform"]
 MODEL_ID   = "gemini-2.5-flash-image-preview"
+HTTP_RETRIES = int(os.getenv("HTTP_RETRIES", "3"))
+NANO_HTTP_TIMEOUT = int(os.getenv("NANO_HTTP_TIMEOUT", "180"))
 
 def _load_credentials():
     js = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
@@ -31,6 +33,35 @@ def _access_token() -> str:
     creds = _load_credentials()
     creds.refresh(Request())
     return creds.token
+
+
+def _post_with_retry(url: str, headers: dict, payload: dict,
+                     timeout: int = NANO_HTTP_TIMEOUT,
+                     attempts: int = HTTP_RETRIES):
+    backoff = 2
+    last_error = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+            if response.status_code < 400:
+                return response
+
+            if response.status_code in (429, 500, 502, 503, 504):
+                last_error = RuntimeError(
+                    f"Retryable error {response.status_code}: {response.text[:512]}"
+                )
+            else:
+                response.raise_for_status()
+        except requests.RequestException as exc:
+            last_error = exc
+
+        if attempt < attempts:
+            sleep_for = backoff ** (attempt - 1)
+            log.warning("Nano request retry %s/%s after %s", attempt, attempts, last_error)
+            time.sleep(min(20, sleep_for))
+
+    raise RuntimeError(f"Nano request failed after {attempts} attempts: {last_error}")
 
 def _enhance_gemini_image(image_bytes: bytes) -> bytes:
     """Улучшает качество изображения от Gemini: убирает шум, повышает резкость без потери деталей."""
@@ -105,8 +136,7 @@ def repose_or_relocate(dressed_bytes: bytes, prompt: str = "", bg_bytes: bytes |
         }
     }
 
-    r = requests.post(url, headers=headers, json=body, timeout=120)
-    r.raise_for_status()
+    r = _post_with_retry(url, headers, body)
     data = r.json()
     pred = (data.get("predictions") or [{}])[0]
     b64 = pred.get("bytesBase64Encoded")
@@ -117,4 +147,3 @@ def repose_or_relocate(dressed_bytes: bytes, prompt: str = "", bg_bytes: bytes |
     result_bytes = base64.b64decode(b64)
     enhanced_bytes = _enhance_gemini_image(result_bytes)
     return enhanced_bytes
-

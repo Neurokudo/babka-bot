@@ -78,15 +78,75 @@ DEFAULT_AUDIO = True  # по умолчанию с аудио
 # -----------------------------------------------------------------------------
 from config import (
     COST_VIDEO, COST_TRANSFORM, COST_TRANSFORM_PREMIUM, COST_TRYON,
-    FREE_RETRY_PER_JOB, DAILY_CAP_VIDEOS, LOW_COINS_THRESHOLD,
+    LOW_COINS_THRESHOLD,
     PLANS, TOP_UPS, ADDONS, IMG_SIZE, QUALITY
 )
 from payment_yookassa import create_payment_link, process_payment_webhook
 from billing import (
-    can_spend, hold_and_start, on_success, on_error, retry,
-    check_low_coins, get_retry_cost, can_retry,
-    has_video_bonus, has_photo_bonus, can_generate_video, can_generate_photo
+    can_spend,
+    hold_and_start,
+    on_success,
+    on_error,
+    retry,
+    check_low_coins,
+    get_retry_cost,
+    can_retry,
+    can_generate_video,
+    can_generate_photo,
+    can_generate_tryon,
+    can_generate_json,
+    activate_plan,
+    apply_top_up,
+    check_subscription,
+    check_and_reset_expired_plans,
 )
+
+
+def _format_plan_expiry(value) -> Optional[str]:
+    if not value:
+        return None
+    try:
+        expiry_dt = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return expiry_dt.strftime('%d.%m.%Y %H:%M')
+    except Exception:
+        return None
+
+
+def format_user_status(user: Dict[str, Any]) -> str:
+    user = check_subscription(user)
+    coins = user.get("coins", 0)
+    plan_key = user.get("plan", "lite")
+    plan_info = PLANS.get(plan_key, {})
+    plan_name = plan_info.get("name", plan_key.title())
+
+    text = "💰 <b>Ваш профиль</b>\n\n"
+    text += f"💎 Монеток: {coins}\n"
+    text += f"📋 Тариф: {plan_name}\n"
+
+    expiry_text = _format_plan_expiry(user.get("plan_expiry"))
+    if expiry_text:
+        text += f"⏰ Действует до: {expiry_text}\n"
+
+    text += "\n💡 Генерации списывают монеты. Техническая ошибка = автоматический возврат."
+    return text
+
+
+def format_plans_list() -> str:
+    lines = ["📋 <b>Тарифные планы</b>\n"]
+    for key, info in PLANS.items():
+        icon = "✨" if key == "lite" else "⭐" if info.get("recommended") else "💎"
+        lines.append(f"{icon} <b>{info['name']}</b> — {info['price_rub']:,} ₽")
+        lines.append(f"💎 {info['coins']} монет")
+        approx = []
+        if info.get('videos'):
+            approx.append(f"{info['videos']} видео")
+        if info.get('photos'):
+            approx.append(f"{info['photos']} фото")
+        if approx:
+            lines.append("Примерно: " + " и ".join(approx))
+        lines.append("Действует 30 дней\n")
+    lines.append("🔁 Тарифы выгоднее разовых пополнений.")
+    return "\n".join(lines)
 
 # -----------------------------------------------------------------------------
 # GPT
@@ -701,39 +761,33 @@ def _ensure(uid: int):
     КРИТИЧНО: Эта функция ВСЕГДА синхронизируется с БД!
     1. Если пользователь в памяти - ничего не делаем (используем кэш)
     2. Если НЕТ в памяти - загружаем из БД
-    3. Если НЕТ в БД - создаем нового с правильными бонусами
+    3. Если НЕТ в БД - создаем нового с базовыми настройками
     """
     if uid not in users:
         # Сначала пытаемся загрузить из базы данных
         user_data = db.get_user(uid)
         
         if user_data:
-            # Пользователь найден в базе данных - ИСПОЛЬЗУЕМ ЕГО ДАННЫЕ!
-            log.info(f"Loaded user {uid} from DB: video_bonus={user_data.get('video_bonus', 0)}, "
-                    f"photo_bonus={user_data.get('photo_bonus', 0)}, coins={user_data.get('coins', 0)}")
+            log.info(
+                "Loaded user %s from DB: coins=%s, plan=%s",
+                uid,
+                user_data.get("coins", 0),
+                user_data.get("plan", "lite"),
+            )
             user_data["user_id"] = uid  # Добавляем user_id
             users[uid] = user_data
         else:
             # Новый пользователь - создаем структуру по умолчанию
             ADMIN_ID = 5015100177  # ID администратора
             
-            # Админские монетки - ТОЛЬКО для админа (500), для остальных 0
             if uid == ADMIN_ID:
-                # АДМИН получает специальные бонусы: 30 видео, 50 фото, 10 примерочных
                 coins = 0
-                video_bonus = 30
-                photo_bonus = 50
-                tryon_bonus = 10
                 admin_coins = 500
-                log.info(f"Creating NEW ADMIN user {uid} with 500 admin coins + special bonuses 30/50/10!")
+                log.info(f"Creating admin profile {uid} with 500 admin coins")
             else:
-                # Обычные пользователи получают стандартные бонусы 2/2/2
                 coins = 0
-                video_bonus = 2
-                photo_bonus = 2
-                tryon_bonus = 2
                 admin_coins = 0
-                log.info(f"Creating new regular user {uid} with standard bonuses 2/2/2")
+                log.info(f"Creating regular user {uid}")
             
             users[uid] = {
                 "user_id": uid,  # Добавляем user_id для связи с базой данных
@@ -760,14 +814,11 @@ def _ensure(uid: int):
                 "with_audio": DEFAULT_AUDIO,  # настройка аудио
                 # монеты и биллинг
                 "coins": coins,
-                "video_bonus": video_bonus,
-                "photo_bonus": photo_bonus,
-                "tryon_bonus": tryon_bonus,
-                "admin_coins": admin_coins,  # АДМИНСКИЕ монетки (отдельная графа)
-                "plan": "lite",  # тарифный план
+                "admin_coins": admin_coins,
+                "plan": "lite",
+                "plan_expiry": None,
                 "jobs": {},  # история задач
                 "daily": {"date": "", "videos": 0},  # дневная статистика
-                "processed_payments": set(),  # обработанные платежи для идемпотентности
                 # трансформации изображений
                 "awaiting_transform": False,  # ожидаем загрузку фото
                 "transform_type": None,  # тип трансформации
@@ -787,7 +838,10 @@ def _ensure(uid: int):
             }
         
         # Сохраняем нового пользователя в базу данных
-        db.save_user(uid, users[uid])
+        try:
+            db.save_user(uid, users[uid])
+        except Exception as e:
+            log.error("Failed to persist new user %s: %s", uid, e)
 
 # -----------------------------------------------------------------------------
 # КЛАВИАТУРЫ
@@ -968,12 +1022,9 @@ def kb_tryon_need_garment():
         [InlineKeyboardButton("❌ Сбросить", callback_data="tryon_reset")],
     ])
 
-def kb_tryon_confirm(forward="② → ①", tryon_bonus=0):
-    if tryon_bonus > 0:
-        button_text = "✨ Примерить (бесплатно)"
-    else:
-        button_text = "✨ Примерить (−5 монеток)"
-    
+def kb_tryon_confirm():
+    button_text = f"✨ Примерить (−{COST_TRYON} монет)"
+
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(button_text, callback_data="tryon_confirm")],
         [InlineKeyboardButton("🔁 Поменять местами", callback_data="tryon_swap")],
@@ -1139,25 +1190,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Выдаем приветственный бонус новому пользователю
     st = users[uid]
-    if not st.get("welcome_granted", False):
-        from database import db
-        if db.grant_welcome_bonus(uid):
-            # Обновляем локальные данные
-            st["video_bonus"] = 2
-            st["photo_bonus"] = 2
-            st["tryon_bonus"] = 2
-            st["welcome_granted"] = True
-            
-            await update.message.reply_text(
-                "🎉 <b>Добро пожаловать!</b>\n\n"
-                "🎁 <b>Ваш приветственный бонус:</b>\n"
-                "🎬 2 видео\n"
-                "📸 2 фото\n"
-                "👗 2 примерки\n\n"
-                "💡 Используйте их для создания контента!",
-                parse_mode="HTML"
-            )
-    
     # сброс ключевых флагов
     st = users[uid]
     st.update({
@@ -1186,36 +1218,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Приветственное сообщение ТОЛЬКО для НОВЫХ пользователей (показываем 1 раз)
-    # Проверяем: если пользователь создан только что (нет created_at или он свежий)
-    is_new_user = st.get("created_at") is None or (
-        hasattr(st.get("created_at"), "timestamp") and 
-        (datetime.now().timestamp() - st.get("created_at").timestamp()) < 60
-    )
-    
-    video_bonus = st.get("video_bonus", 0)
-    photo_bonus = st.get("photo_bonus", 0)
-    tryon_bonus = st.get("tryon_bonus", 0)
-    
-    if is_new_user and (video_bonus > 0 or photo_bonus > 0 or tryon_bonus > 0):
-        bonus_text = ""
-        if video_bonus > 0:
-            bonus_text += f"• {video_bonus} бесплатных видео\n"
-        if photo_bonus > 0:
-            bonus_text += f"• {photo_bonus} бесплатных фото-обработок\n"
-        if tryon_bonus > 0:
-            bonus_text += f"• {tryon_bonus} бесплатная примерочная\n"
-        
-        await update.message.reply_text(
-            f"🎉 Добро пожаловать в Babka Bot!\n\n"
-            f"🎁 Приветственные подарки:\n"
-            f"{bonus_text}\n"
-            f"Эти подарки расходуются в первую очередь при генерации.\n\n"
-            f"Выберите функцию:",
-            reply_markup=kb_home_inline()
-        )
-        return
-    
     # Для существующих пользователей - просто главное меню
     await update.message.reply_text("Главное меню:", reply_markup=kb_home_inline())
 
@@ -1241,10 +1243,14 @@ async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextT
             if process_successful_payment(payment_data):
                 log.info(f"Successfully processed payment {payment_id} for user {user_id}")
                 
-                # Отправляем уведомление пользователю
                 if user_id:
                     try:
                         user_id_int = int(user_id)
+                        refreshed = db.get_user(user_id_int)
+                        if refreshed:
+                            refreshed.setdefault("jobs", users.get(user_id_int, {}).get("jobs", {}))
+                            refreshed.setdefault("last_job", users.get(user_id_int, {}).get("last_job"))
+                            users[user_id_int] = refreshed
                         plan = payment_data.get("metadata", {}).get("plan")
                         
                         if plan:
@@ -1255,7 +1261,7 @@ async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextT
                                 f"✅ <b>Тариф активирован!</b>\n\n"
                                 f"📋 Тариф: {plan_name}\n"
                                 f"{plan_info.get('description', '')}\n"
-                                f"💎 Получено: {plan_info.get('coins', 0)} монеток\n\n"
+                                f"💎 Получено: {plan_info.get('coins', 0)} монет\n\n"
                                 f"⏰ Тариф действует 30 дней\n"
                                 f"💡 Подписки выгоднее разовых покупок!\n\n"
                                 f"Приятного использования! 🎉"
@@ -1263,16 +1269,16 @@ async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextT
                         elif payment_data.get("metadata", {}).get("type") == "coins":
                             coins_amount = payment_data.get("metadata", {}).get("coins", 0)
                             message = (
-                                f"✅ <b>Монетки начислены!</b>\n\n"
-                                f"💎 Получено: {coins_amount} монеток\n"
+                                f"✅ <b>Монеты начислены!</b>\n\n"
+                                f"💎 Получено: {coins_amount} монет\n"
                                 f"💳 Сумма: {payment_data.get('amount', 0):.2f} ₽\n\n"
-                                f"💡 Монетки используются для операций сверх тарифных лимитов"
+                                "💡 Монеты списываются во время генераций"
                             )
                         else:
                             message = (
                                 f"✅ <b>Платеж успешно обработан!</b>\n\n"
                                 f"💳 Сумма: {payment_data.get('amount', 0):.2f} ₽\n\n"
-                                f"Монеты поступят на ваш баланс в течение нескольких минут."
+                                "Монеты поступят на ваш баланс в течение нескольких минут."
                             )
                         
                         await context.bot.send_message(
@@ -1295,9 +1301,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     _ensure(uid)
     
-    from subscription_system import format_user_status
     st = users[uid]
-    
     status_text = format_user_status(st)
     
     await update.message.reply_text(
@@ -1315,9 +1319,6 @@ async def cmd_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_access(update): return
     uid = update.effective_user.id
     _ensure(uid)
-    
-    from subscription_system import format_plans_list
-    from config import PLANS
     
     plans_text = format_plans_list()
     
@@ -1425,7 +1426,7 @@ async def cmd_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
             callback_data=f"buy_coins_{package['coins']}"
         )])
     
-    text += "\n💡 <i>Монетки используются для операций сверх тарифных лимитов</i>"
+        text += "\n💡 <i>Монеты списываются за каждую генерацию</i>"
     
     keyboard.append([InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")])
     keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
@@ -1442,55 +1443,19 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     _ensure(uid)
     
-    st = users[uid]
-    
-    # Проверяем истекшие тарифы
-    from subscription_system import check_and_reset_expired_plans
+    st = check_subscription(users[uid])
+    users[uid] = st
+
     expired_users = check_and_reset_expired_plans()
     if uid in expired_users:
-        await update.message.reply_text(
-            "⚠️ <b>Ваш тариф истек</b>\n\n"
-            "Тариф автоматически сброшен на Лайт. "
-            "Купите новый тариф для продолжения работы.",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
-            ])
-        )
-        return
-    
-    # Формируем краткий статус
-    text = "📊 <b>Ваш статус</b>\n\n"
-    
-    # Бонусы
-    text += f"🎁 <b>Бонусы:</b>\n"
-    text += f"🎬 Видео: {st.get('video_bonus', 0)}\n"
-    text += f"📸 Фото: {st.get('photo_bonus', 0)}\n"
-    text += f"👗 Примерки: {st.get('tryon_bonus', 0)}\n\n"
-    
-    # Тарифные лимиты (устарело - теперь используются монетки)
-    # if st.get('videos_allowed', 0) > 0 or st.get('photos_allowed', 0) > 0:
-    #     text += f"🎯 <b>Тарифные лимиты:</b>\n"
-    #     text += f"🎬 Видео: {st.get('videos_allowed', 0)}\n"
-    #     text += f"📸 Фото: {st.get('photos_allowed', 0)}\n\n"
-    
-    # Монеты
-    text += f"💎 <b>Монеты:</b> {st.get('coins', 0)}\n"
-    
-    # План
-    plan = st.get('plan', 'lite')
-    plan_expiry = st.get('plan_expiry')
-    if plan != 'lite' and plan_expiry:
-        try:
-            from datetime import datetime
-            expiry_date = datetime.fromisoformat(str(plan_expiry).replace('Z', '+00:00'))
-            text += f"📋 <b>Тариф:</b> {plan} (до {expiry_date.strftime('%d.%m.%Y')})\n"
-        except:
-            text += f"📋 <b>Тариф:</b> {plan}\n"
-    
+        st["plan"] = "lite"
+        st["plan_expiry"] = None
+        users[uid] = st
+
+    status_text = format_user_status(st)
+
     await update.message.reply_text(
-        text,
+        status_text,
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("💰 Полный профиль", callback_data="show_profile")],
@@ -1538,29 +1503,20 @@ Telegram бот "Babka Bot"
 
 4. СИСТЕМА МОНЕТИЗАЦИИ
 4.1. Тарификация операций:
-• Генерация видео: 10 монеток
-• Обработка изображений: 1 монетка
-• Первая повторная генерация: без списания
+• Видео / JSON генерация: 10 монет
+• Фото (быстрое): 1 монета, Фото (премиум): 2 монеты
+• Виртуальная примерочная: 1 монета
 
-4.2. Приветственные бонусы:
-• 2 бесплатные видео-генерации
-• 3 бесплатные фото-обработки
+4.2. Приветственный бонус: не предусмотрен (монеты пополняются тарифами и пакетами)
 
-4.3. Тарифные планы:
-• ЛАЙТ — 1 990 ₽ (120 монеток, лимит 3 видео/день)
-• СТАНДАРТ — 2 490 ₽ (200 монеток, лимит 5 видео/день)
-• ПРО — 4 990 ₽ (400 монеток, лимит 10 видео/день)
+4.3. Тарифные планы (30 дней, монетные пакеты):
+• ЛАЙТ — 1 990 ₽ (120 монет)
+• СТАНДАРТ — 2 490 ₽ (210 монет)
+• ПРО — 4 990 ₽ (440 монет)
 
-4.6. Логика возвратов:
-Возврат ресурсов осуществляется ТОЛЬКО при:
-• Технических сбоях на стороне Сервиса
-• Отсутствии файла в результате выполнения запроса
-• Получении повреждённого или нечитаемого файла
-
-Возврат НЕ осуществляется при:
-• Субъективной неудовлетворённости качеством результата
-• Несоответствии результата ожиданиям Пользователя
-• Ошибках в составлении запроса со стороны Пользователя
+4.6. Возвраты:
+• Монеты автоматически возвращаются при технических сбоях (ошибка сервиса, отсутствующий или повреждённый результат).
+• Возврат не производится при субъективной неудовлетворённости или ошибках в запросе.
 
 9. ВОЗРАСТНЫЕ ОГРАНИЧЕНИЯ
 9.1. Сервис предназначен для лиц, достигших 18 лет.
@@ -1635,14 +1591,10 @@ async def cmd_add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Показываем текущее состояние
     await update.message.reply_text(
-        "⭐️ АДМИНСКИЕ МОНЕТКИ УСТАНОВЛЕНЫ!\n\n"
-        f"💰 Баланс админа: {st['admin_coins']} монеток\n\n"
-        "🎁 Ваши обычные бонусы:\n"
-        f"   🎬 Видео: {st.get('video_bonus', 0)}\n"
-        f"   📸 Фото: {st.get('photo_bonus', 0)}\n"
-        f"   👗 Примерки: {st.get('tryon_bonus', 0)}\n\n"
-        "✅ Эта графа ВИДНА ТОЛЬКО ВАМ в профиле!\n"
-        "📊 Проверьте профиль через меню!",
+        "⭐️ Админский баланс обновлён!\n\n"
+        f"💰 Админские монеты: {st['admin_coins']}\n"
+        f"💎 Монеты кошелька: {st.get('coins', 0)}\n\n"
+        "✅ Эта графа видна только вам в профиле.",
         reply_markup=kb_home_inline()
     )
 
@@ -1670,14 +1622,8 @@ async def cmd_reload_profile(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if uid == ADMIN_ID:
         response_text += f"⭐️ БАЛАНС АДМИНА: {st.get('admin_coins', 0)} монеток\n\n"
     
-    response_text += (
-        "🎁 БОНУСЫ:\n"
-        f"   🎬 Видео: {st.get('video_bonus', 0)}\n"
-        f"   📸 Фото: {st.get('photo_bonus', 0)}\n"
-        f"   👗 Примерки: {st.get('tryon_bonus', 0)}\n\n"
-        f"💰 Монеток: {st.get('coins', 0)}\n\n"
-        "✅ Данные загружены напрямую из PostgreSQL!"
-    )
+    response_text += f"💎 Монеток: {st.get('coins', 0)}\n\n"
+    response_text += "✅ Данные загружены напрямую из PostgreSQL!"
     
     await update.message.reply_text(
         response_text,
@@ -1696,17 +1642,14 @@ async def cmd_reset_my_profile(update: Update, context: ContextTypes.DEFAULT_TYP
     _ensure(uid)
     st = users[uid]
     
-    # СБРАСЫВАЕМ на админские значения (30/50/10 + 500 админских монеток)
-    st["video_bonus"] = 30
-    st["photo_bonus"] = 50
-    st["tryon_bonus"] = 10
+    # СБРАСЫВАЕМ на дефолтные значения
     st["coins"] = 0
-    st["admin_coins"] = 500  # Админские монетки восстанавливаем
+    st["admin_coins"] = 500
     st["plan"] = "lite"
     
     # Сохраняем в БД
     db.save_user(uid, st)
-    log.info(f"ADMIN {uid} profile RESET to admin values: 30/50/10, admin_coins=500")
+    log.info(f"ADMIN {uid} profile RESET to default coins=0, admin_coins=500")
     
     await update.message.reply_text(
         "♻️ ВАШ ПРОФИЛЬ ПОЛНОСТЬЮ СБРОШЕН!\n\n"
@@ -2192,98 +2135,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # по умолчанию
     await update.message.reply_text("Главное меню:", reply_markup=kb_home_inline())
 
-# --- Webhook обработчик для ЮKassa ---
-async def handle_payment_webhook(webhook_data: dict, context: ContextTypes.DEFAULT_TYPE):
-    """Обработать webhook от ЮKassa"""
-    try:
-        payment_info = process_payment_webhook(webhook_data)
-        if not payment_info:
-            log.warning("Invalid webhook data received")
-            return
-        
-        user_id = payment_info.get("user_id")
-        payment_id = payment_info.get("payment_id")
-        amount = payment_info.get("amount")
-        metadata = payment_info.get("metadata", {})
-        
-        if not user_id:
-            log.warning("No user_id in payment metadata")
-            return
-        
-        # Проверяем идемпотентность
-        if not _ensure(user_id):
-            log.error(f"Failed to ensure user {user_id}")
-            return
-            
-        st = users[user_id]
-        
-        # Проверяем, не обрабатывали ли уже этот платеж
-        processed_payments = st.get("processed_payments", set())
-        if payment_id in processed_payments:
-            log.info(f"Payment {payment_id} already processed for user {user_id}")
-            return
-        
-        # Добавляем в обработанные
-        processed_payments.add(payment_id)
-        st["processed_payments"] = processed_payments
-        
-        # Обрабатываем в зависимости от типа
-        if "plan" in metadata:
-            plan_key = metadata["plan"]
-            plan = PLANS[plan_key]
-            
-            # Добавляем монетки и активируем план
-            st["coins"] = st.get("coins", 0) + plan["coins"]
-            st["plan"] = plan_key
-            
-            message = (
-                f"✅ Оплата получена!\n\n"
-                f"📋 Тариф {plan['name']} активирован:\n"
-                f"• +{plan['coins']} монеток\n\n"
-                f"💰 Текущий баланс:\n"
-                f"• {st['coins']} монеток\n"
-                f"• {st.get('video_bonus', 0)} видео бонусов\n"
-                f"• {st.get('photo_bonus', 0)} фото бонусов"
-            )
-            
-        elif "addon" in metadata:
-            addon_key = metadata["addon"]
-            addon = ADDONS[addon_key]
-            
-            # Добавляем монетки
-            st["coins"] = st.get("coins", 0) + addon["coins"]
-            
-            message = (
-                f"✅ Оплата получена!\n\n"
-                f"📦 Аддон {addon['title']} активирован:\n"
-                f"• +{addon['coins']} монеток\n\n"
-                f"💰 Текущий баланс:\n"
-                f"• {st['coins']} монеток\n"
-                f"• {st.get('video_bonus', 0)} видео бонусов\n"
-                f"• {st.get('photo_bonus', 0)} фото бонусов"
-            )
-        else:
-            log.warning(f"Unknown payment type in metadata: {metadata}")
-            return
-        
-        # Отправляем уведомление пользователю
-        try:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=message,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
-                ])
-            )
-        except Exception as e:
-            log.error(f"Failed to send payment notification to user {user_id}: {e}")
-        
-        log.info(f"Payment {payment_id} processed successfully for user {user_id}")
-        
-    except Exception as e:
-        log.error(f"Error processing payment webhook: {e}")
-
 # --- Приём фото (для примерочной и т.п.) ---
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_access(update): return
@@ -2333,14 +2184,12 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cost = 1 if quality == "basic" else 2
             
             if not can_generate_photo(st, cost):
-                photo_bonus = st.get("photo_bonus", 0)
                 coins = st.get("coins", 0)
-                
+
                 await update.message.reply_text(
-                    f"❌ Не хватает ресурсов для обработки фото.\n\n"
-                    f"🎁 Бонусных фото: {photo_bonus}\n"
+                    f"❌ Не хватает монет для обработки фото.\n\n"
                     f"💰 Монеток: {coins} (нужно: {cost})\n\n"
-                    f"💳 Докупить монеты?",
+                    f"💳 Пополнить баланс?",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("💳 Докупить", callback_data="buy_coins_20")],
                         [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
@@ -2348,32 +2197,27 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            # Создаем задачу
             try:
                 job_id = hold_and_start(st, "transform", quality)
                 st["current_job_id"] = job_id
-            except Exception as e:
-                # Проверяем, недостаток ли это монеток
-                from billing import check_insufficient_coins
-                insufficient_msg = check_insufficient_coins(st, "photo")
-                if insufficient_msg:
-                    await update.message.reply_text(
-                        insufficient_msg,
-                        parse_mode="HTML",
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
-                            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
-                        ])
-                    )
-                else:
-                    await update.message.reply_text(f"❌ Ошибка создания задачи: {str(e)}")
+            except ValueError:
+                coins = st.get("coins", 0)
+                await update.message.reply_text(
+                    f"❌ Не хватает монет для обработки фото.\n\n"
+                    f"💰 Монеток: {coins} (нужно: {cost})\n\n"
+                    "💳 Пополнить баланс?",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("💳 Докупить", callback_data="buy_coins_20")],
+                        [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
+                    ])
+                )
                 return
             
-            # Отправляем в обработку
+            charge = st["jobs"][job_id]["coin_cost"]
             await update.message.reply_text(
-                f"🔄 Обрабатываю фото...\n"
-                f"💰 Списано: {cost} монетка\n"
-                f"⏱️ Это может занять 1-2 минуты."
+                "🔄 Обрабатываю фото...\n"
+                f"💰 Списано: {charge} монет\n"
+                "⏱️ Это может занять 1-2 минуты."
             )
             
             # Специальная обработка для удаления фона - используем новый модуль
@@ -2387,6 +2231,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # Отмечаем успех
                 on_success(st, job_id)
+                st["current_job_id"] = None
                 
                 # Отправляем PNG с прозрачным фоном
                 await update.message.reply_document(
@@ -2414,6 +2259,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # Отмечаем успех
                 on_success(st, job_id)
+                st["current_job_id"] = None
                 # Для всех остальных трансформаций - обычная отправка
                 caption = f"✅ {transform_type.replace('_', ' ').title()} готово!"
                 if transform_type == "polaroid":
@@ -2433,7 +2279,8 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             log.error("Transform processing error: %s", e)
             if st.get("current_job_id"):
-                on_error(st, st["current_job_id"])
+                on_error(st, st["current_job_id"], reason="photo_error")
+                st["current_job_id"] = None
             await update.message.reply_text(
                 f"❌ Ошибка обработки: {str(e)}\n\n"
                 f"Монетки возвращены. Попробуйте ещё раз.",
@@ -2495,13 +2342,15 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stt["stage"] = "confirm"
         await update.message.reply_text(
             "Фото получены. Готовы примерять?",
-            reply_markup=kb_tryon_confirm("② → ①", st.get("tryon_bonus", 0))
+            reply_markup=kb_tryon_confirm()
         )
         return
 
     if stt["stage"] == "confirm":
-        await update.message.reply_text("У нас уже есть оба снимка. Нажмите «✨ Примерить» или «🔁 Поменять местами».",
-                                        reply_markup=kb_tryon_confirm("② → ①", st.get("tryon_bonus", 0)))
+        await update.message.reply_text(
+            "У нас уже есть оба снимка. Нажмите «✨ Примерить» или «🔁 Поменять местами».",
+            reply_markup=kb_tryon_confirm()
+        )
 
 # --- Инлайн кнопки ---
 async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2557,43 +2406,6 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # --- Проверка баланса перед операциями ---
-    if data == "generate_now":
-        # Проверяем баланс перед генерацией видео
-        from subscription_system import can_generate_video_with_plan
-        if not can_generate_video_with_plan(st):
-            from billing import check_insufficient_coins
-            insufficient_msg = check_insufficient_coins(st, "video")
-            await q.message.reply_text(
-                insufficient_msg,
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
-                ])
-            )
-            return
-        # Если баланс достаточный, продолжаем генерацию
-        # ... (остальной код генерации)
-    
-    if data == "tryon_confirm":
-        # Проверяем баланс перед примеркой
-        from subscription_system import can_generate_photo_with_plan
-        from billing import COST_TRYON
-        if not can_generate_photo_with_plan(st, COST_TRYON):
-            from billing import check_insufficient_coins
-            insufficient_msg = check_insufficient_coins(st, "photo")
-            await q.message.reply_text(
-                insufficient_msg,
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
-                ])
-            )
-            return
-        # Если баланс достаточный, продолжаем примерку
-        # ... (остальной код примерки)
     if data == "transform_remove_bg":
         st["transform_type"] = "remove_bg"
         await q.message.edit_text(
@@ -2691,37 +2503,31 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data == "menu_profile":
         coins = st.get("coins", 0)
-        video_bonus = st.get("video_bonus", 0)
-        photo_bonus = st.get("photo_bonus", 0)
-        tryon_bonus = st.get("tryon_bonus", 0)
         admin_coins = st.get("admin_coins", 0)
         plan = st.get("plan", "lite")
-        plan_name = PLANS.get(plan, {}).get("name", "Не выбран")
-        
-        # Улучшенное отображение профиля с четким разделением бонусов и ресурсов
-        profile_text = f"👤 Профиль\n\n"
-        
-        # АДМИНСКАЯ ГРАФА - ВИДНА ТОЛЬКО АДМИНИСТРАТОРУ!
-        ADMIN_ID = 5015100177
-        if uid == ADMIN_ID:
+        plan_name = PLANS.get(plan, {}).get("name", "Лайт")
+        plan_expiry = st.get("plan_expiry")
+
+        profile_text = "👤 Профиль\n\n"
+
+        if uid == 5015100177:
             profile_text += f"⭐️ БАЛАНС АДМИНА: {admin_coins} монеток\n\n"
-        
-        # Показываем бонусы (бесплатные ресурсы)
-        profile_text += f"🎁 БОНУСЫ (бесплатно):\n"
-        profile_text += f"   🎬 Видео: {video_bonus}\n"
-        profile_text += f"   📸 Фото: {photo_bonus}\n"
-        profile_text += f"   👗 Примерки: {tryon_bonus}\n\n"
-        
-        # Показываем купленные ресурсы
-        profile_text += f"💰 РЕСУРСЫ:\n"
-        profile_text += f"   💎 Монеток: {coins}\n"
-        profile_text += f"   🎬 Видео бонусов: {st.get('video_bonus', 0)}\n"
-        profile_text += f"   📸 Фото бонусов: {st.get('photo_bonus', 0)}\n\n"
-        
-        profile_text += f"📊 Тариф: {plan_name}\n\n"
-        profile_text += f"💡 Расход: видео = 10 монет, фото = 1 монета\n"
-        profile_text += f"✨ Бонусы расходуются первыми!"
-        
+
+        profile_text += f"💎 Монеток: {coins}\n"
+        profile_text += f"📊 Тариф: {plan_name}\n"
+        if plan != "lite" and plan_expiry:
+            try:
+                from datetime import datetime
+                expiry_date = datetime.fromisoformat(str(plan_expiry).replace('Z', '+00:00'))
+                profile_text += f"⏰ Действует до: {expiry_date.strftime('%d.%m.%Y %H:%M')}\n"
+            except Exception:
+                pass
+
+        profile_text += ("\n💡 Стоимость генераций:\n"
+                         "• Видео и JSON — 10 монет\n"
+                         "• Фото: 1 (быстро) или 2 (премиум) монеты\n"
+                         "• Примерочная — 1 монета")
+
         await q.message.edit_text(
             profile_text,
             reply_markup=InlineKeyboardMarkup([
@@ -2790,12 +2596,21 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         plan_id = data.split("_")[1]
         if plan_id in PLANS:
             plan_data = PLANS[plan_id]
+            approx_videos = plan_data.get("videos")
+            approx_photos = plan_data.get("photos")
+            extras = ""
+            if approx_videos or approx_photos:
+                extras = "\n" + "Примерно: " + \
+                    (f"{approx_videos} видео" if approx_videos else "") + \
+                    (" и " if approx_videos and approx_photos else "") + \
+                    (f"{approx_photos} фото" if approx_photos else "")
+
             await q.message.edit_text(
                 f"📊 Тариф {plan_data['name']}\n\n"
                 f"💰 Цена: {plan_data['price_rub']} ₽\n"
                 f"🪙 Монеты: {plan_data['coins']}\n"
-                f"🎬 Видео в день: {DAILY_CAP_VIDEOS.get(plan_id, 3)}\n\n"
-                f"Функция смены тарифа будет добавлена позже.",
+                f"🗓 Действует: 30 дней{extras}\n\n"
+                "Функция оплаты тарифа появится позже.",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⬅️ Назад", callback_data="change_plan")],
                 ])
@@ -2809,8 +2624,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         job_id = st["current_job_id"]
+        retry_cost = get_retry_cost(st, job_id)
         if not can_retry(st, job_id):
-            retry_cost = get_retry_cost(st, job_id)
             await q.message.reply_text(
                 f"❌ Не хватает монет для ретрая.\n"
                 f"Нужно: {retry_cost} монет, у вас: {st.get('coins', 0)} монет.",
@@ -2823,9 +2638,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Делаем ретрай
         if retry(st, job_id):
+            cost_spent = st["jobs"][job_id].get("coin_cost", retry_cost)
             await q.message.edit_text(
                 "🔄 Создаю ещё вариант видео...\n"
-                f"💰 {'Списано: ' + str(get_retry_cost(st, job_id)) + ' монет' if get_retry_cost(st, job_id) > 0 else 'Бесплатный ретрай'}"
+                f"💰 Списано: {cost_spent} монет"
             )
             # Здесь будет повторная генерация видео
             # Пока заглушка
@@ -2839,8 +2655,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         job_id = st["current_job_id"]
+        retry_cost = get_retry_cost(st, job_id)
         if not can_retry(st, job_id):
-            retry_cost = get_retry_cost(st, job_id)
             await q.message.reply_text(
                 f"❌ Не хватает монет для ретрая.\n"
                 f"Нужно: {retry_cost} монет, у вас: {st.get('coins', 0)} монет.",
@@ -2853,9 +2669,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Делаем ретрай
         if retry(st, job_id):
+            cost_spent = st["jobs"][job_id].get("coin_cost", retry_cost)
             await q.message.edit_text(
                 "🔄 Обрабатываю фото ещё раз...\n"
-                f"💰 {'Списано: ' + str(get_retry_cost(st, job_id)) + ' монет' if get_retry_cost(st, job_id) > 0 else 'Бесплатный ретрай'}"
+                f"💰 Списано: {cost_spent} монет"
             )
             # Повторная обработка фото
             transform_type = st.get("transform_type")
@@ -2897,7 +2714,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             payment_url = create_payment_link(
                 user_id=q.from_user.id,
                 amount=plan["price_rub"],
-                description=f"Тариф {plan['name']} - {plan['videos']} видео + {plan['photos']} фото",
+                description=f"Тариф {plan['name']} — {plan['coins']} монет",
                 metadata={"plan": plan_key, "type": "plan"}
             )
             
@@ -2907,8 +2724,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"⚠️ Система платежей в режиме разработки\n\n"
                     f"Выбрано: {plan['name']} — {plan['price_rub']} ₽\n\n"
                     f"📋 Что включено:\n"
-                    f"• {plan['videos']} видео\n"
-                    f"• {plan['photos']} фотографий\n\n"
+                    f"• {plan['coins']} монет\n"
+                    f"• Примерно {plan['videos']} видео и {plan['photos']} фото\n\n"
                     f"🔧 Для активации реальных платежей необходимо:\n"
                     f"1. Зарегистрироваться в ЮKassa\n"
                     f"2. Получить реальные ключи API\n"
@@ -2922,10 +2739,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await q.edit_message_text(
                     f"Выбрано: {plan['name']} — {plan['price_rub']} ₽\n"
-                    f"После оплаты лимиты будут зачислены автоматически.\n\n"
+                    "После оплаты монеты поступят на баланс автоматически.\n\n"
                     f"📋 Что включено:\n"
-                    f"• {plan['videos']} видео\n"
-                    f"• {plan['photos']} фотографий\n\n"
+                    f"• {plan['coins']} монет\n"
+                    f"• Примерно {plan['videos']} видео и {plan['photos']} фото\n\n"
                     f"📋 Соглашаясь на оплату, вы принимаете условия оферты:\n"
                     f"/terms — Пользовательское соглашение",
                     reply_markup=InlineKeyboardMarkup([
@@ -2972,13 +2789,16 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 metadata={"addon": addon_key, "type": "addon"}
             )
             
-            description = f"• {addon['videos']} видео" if addon['videos'] > 0 else ""
+            description_lines = [f"• {addon['coins']} монет"]
+            if addon['videos'] > 0:
+                description_lines.append(f"• Примерно {addon['videos']} видео")
             if addon['photos'] > 0:
-                description += f"\n• {addon['photos']} фотографий" if addon['videos'] > 0 else f"• {addon['photos']} фотографий"
-            
+                description_lines.append(f"• Примерно {addon['photos']} фото")
+            description = "\n".join(description_lines)
+
             await q.edit_message_text(
                 f"Выбрано: {addon['title']}\n"
-                f"После оплаты лимиты будут зачислены автоматически.\n\n"
+                "После оплаты монеты поступят на баланс автоматически.\n\n"
                 f"📋 Что включено:\n{description}\n\n"
                 f"📋 Соглашаясь на оплату, вы принимаете условия оферты:\n"
                 f"/terms — Пользовательское соглашение",
@@ -3021,7 +2841,6 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # --- Новые callback'ы для системы тарифов ---
     if data == "show_profile" or data == "menu_profile":
-        from subscription_system import format_user_status
         status_text = format_user_status(st)
         await q.message.edit_text(
             status_text,
@@ -3053,9 +2872,6 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if data == "show_plans":
-        from subscription_system import format_plans_list
-        from config import PLANS
-        
         plans_text = format_plans_list()
         
         # Создаем кнопки для покупки тарифов
@@ -3152,7 +2968,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💰 Сумма: {package['price_rub']:,} ₽\n"
                 f"💎 Монетки: {package['coins']}\n"
                 f"🏷️ {package['label']}\n\n"
-                f"💡 Монетки используются для операций сверх тарифных лимитов\n\n"
+            "💡 Монеты списываются за каждую генерацию\n\n"
                 f"Нажмите кнопку ниже для оплаты:",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
@@ -3188,7 +3004,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 callback_data=f"buy_coins_{package['coins']}"
             )])
         
-        text += "\n💡 <i>Монетки используются для операций сверх тарифных лимитов</i>"
+        text += "\n💡 <i>Монеты списываются за каждую генерацию</i>"
         
         keyboard.append([InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")])
         keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
@@ -3235,24 +3051,21 @@ Telegram бот "Babka Bot"
 
 4. СИСТЕМА МОНЕТИЗАЦИИ
 4.1. Тарификация операций:
-• Генерация видео: 10 монеток
-• Обработка изображений: 1 монетка
-• Первая повторная генерация: без списания
+• Видео / JSON генерация — 10 монет
+• Фото (быстрое) — 1 монета, Фото (премиум) — 2 монеты
+• Виртуальная примерочная — 1 монета
 
-4.2. Приветственные бонусы:
-• 2 бесплатные видео-генерации
-• 3 бесплатные фото-обработки
+4.2. Приветственный бонус:
+• Разовое начисление +24 монет новому пользователю
 
-4.3. Тарифные планы:
-• ЛАЙТ — 1 990 ₽ (120 монеток, лимит 3 видео/день)
-• СТАНДАРТ — 2 490 ₽ (200 монеток, лимит 5 видео/день)
-• ПРО — 4 990 ₽ (400 монеток, лимит 10 видео/день)
+4.3. Тарифные планы (30 дней):
+• ЛАЙТ — 1 990 ₽ (120 монет)
+• СТАНДАРТ — 2 490 ₽ (210 монет)
+• ПРО — 4 990 ₽ (440 монет)
 
-4.6. Логика возвратов:
-Возврат ресурсов осуществляется ТОЛЬКО при:
-• Технических сбоях на стороне Сервиса
-• Отсутствии файла в результате выполнения запроса
-• Получении повреждённого или нечитаемого файла
+4.6. Возвраты:
+• Монеты автоматически возвращаются при технических сбоях (ошибка сервиса, отсутствующий или повреждённый результат)
+• Возврат не производится при субъективной неудовлетворённости или ошибках в запросе
 
 Возврат НЕ осуществляется при:
 • Субъективной неудовлетворённости качеством результата
@@ -3778,8 +3591,10 @@ Telegram бот "Babka Bot"
             await q.message.edit_text("Нужно два изображения: человек и одежда. Пришлите недостающее.",
                                       reply_markup=kb_tryon_need_garment())
             return
-        await q.message.edit_text("Роли поменяли местами.\n\nФото получены. Готовы примерять?",
-                                  reply_markup=kb_tryon_confirm("② → ①", st.get("tryon_bonus", 0)))
+        await q.message.edit_text(
+            "Роли поменяли местами.\n\nФото получены. Готовы примерять?",
+            reply_markup=kb_tryon_confirm()
+        )
         stt["stage"] = "confirm"
         return
 
@@ -3795,16 +3610,14 @@ Telegram бот "Babka Bot"
                                        reply_markup=kb_tryon_need_garment())
             return
         
-        # Проверяем ресурсы (бонусы или монеты)
-        tryon_bonus = st.get("tryon_bonus", 0)
-        coins = st.get("coins", 0)
-        
-        if tryon_bonus == 0 and coins < COST_TRYON:
+        try:
+            job_id = hold_and_start(st, "tryon")
+        except ValueError:
+            coins = st.get("coins", 0)
             await q.message.reply_text(
-                f"❌ Не хватает ресурсов для примерочной.\n\n"
-                f"🎁 Бонусных примерок: {tryon_bonus}\n"
+                "❌ Не хватает монет для примерочной.\n\n"
                 f"💰 Монеток: {coins} (нужно: {COST_TRYON})\n\n"
-                f"💳 Докупить монеты?",
+                "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
                     [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
@@ -3812,28 +3625,24 @@ Telegram бот "Babka Bot"
                 ])
             )
             return
-        
-        # Списываем ресурсы (бонусы или монеты)
-        if tryon_bonus > 0:
-            st["tryon_bonus"] -= 1
-            cost_text = "0 монеток (бонус)"
-        else:
-            st["coins"] -= COST_TRYON
-            cost_text = f"{COST_TRYON} монеток"
-        
+
         await q.message.edit_text("⏳ Делаю примерку…")
         try:
             result_bytes = await asyncio.to_thread(virtual_tryon, stt["person"], stt["garment"], 1)
             stt["dressed"] = result_bytes
-            await q.message.edit_media(media=InputMediaPhoto(media=result_bytes, caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {cost_text}"), reply_markup=kb_tryon_after())
+            cost = st["jobs"][job_id]["coin_cost"]
+            on_success(st, job_id)
+            await q.message.edit_media(
+                media=InputMediaPhoto(
+                    media=result_bytes,
+                    caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {cost} монет",
+                ),
+                reply_markup=kb_tryon_after(),
+            )
             stt["stage"] = "after"
         except Exception as e:
             log.exception("VTO failed")
-            # Возвращаем ресурсы при ошибке
-            if tryon_bonus > 0:
-                st["tryon_bonus"] += 1
-            else:
-                st["coins"] += COST_TRYON
+            on_error(st, job_id, reason="tryon_error")
             await q.message.reply_text(f"⚠️ Ошибка примерочной: {e}")
             await q.message.reply_text("Возврат в меню:", reply_markup=kb_home_inline())
         return
@@ -4233,64 +4042,41 @@ Telegram бот "Babka Bot"
         if st.get("style") is None: st["style"] = DEFAULT_STYLE
         if not st.get("orientation"): st["orientation"] = DEFAULT_ORIENTATION
 
-        # Проверяем ресурсы (бонусы или монеты)
         if not can_generate_video(st):
-            video_bonus = st.get("video_bonus", 0)
             coins = st.get("coins", 0)
-            
-            if video_bonus == 0 and coins < COST_VIDEO:
-                await q.message.reply_text(
-                    f"❌ Не хватает ресурсов для генерации видео.\n\n"
-                    f"🎁 Бонусных видео: {video_bonus}\n"
-                    f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
-                    f"💳 Докупить монеты?",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
-                        [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
-                        [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
-                    ])
-                )
-                return
-
-        # Проверяем баланс монеток для видео
-        from subscription_system import can_generate_video_with_plan
-        if not can_generate_video_with_plan(st):
-            from billing import check_insufficient_coins
-            insufficient_msg = check_insufficient_coins(st, "video")
             await q.message.reply_text(
-                insufficient_msg,
-                parse_mode="HTML",
+                f"❌ Не хватает монет для генерации видео.\n\n"
+                f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
+                "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                    [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
             return
 
-        # Создаем задачу
         try:
             job_id = hold_and_start(st, "video")
             st["current_job_id"] = job_id
-        except Exception as e:
-            # Проверяем, недостаток ли это монеток
-            from billing import check_insufficient_coins
-            insufficient_msg = check_insufficient_coins(st, "video")
-            if insufficient_msg:
-                await q.message.reply_text(
-                    insufficient_msg,
-                    parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
-                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
-                    ])
-                )
-            else:
-                await q.message.reply_text(f"❌ Ошибка создания задачи: {str(e)}")
+        except ValueError:
+            coins = st.get("coins", 0)
+            await q.message.reply_text(
+                f"❌ Не хватает монет для генерации видео.\n\n"
+                f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
+                "💳 Пополнить баланс?",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ])
+            )
             return
 
+        cost_text = st["jobs"][job_id]["coin_cost"]
         msg = await q.message.reply_text(
-            f"⏳ Генерирую видео… Это может занять несколько минут.\n"
-            f"💰 Списано: {COST_VIDEO} монеток"
+            "⏳ Генерирую видео… Это может занять несколько минут.\n"
+            f"💰 Списано: {cost_text} монет"
         )
         try:
             # REPORTAGE — два видео подряд
@@ -4324,6 +4110,7 @@ Telegram бот "Babka Bot"
                 # Отмечаем задачу как успешную
                 if st.get("current_job_id"):
                     on_success(st, st["current_job_id"])
+                    st["current_job_id"] = None
                 
                 await q.message.reply_text("Готово! Что дальше?", reply_markup=kb_video_result())
                 await q.message.reply_text("Быстрые кнопки внизу активны.", reply_markup=reply_main_kb())
@@ -4348,6 +4135,7 @@ Telegram бот "Babka Bot"
             # Отмечаем задачу как успешную
             if st.get("current_job_id"):
                 on_success(st, st["current_job_id"])
+                st["current_job_id"] = None
             
             if file_path and os.path.exists(file_path):
                 with open(file_path, "rb") as f:
@@ -4360,8 +4148,8 @@ Telegram бот "Babka Bot"
         except Exception as e:
             # Возвращаем монеты при ошибке
             if st.get("current_job_id"):
-                on_error(st, st["current_job_id"])
-            log.exception("Generation failed")
+                on_error(st, st["current_job_id"], reason="video_error")
+                st["current_job_id"] = None
             log.exception("Veo generation failed")
             await q.message.reply_text(f"⚠️ Ошибка генерации: {e}\n\nМонетки возвращены. Попробуйте ещё раз.", reply_markup=kb_home_inline())
         finally:
@@ -4391,7 +4179,42 @@ Telegram бот "Babka Bot"
             await q.message.edit_text("Сначала введи текст сцены, чтобы собрать JSON.",
                                       reply_markup=kb_jsonpro_start()); return
         orr = st["jsonpro"].get("orientation", DEFAULT_ORIENTATION)
-        msg = await q.message.reply_text("⏳ Генерирую видео по JSON…")
+        if not can_generate_json(st):
+            coins = st.get("coins", 0)
+            await q.message.reply_text(
+                f"❌ Не хватает монет для JSON-генерации.\n\n"
+                f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
+                "💳 Пополнить баланс?",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ])
+            )
+            return
+
+        try:
+            job_id = hold_and_start(st, "json")
+            st["current_job_id"] = job_id
+        except ValueError:
+            coins = st.get("coins", 0)
+            await q.message.reply_text(
+                f"❌ Не хватает монет для JSON-генерации.\n\n"
+                f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
+                "💳 Пополнить баланс?",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ])
+            )
+            return
+
+        cost_text = st["jobs"][job_id]["coin_cost"]
+        msg = await q.message.reply_text(
+            "⏳ Генерирую видео по JSON…\n"
+            f"💰 Списано: {cost_text} монет"
+        )
         try:
             res = await asyncio.to_thread(generate_video_sync, jj, duration=8, aspect_ratio=orr, with_audio=st.get("with_audio", True))
             videos = (res or {}).get("videos", [])
@@ -4407,7 +4230,13 @@ Telegram бот "Babka Bot"
                 await q.message.reply_text(f"{caption}\n\n🔗 GCS: {uri}", reply_markup=kb_after_video())
             else:
                 await q.message.reply_text("⚠️ Видео не вернулось. Попробуй ещё раз.", reply_markup=kb_home_inline())
+            if st.get("current_job_id"):
+                on_success(st, st["current_job_id"])
+                st["current_job_id"] = None
         except Exception as e:
+            if st.get("current_job_id"):
+                on_error(st, st["current_job_id"], reason="json_error")
+                st["current_job_id"] = None
             await q.message.reply_text(f"⚠️ Ошибка генерации: {e}", reply_markup=kb_home_inline())
         finally:
             try: await msg.delete()
@@ -4497,4 +4326,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

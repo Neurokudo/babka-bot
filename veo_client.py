@@ -16,6 +16,8 @@ LOCATION   = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 MODEL      = os.getenv("VEO_MODEL", "veo-3.0-fast-generate-001")
 OUTPUT_GCS_URI = os.getenv("VEO_OUTPUT_GCS_URI")  # gs://bucket/path/
 DOWNLOAD = os.getenv("DOWNLOAD_VIDEOS", "1") == "1"
+HTTP_TIMEOUT = int(os.getenv("HTTP_TIMEOUT", "60"))
+HTTP_RETRIES = int(os.getenv("HTTP_RETRIES", "3"))
 
 def _get_credentials():
     key_b64 = os.getenv("GCP_KEY_JSON_B64")
@@ -34,6 +36,35 @@ def _authorized_session():
     s = requests.Session()
     s.headers.update({"Authorization": f"Bearer {creds.token}"})
     return s
+
+
+def _post_with_retry(session, url: str, payload: dict, timeout: int = HTTP_TIMEOUT,
+                     attempts: int = HTTP_RETRIES):
+    """Отправляет POST с повторными попытками и ограничением по тайм-ауту."""
+    backoff = 2
+    last_error = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            response = session.post(url, json=payload, timeout=timeout)
+            if response.status_code < 400:
+                return response
+
+            if response.status_code in (429, 500, 502, 503, 504):
+                last_error = RuntimeError(
+                    f"Retryable error {response.status_code}: {response.text[:256]}"
+                )
+            else:
+                response.raise_for_status()
+        except requests.RequestException as exc:
+            last_error = exc
+
+        if attempt < attempts:
+            sleep_for = backoff ** (attempt - 1)
+            log.warning("Veo request retry %s/%s after error: %s", attempt, attempts, last_error)
+            time.sleep(min(15, sleep_for))
+
+    raise RuntimeError(f"Veo request failed after {attempts} attempts: {last_error}")
 
 def _fix_aspect_with_ffmpeg(input_path: str, aspect="9:16") -> str:
     """Прогон через ffmpeg, чтобы Telegram не сплющивал превью."""
@@ -75,9 +106,7 @@ def generate_video_sync(prompt: str, duration: int = 8, aspect_ratio: str = "9:1
     }
 
     log.info(f"Запрос генерации: {url}")
-    r = sess.post(url, json=body)
-    if r.status_code != 200:
-        raise RuntimeError(f"Generation error {r.status_code}: {r.text}")
+    r = _post_with_retry(sess, url, body)
 
     resp = r.json()
     op_name = resp.get("name")
@@ -95,9 +124,7 @@ def _poll_and_collect(sess, op_name: str):
     payload = {"operationName": op_name}
 
     while True:
-        rr = sess.post(url, json=payload)
-        if rr.status_code != 200:
-            raise RuntimeError(f"Poll error {rr.status_code}: {rr.text}")
+        rr = _post_with_retry(sess, url, payload, timeout=HTTP_TIMEOUT, attempts=HTTP_RETRIES)
 
         data = rr.json()
         if data.get("done"):
@@ -140,4 +167,3 @@ def _poll_and_collect(sess, op_name: str):
 
             return {"videos": out_files}
         time.sleep(5)
-

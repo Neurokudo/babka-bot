@@ -1,83 +1,67 @@
 BEGIN;
 
--- Users --------------------------------------------------------------------
-
-ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS admin_coins INTEGER NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS welcome_granted BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS plan VARCHAR(20) NOT NULL DEFAULT 'lite',
-    ADD COLUMN IF NOT EXISTS plan_expiry TIMESTAMP NULL,
-    ADD COLUMN IF NOT EXISTS videos_allowed INTEGER NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS photos_allowed INTEGER NOT NULL DEFAULT 0;
-
--- Поддерживаем устаревшие колонки, но переносим данные в новые поля
-UPDATE users
-SET videos_allowed = GREATEST(COALESCE(videos_allowed, 0), COALESCE(videos_left, 0))
-WHERE COALESCE(videos_left, 0) <> 0;
-
-UPDATE users
-SET photos_allowed = GREATEST(COALESCE(photos_allowed, 0), COALESCE(photos_left, 0))
-WHERE COALESCE(photos_left, 0) <> 0;
-
--- Обновляем план по умолчанию и дату окончания
-UPDATE users
-SET plan = 'lite'
-WHERE plan IS NULL OR plan = '';
-
-UPDATE users
-SET plan_expiry = NULL
-WHERE plan_expiry IS NOT NULL AND plan_expiry < '1970-01-01';
-
--- Гарантируем, что текущим пользователям приветственный бонус больше не начисляется
-UPDATE users
-SET welcome_granted = TRUE
-WHERE welcome_granted IS DISTINCT FROM TRUE;
-
--- Устанавливаем админские бонусы и монетки для админа (ID = 5015100177)
-UPDATE users
-SET admin_coins = 500,
-    video_bonus = 30,
-    photo_bonus = 50,
-    tryon_bonus = 10,
-    welcome_granted = TRUE,
-    videos_allowed = 30,
-    photos_allowed = 50
-WHERE user_id = 5015100177;
-
--- Исправляем старых пользователей с неправильными бонусами (2/3/1) на правильные (2/2/2)
-UPDATE users
-SET video_bonus = 2,
-    photo_bonus = 2,
-    tryon_bonus = 2
-WHERE video_bonus = 2
-  AND photo_bonus = 3
-  AND tryon_bonus = 1
-  AND user_id <> 5015100177;
-
--- Transactions --------------------------------------------------------------
-
-ALTER TABLE transactions
-    ADD COLUMN IF NOT EXISTS before_value INTEGER,
-    ADD COLUMN IF NOT EXISTS after_value INTEGER,
-    ADD COLUMN IF NOT EXISTS delta INTEGER,
-    ADD COLUMN IF NOT EXISTS reason VARCHAR(50),
-    ADD COLUMN IF NOT EXISTS metadata JSONB;
-
--- Payments -----------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS payments (
-    payment_id VARCHAR(255) PRIMARY KEY,
-    idempotency_key VARCHAR(255) UNIQUE,
-    user_id BIGINT NOT NULL,
-    amount DECIMAL(10,2) DEFAULT 0,
-    currency VARCHAR(3) DEFAULT 'RUB',
-    plan VARCHAR(20),
-    metadata JSONB,
-    status VARCHAR(20) DEFAULT 'pending',
-    created_at TIMESTAMP DEFAULT NOW()
+-- Users ---------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+    user_id BIGINT PRIMARY KEY,
+    coins INTEGER NOT NULL DEFAULT 0,
+    plan VARCHAR(20) NOT NULL DEFAULT 'lite',
+    plan_expiry TIMESTAMP NULL,
+    admin_coins INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_idempotency
-    ON payments (idempotency_key);
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS coins INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS plan VARCHAR(20) NOT NULL DEFAULT 'lite',
+    ADD COLUMN IF NOT EXISTS plan_expiry TIMESTAMP NULL,
+    ADD COLUMN IF NOT EXISTS admin_coins INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+
+ALTER TABLE users DROP COLUMN IF EXISTS video_bonus;
+ALTER TABLE users DROP COLUMN IF EXISTS photo_bonus;
+ALTER TABLE users DROP COLUMN IF EXISTS tryon_bonus;
+ALTER TABLE users DROP COLUMN IF EXISTS videos_allowed;
+ALTER TABLE users DROP COLUMN IF EXISTS photos_allowed;
+ALTER TABLE users DROP COLUMN IF EXISTS videos_left;
+ALTER TABLE users DROP COLUMN IF EXISTS photos_left;
+ALTER TABLE users DROP COLUMN IF EXISTS daily_date;
+ALTER TABLE users DROP COLUMN IF EXISTS daily_videos;
+
+-- Transactions --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS transactions (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(user_id),
+    operation_type VARCHAR(50) NOT NULL,
+    coins_spent INTEGER NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE transactions
+    DROP COLUMN IF EXISTS used_bonus,
+    DROP COLUMN IF EXISTS bonus_type,
+    DROP COLUMN IF EXISTS quality,
+    DROP COLUMN IF EXISTS before_value,
+    DROP COLUMN IF EXISTS after_value,
+    DROP COLUMN IF EXISTS delta,
+    DROP COLUMN IF EXISTS reason,
+    DROP COLUMN IF EXISTS metadata,
+    DROP COLUMN IF EXISTS completed_at,
+    DROP COLUMN IF EXISTS error_at;
+
+-- Payments ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS payments (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(user_id),
+    subscription_type VARCHAR(50),
+    amount DECIMAL(10,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    idempotent_key VARCHAR(255) UNIQUE
+);
+
+DROP TABLE IF EXISTS processed_payments;
 
 COMMIT;

@@ -32,26 +32,22 @@ def give_bonuses():
         return False
     
     print(f"✅ Пользователь найден: {ADMIN_ID}")
-    print(f"\n📊 Текущие бонусы:")
-    print(f"   Видео: {user_data.get('video_bonus', 0)}")
-    print(f"   Фото: {user_data.get('photo_bonus', 0)}")
-    print(f"   Примерки: {user_data.get('tryon_bonus', 0)}")
+    print(f"\n📊 Текущие значения:")
     print(f"   Монетки: {user_data.get('coins', 0)}")
+    print(f"   Админские монеты: {user_data.get('admin_coins', 0)}")
     
-    # Начисляем бонусы
-    user_data["video_bonus"] = user_data.get("video_bonus", 0) + 30
-    user_data["photo_bonus"] = user_data.get("photo_bonus", 0) + 50
-    user_data["tryon_bonus"] = user_data.get("tryon_bonus", 0) + 10
-    user_data["coins"] = user_data.get("coins", 0) + 500
+    # Начисляем монеты
+    coins_bonus = 500
+    admin_bonus = 500
+    user_data["coins"] = user_data.get("coins", 0) + coins_bonus
+    user_data["admin_coins"] = user_data.get("admin_coins", 0) + admin_bonus
     
     # Сохраняем в базу
     db.save_user(ADMIN_ID, user_data)
     
-    print(f"\n✨ БОНУСЫ НАЧИСЛЕНЫ:")
-    print(f"   Видео: {user_data['video_bonus']} (+30)")
-    print(f"   Фото: {user_data['photo_bonus']} (+50)")
-    print(f"   Примерки: {user_data['tryon_bonus']} (+10)")
-    print(f"   Монетки: {user_data['coins']} (+500)")
+    print(f"\n✨ Монеты начислены:")
+    print(f"   Монетки: {user_data['coins']} (+{coins_bonus})")
+    print(f"   Админские монеты: {user_data['admin_coins']} (+{admin_bonus})")
     
     print(f"\n🎉 Готово! Проверьте баланс в боте командой /start")
     return True
@@ -65,4 +61,3 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
-

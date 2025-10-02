@@ -6,6 +6,7 @@ import os
 import base64
 import json
 import logging
+import time
 import requests
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
 import io
@@ -20,6 +21,8 @@ PROJECT_ID = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT", ""
 LOCATION = os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 MODEL_ID = "gemini-2.5-flash-image-preview"
+HTTP_RETRIES = int(os.getenv("HTTP_RETRIES", "3"))
+IMAGE_HTTP_TIMEOUT = int(os.getenv("IMAGE_HTTP_TIMEOUT", "180"))
 
 def _load_credentials():
     """Возвращает учётку сервисного аккаунта из ENV."""
@@ -62,6 +65,36 @@ def _access_token() -> str:
     except Exception as e:
         log.error("Failed to get access token: %s", e)
         raise RuntimeError(f"Authentication failed: {e}")
+
+
+def _post_with_retry(url: str, headers: dict, payload: dict,
+                     timeout: int = IMAGE_HTTP_TIMEOUT,
+                     attempts: int = HTTP_RETRIES):
+    """Отправляет POST-запрос с экспоненциальными повторами."""
+    backoff = 2
+    last_error = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+            if response.status_code < 400:
+                return response
+
+            if response.status_code in (429, 500, 502, 503, 504):
+                last_error = RuntimeError(
+                    f"Retryable error {response.status_code}: {response.text[:512]}"
+                )
+            else:
+                response.raise_for_status()
+        except requests.RequestException as exc:
+            last_error = exc
+
+        if attempt < attempts:
+            sleep_for = backoff ** (attempt - 1)
+            log.warning("Gemini image request retry %s/%s after %s", attempt, attempts, last_error)
+            time.sleep(min(15, sleep_for))
+
+    raise RuntimeError(f"Gemini request failed after {attempts} attempts: {last_error}")
 
 def _enhance_image_quality(image_bytes: bytes) -> bytes:
     """Улучшает качество изображения без потери деталей: убирает шум, повышает резкость."""
@@ -130,13 +163,7 @@ def _call_gemini(images: List[bytes], prompt: str, quality: str = "basic") -> by
     }
 
     log.info("Transform request → %s", url)
-    r = requests.post(url, headers=headers, json=payload, timeout=180)
-    if r.status_code >= 400:
-        try:
-            log.error("Transform error %s: %s", r.status_code, r.text[:1000])
-        except Exception:
-            pass
-        r.raise_for_status()
+    r = _post_with_retry(url, headers, payload)
 
     data = r.json()
     preds = data.get("predictions") or []
