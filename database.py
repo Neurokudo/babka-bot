@@ -60,9 +60,10 @@ class Database:
                     CREATE TABLE IF NOT EXISTS users (
                         user_id BIGINT PRIMARY KEY,
                         coins INTEGER DEFAULT 0,
-                        video_bonus INTEGER DEFAULT 0,
-                        photo_bonus INTEGER DEFAULT 0,
-                        tryon_bonus INTEGER DEFAULT 0,
+                        video_bonus INTEGER DEFAULT 2,
+                        photo_bonus INTEGER DEFAULT 2,
+                        tryon_bonus INTEGER DEFAULT 2,
+                        admin_coins INTEGER DEFAULT 0,
                         plan VARCHAR(20) DEFAULT 'lite',
                         videos_left INTEGER DEFAULT 0,
                         photos_left INTEGER DEFAULT 0,
@@ -145,6 +146,8 @@ class Database:
                     }
                     user_data["processed_payments"] = set()
                     user_data["jobs"] = {}
+                    # Админские монетки отдельно (по умолчанию 0)
+                    user_data["admin_coins"] = user_data.get("admin_coins", 0)
                     
                     return user_data
                 return None
@@ -166,16 +169,17 @@ class Database:
                 cursor.execute("""
                     INSERT INTO users (
                         user_id, coins, video_bonus, photo_bonus, tryon_bonus,
-                        plan, videos_left, photos_left, daily_date, daily_videos,
+                        admin_coins, plan, videos_left, photos_left, daily_date, daily_videos,
                         updated_at
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
                     )
                     ON CONFLICT (user_id) DO UPDATE SET
                         coins = EXCLUDED.coins,
                         video_bonus = EXCLUDED.video_bonus,
                         photo_bonus = EXCLUDED.photo_bonus,
                         tryon_bonus = EXCLUDED.tryon_bonus,
+                        admin_coins = EXCLUDED.admin_coins,
                         plan = EXCLUDED.plan,
                         videos_left = EXCLUDED.videos_left,
                         photos_left = EXCLUDED.photos_left,
@@ -188,6 +192,7 @@ class Database:
                     user_data.get("video_bonus", 0),
                     user_data.get("photo_bonus", 0),
                     user_data.get("tryon_bonus", 0),
+                    user_data.get("admin_coins", 0),
                     user_data.get("plan", "lite"),
                     user_data.get("videos_left", 0),
                     user_data.get("photos_left", 0),
