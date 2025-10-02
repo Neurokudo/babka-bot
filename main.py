@@ -14,6 +14,7 @@ import asyncio
 import logging
 import smtplib
 import time
+from datetime import datetime
 from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -1164,11 +1165,18 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Приветственное сообщение для новых пользователей с бонусами
+    # Приветственное сообщение ТОЛЬКО для НОВЫХ пользователей (показываем 1 раз)
+    # Проверяем: если пользователь создан только что (нет created_at или он свежий)
+    is_new_user = st.get("created_at") is None or (
+        hasattr(st.get("created_at"), "timestamp") and 
+        (datetime.now().timestamp() - st.get("created_at").timestamp()) < 60
+    )
+    
     video_bonus = st.get("video_bonus", 0)
     photo_bonus = st.get("photo_bonus", 0)
     tryon_bonus = st.get("tryon_bonus", 0)
-    if video_bonus > 0 or photo_bonus > 0 or tryon_bonus > 0:
+    
+    if is_new_user and (video_bonus > 0 or photo_bonus > 0 or tryon_bonus > 0):
         bonus_text = ""
         if video_bonus > 0:
             bonus_text += f"• {video_bonus} бесплатных видео\n"
@@ -1187,6 +1195,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # Для существующих пользователей - просто главное меню
     await update.message.reply_text("Главное меню:", reply_markup=kb_home_inline())
 
 async def cmd_whereami(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1371,6 +1380,45 @@ async def cmd_reload_profile(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     await update.message.reply_text(
         response_text,
+        reply_markup=kb_home_inline()
+    )
+
+async def cmd_reset_my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """СЛУЖЕБНАЯ КОМАНДА: ПОЛНЫЙ СБРОС профиля админа на дефолтные значения - ТОЛЬКО ДЛЯ АДМИНА"""
+    uid = update.effective_user.id
+    
+    # Проверка: только владелец
+    ADMIN_ID = 5015100177
+    if uid != ADMIN_ID:
+        return
+    
+    _ensure(uid)
+    st = users[uid]
+    
+    # СБРАСЫВАЕМ на дефолтные значения
+    st["video_bonus"] = 2
+    st["photo_bonus"] = 2
+    st["tryon_bonus"] = 2
+    st["coins"] = 0
+    st["admin_coins"] = 0  # Админские монетки тоже сбрасываем
+    st["videos_left"] = 0
+    st["photos_left"] = 0
+    st["plan"] = "lite"
+    
+    # Сохраняем в БД
+    db.save_user(uid, st)
+    log.info(f"ADMIN {uid} profile RESET to defaults: 2/2/2, admin_coins=0")
+    
+    await update.message.reply_text(
+        "♻️ ВАШ ПРОФИЛЬ ПОЛНОСТЬЮ СБРОШЕН!\n\n"
+        "📊 Установлены дефолтные значения:\n\n"
+        "🎁 БОНУСЫ:\n"
+        "   🎬 Видео: 2\n"
+        "   📸 Фото: 2\n"
+        "   👗 Примерки: 2\n\n"
+        "💰 Монеток: 0\n"
+        "⭐️ Баланс админа: 0\n\n"
+        "✅ Теперь используйте /add_bonus чтобы получить 500 админских монеток!",
         reply_markup=kb_home_inline()
     )
 
@@ -3906,8 +3954,9 @@ def main():
     app.add_handler(CommandHandler("whereami", cmd_whereami))  # утилита
     app.add_handler(CommandHandler("terms", cmd_terms))  # пользовательское соглашение
     app.add_handler(CommandHandler("test_payment", cmd_test_payment))  # тестовая команда
-    app.add_handler(CommandHandler("add_bonus", cmd_add_bonus))  # команда для тестовых бонусов
+    app.add_handler(CommandHandler("add_bonus", cmd_add_bonus))  # команда для админских монеток
     app.add_handler(CommandHandler("reload_profile", cmd_reload_profile))  # перезагрузка профиля из БД
+    app.add_handler(CommandHandler("reset_my_profile", cmd_reset_my_profile))  # сброс профиля админа
     app.add_handler(CallbackQueryHandler(on_cb))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))  # приём фото (примерочная)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
