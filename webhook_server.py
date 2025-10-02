@@ -52,6 +52,16 @@ def yookassa_webhook():
             log.warning(f"Invalid Content-Type: {content_type}")
             return jsonify({"error": "Content-Type must be application/json"}), 400
         
+        # Проверяем подпись вебхука
+        signature = request.headers.get('X-YooMoney-Signature')
+        if not signature:
+            log.error("Missing X-YooMoney-Signature header")
+            return jsonify({"error": "Missing signature"}), 400
+        
+        if not verify_webhook_signature(payload, signature):
+            log.error("Invalid webhook signature")
+            return jsonify({"error": "Invalid signature"}), 400
+        
         # Парсим JSON
         try:
             webhook_data = json.loads(payload)

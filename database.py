@@ -547,6 +547,52 @@ class Database:
             log.error(f"Failed to check expired plans: {e}")
             return []
     
+    def atomic_spend_coins(self, user_id: int, cost: int, operation_type: str, 
+                          reason: str = None, metadata: Dict = None) -> bool:
+        """Атомарно списывает монетки с проверкой баланса"""
+        if not PSYCOPG2_AVAILABLE or not self.connection:
+            return False
+        
+        try:
+            with self.connection.cursor() as cursor:
+                # Атомарная операция: проверяем баланс и списываем в одной транзакции
+                cursor.execute("""
+                    UPDATE users 
+                    SET coins = coins - %s, updated_at = NOW()
+                    WHERE user_id = %s AND coins >= %s
+                    RETURNING coins + %s as old_coins, coins as new_coins
+                """, (cost, user_id, cost, cost))
+                
+                result = cursor.fetchone()
+                if not result:
+                    # Недостаточно монеток или пользователь не найден
+                    return False
+                
+                old_coins, new_coins = result
+                
+                # Логируем транзакцию
+                cursor.execute("""
+                    INSERT INTO transactions (
+                        user_id, operation_type, coins_spent, used_bonus,
+                        before_value, after_value, delta, reason, metadata
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                """, (
+                    user_id, operation_type, cost, False,
+                    old_coins, new_coins, -cost, reason or f"{operation_type}_spend",
+                    json.dumps(metadata) if metadata else None
+                ))
+                
+                self.connection.commit()
+                return True
+                
+        except Exception as e:
+            log.error(f"Error in atomic_spend_coins for user {user_id}: {e}")
+            if self.connection:
+                self.connection.rollback()
+            return False
+
     def reset_expired_plan(self, user_id: int) -> bool:
         """Сбросить истекший тариф на lite"""
         if not PSYCOPG2_AVAILABLE or not self.connection:

@@ -15,53 +15,127 @@ def get_plan_info(plan_name: str) -> Optional[Dict[str, Any]]:
     """Получить информацию о тарифе"""
     return PLANS.get(plan_name)
 
+def ensure_active_subscription(user: Dict[str, Any]) -> bool:
+    """Проверяет и обновляет статус подписки перед операцией"""
+    user_id = user.get("user_id")
+    if not user_id:
+        return False
+    
+    plan_expiry = user.get("plan_expiry")
+    plan = user.get("plan", "lite")
+    
+    # Если тариф не lite и есть дата истечения
+    if plan != "lite" and plan_expiry:
+        try:
+            from datetime import datetime
+            expiry_date = datetime.fromisoformat(str(plan_expiry).replace('Z', '+00:00'))
+            
+            # Если подписка истекла
+            if expiry_date < datetime.now():
+                log.info(f"Subscription expired for user {user_id}, resetting to lite")
+                
+                # Сбрасываем тариф
+                user["plan"] = "lite"
+                user["plan_expiry"] = None
+                
+                # Сохраняем в БД
+                db.save_user(user_id, user)
+                
+                # Логируем сброс
+                db.add_transaction(
+                    user_id=user_id,
+                    operation_type="plan_expiry",
+                    coins_spent=0,
+                    used_bonus=False,
+                    reason="plan_expired_reset",
+                    metadata={"old_plan": plan, "new_plan": "lite"}
+                )
+                
+                return True
+        except Exception as e:
+            log.error(f"Error checking subscription expiry for user {user_id}: {e}")
+    
+    return True
+
 def can_generate_video_with_plan(user: Dict[str, Any]) -> bool:
-    """Проверяет, может ли пользователь сгенерировать видео с учетом монеток"""
-    # Проверяем только монетки
+    """Проверяет, может ли пользователь сгенерировать видео с учетом бонусов и монеток"""
+    # Сначала проверяем и обновляем статус подписки
+    if not ensure_active_subscription(user):
+        return False
+    
+    # Проверяем бонусы (приоритет)
+    if user.get("video_bonus", 0) > 0:
+        return True
+    
+    # Проверяем монетки
     from billing import COST_VIDEO, can_spend
     return can_spend(user, COST_VIDEO)
 
 def can_generate_photo_with_plan(user: Dict[str, Any], cost: int = None) -> bool:
-    """Проверяет, может ли пользователь сгенерировать фото с учетом монеток"""
+    """Проверяет, может ли пользователь сгенерировать фото с учетом бонусов и монеток"""
+    # Сначала проверяем и обновляем статус подписки
+    if not ensure_active_subscription(user):
+        return False
+    
     if cost is None:
         from billing import COST_TRANSFORM
         cost = COST_TRANSFORM
     
-    # Проверяем только монетки
+    # Проверяем бонусы (приоритет)
+    if user.get("photo_bonus", 0) > 0:
+        return True
+    
+    # Проверяем монетки
     from billing import can_spend
     return can_spend(user, cost)
 
 def spend_video_resource(user: Dict[str, Any]) -> bool:
-    """Списать монетки за видео"""
+    """Списать ресурс за видео (приоритет: бонусы -> монетки)"""
     user_id = user.get("user_id")
     if not user_id:
         return False
     
-    from billing import COST_VIDEO, can_spend
-    if not can_spend(user, COST_VIDEO):
-        return False
+    # Сначала пробуем списать бонус
+    if user.get("video_bonus", 0) > 0:
+        before_value = user["video_bonus"]
+        user["video_bonus"] -= 1
+        after_value = user["video_bonus"]
+        
+        # Логируем транзакцию
+        db.add_transaction(
+            user_id=user_id,
+            operation_type="video",
+            coins_spent=0,
+            used_bonus=True,
+            bonus_type="video_bonus",
+            before_value=before_value,
+            after_value=after_value,
+            delta=-1,
+            reason="video_bonus_spend"
+        )
+        
+        db.save_user(user_id, user)
+        log.info(f"User {user_id}: Spent video bonus. Remaining: {user['video_bonus']}")
+        return True
     
-    before_value = user.get("coins", 0)
-    user["coins"] -= COST_VIDEO
-    after_value = user.get("coins", 0)
-    
-    # Логируем транзакцию
-    db.add_transaction(
+    # Потом списываем монетки атомарно
+    from billing import COST_VIDEO
+    success = db.atomic_spend_coins(
         user_id=user_id,
+        cost=COST_VIDEO,
         operation_type="video",
-        coins_spent=COST_VIDEO,
-        used_bonus=False,
-        before_value=before_value,
-        after_value=after_value,
-        delta=-COST_VIDEO,
-        reason="video_spend"
+        reason="video_coins_spend"
     )
     
-    db.save_user(user_id, user)
-    return True
+    if success:
+        # Обновляем локальный кэш
+        user["coins"] = user.get("coins", 0) - COST_VIDEO
+        log.info(f"User {user_id}: Spent {COST_VIDEO} coins for video. Remaining: {user['coins']}")
+    
+    return success
 
 def spend_photo_resource(user: Dict[str, Any], cost: int = None) -> bool:
-    """Списать монетки за фото"""
+    """Списать ресурс за фото (приоритет: бонусы -> монетки)"""
     user_id = user.get("user_id")
     if not user_id:
         return False
@@ -70,28 +144,43 @@ def spend_photo_resource(user: Dict[str, Any], cost: int = None) -> bool:
         from billing import COST_TRANSFORM
         cost = COST_TRANSFORM
     
-    from billing import can_spend
-    if not can_spend(user, cost):
-        return False
+    # Сначала пробуем списать бонус
+    if user.get("photo_bonus", 0) > 0:
+        before_value = user["photo_bonus"]
+        user["photo_bonus"] -= 1
+        after_value = user["photo_bonus"]
+        
+        # Логируем транзакцию
+        db.add_transaction(
+            user_id=user_id,
+            operation_type="transform",
+            coins_spent=0,
+            used_bonus=True,
+            bonus_type="photo_bonus",
+            before_value=before_value,
+            after_value=after_value,
+            delta=-1,
+            reason="photo_bonus_spend"
+        )
+        
+        db.save_user(user_id, user)
+        log.info(f"User {user_id}: Spent photo bonus. Remaining: {user['photo_bonus']}")
+        return True
     
-    before_value = user.get("coins", 0)
-    user["coins"] -= cost
-    after_value = user.get("coins", 0)
-    
-    # Логируем транзакцию
-    db.add_transaction(
+    # Потом списываем монетки атомарно
+    success = db.atomic_spend_coins(
         user_id=user_id,
+        cost=cost,
         operation_type="transform",
-        coins_spent=cost,
-        used_bonus=False,
-        before_value=before_value,
-        after_value=after_value,
-        delta=-cost,
-        reason="photo_spend"
+        reason="photo_coins_spend"
     )
     
-    db.save_user(user_id, user)
-    return True
+    if success:
+        # Обновляем локальный кэш
+        user["coins"] = user.get("coins", 0) - cost
+        log.info(f"User {user_id}: Spent {cost} coins for photo. Remaining: {user['coins']}")
+    
+    return success
 
 def activate_plan(user_id: int, plan_name: str) -> bool:
     """Активировать тариф для пользователя"""

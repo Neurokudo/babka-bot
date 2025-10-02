@@ -2576,7 +2576,43 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # --- Обработчики трансформаций ---
+    # --- Проверка баланса перед операциями ---
+    if data == "generate_now":
+        # Проверяем баланс перед генерацией видео
+        from subscription_system import can_generate_video_with_plan
+        if not can_generate_video_with_plan(st):
+            from billing import check_insufficient_coins
+            insufficient_msg = check_insufficient_coins(st, "video")
+            await q.message.reply_text(
+                insufficient_msg,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                ])
+            )
+            return
+        # Если баланс достаточный, продолжаем генерацию
+        # ... (остальной код генерации)
+    
+    if data == "tryon_confirm":
+        # Проверяем баланс перед примеркой
+        from subscription_system import can_generate_photo_with_plan
+        from billing import COST_TRYON
+        if not can_generate_photo_with_plan(st, COST_TRYON):
+            from billing import check_insufficient_coins
+            insufficient_msg = check_insufficient_coins(st, "photo")
+            await q.message.reply_text(
+                insufficient_msg,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                ])
+            )
+            return
+        # Если баланс достаточный, продолжаем примерку
+        # ... (остальной код примерки)
     if data == "transform_remove_bg":
         st["transform_type"] = "remove_bg"
         await q.message.edit_text(
