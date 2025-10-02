@@ -36,18 +36,21 @@ def init_telegram_app():
 
 @app.route('/webhook/yookassa', methods=['POST'])
 def yookassa_webhook():
-    """Обработчик webhook'ов от YooKassa"""
+    """
+    ИСПРАВЛЕНО: Обработчик webhook'ов от YooKassa согласно официальной документации
+    https://yookassa.ru/developers/using-api/webhooks
+    """
     try:
         # Получаем данные запроса
         payload = request.get_data(as_text=True)
-        signature = request.headers.get('X-Yookassa-Signature', '')
+        content_type = request.headers.get('Content-Type', '')
         
-        log.info(f"Received webhook: signature={signature[:20]}..., payload_length={len(payload)}")
+        log.info(f"Received webhook: content_type={content_type}, payload_length={len(payload)}")
         
-        # Проверяем подпись (опционально, можно отключить для тестирования)
-        if signature and not verify_webhook_signature(payload, signature):
-            log.warning("Invalid webhook signature")
-            return jsonify({"error": "Invalid signature"}), 401
+        # Проверяем Content-Type
+        if 'application/json' not in content_type:
+            log.warning(f"Invalid Content-Type: {content_type}")
+            return jsonify({"error": "Content-Type must be application/json"}), 400
         
         # Парсим JSON
         try:
@@ -56,15 +59,26 @@ def yookassa_webhook():
             log.error(f"Invalid JSON in webhook: {e}")
             return jsonify({"error": "Invalid JSON"}), 400
         
+        # Валидируем структуру webhook
+        if not webhook_data.get("event") or not webhook_data.get("object"):
+            log.error("Invalid webhook structure - missing event or object")
+            return jsonify({"error": "Invalid webhook structure"}), 400
+        
+        # Логируем событие
+        event_type = webhook_data.get("event")
+        object_id = webhook_data.get("object", {}).get("id", "unknown")
+        log.info(f"Processing webhook: event={event_type}, object_id={object_id}")
+        
         # Обрабатываем webhook асинхронно
         asyncio.create_task(process_webhook_async(webhook_data))
         
-        # Возвращаем успешный ответ YooKassa
-        return jsonify({"status": "ok"}), 200
+        # КРИТИЧНО: Возвращаем ответ немедленно (YooKassa ждет быстрого ответа)
+        return jsonify({"status": "received"}), 200
         
     except Exception as e:
-        log.error(f"Error processing webhook: {e}")
-        return jsonify({"error": "Internal server error"}), 500
+        log.error(f"Critical error processing webhook: {e}")
+        # Возвращаем 200 даже при ошибке, чтобы YooKassa не повторял запрос
+        return jsonify({"status": "error", "message": "Internal processing error"}), 200
 
 async def process_webhook_async(webhook_data):
     """Асинхронная обработка webhook'а"""
