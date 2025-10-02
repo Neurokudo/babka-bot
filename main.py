@@ -740,23 +740,23 @@ def _ensure(uid: int):
                 "videos_left": 0,  # оставшиеся ролики
                 "photos_left": 0,  # оставшиеся фотографии
                 "processed_payments": set(),  # обработанные платежи для идемпотентности
-            # трансформации изображений
-            "awaiting_transform": False,  # ожидаем загрузку фото
-            "transform_type": None,  # тип трансформации
-            "transform_quality": "basic",  # качество обработки
-            "transform_images": [],  # загруженные изображения
-            "transform_text": None,  # текстовое описание для трансформации
-            "current_job_id": None,  # ID текущей задачи
-            # примерочная
-            "tryon": {
-                "stage": "idle",          # idle | await_person | await_garment | confirm | after
-                "person": None,           # bytes
-                "garment": None,          # bytes
-                "dressed": None,          # bytes (последний результат VTO)
-                "await_bg": False,        # ждём фон для релокации
-                "await_prompt": False,    # ждём текст описания позы/локации
-            },
-        }
+                # трансформации изображений
+                "awaiting_transform": False,  # ожидаем загрузку фото
+                "transform_type": None,  # тип трансформации
+                "transform_quality": "basic",  # качество обработки
+                "transform_images": [],  # загруженные изображения
+                "transform_text": None,  # текстовое описание для трансформации
+                "current_job_id": None,  # ID текущей задачи
+                # примерочная
+                "tryon": {
+                    "stage": "idle",          # idle | await_person | await_garment | confirm | after
+                    "person": None,           # bytes
+                    "garment": None,          # bytes
+                    "dressed": None,          # bytes (последний результат VTO)
+                    "await_bg": False,        # ждём фон для релокации
+                    "await_prompt": False,    # ждём текст описания позы/локации
+                },
+            }
         
         # Сохраняем нового пользователя в базу данных
         db.save_user(uid, users[uid])
@@ -799,6 +799,9 @@ def kb_modes():
 
 def kb_back_only():
     return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="back_modes")]])
+
+def kb_back_transforms():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")]])
 
 def kb_variants():
     return InlineKeyboardMarkup([
@@ -2134,10 +2137,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_text(
             f"{text}\n\n"
             f"✅ Качество: {quality_text}\n"
-            f"💰 Стоимость: {cost} монетка",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
-            ])
+            f"💰 Стоимость: {cost} монетки",
+            reply_markup=kb_back_transforms()
         )
         st["awaiting_transform"] = True
         return
