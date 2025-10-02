@@ -2131,7 +2131,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             text = "Пришлите фото для обработки."
         
-        quality_text = "⚡ Быстрое (1024×1024)" if st["transform_quality"] == "basic" else "🎨 Премиум (2048×2048)"
+        quality_text = "⚡ Быстрое" if st["transform_quality"] == "basic" else "🎨 Премиум"
         cost = 1 if st["transform_quality"] == "basic" else 2
         
         await q.message.edit_text(
