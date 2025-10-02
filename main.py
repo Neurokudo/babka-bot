@@ -2391,28 +2391,62 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 metadata={"plan": plan_key, "type": "plan"}
             )
             
-            await q.edit_message_text(
-                f"Выбрано: {plan['name']} — {plan['price_rub']} ₽\n"
-                f"После оплаты лимиты будут зачислены автоматически.\n\n"
-                f"📋 Что включено:\n"
-                f"• {plan['videos']} видео\n"
-                f"• {plan['photos']} фотографий\n\n"
-                f"📋 Соглашаясь на оплату, вы принимаете условия оферты:\n"
-                f"/terms — Пользовательское соглашение",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
-                    [InlineKeyboardButton("📋 Оферта", callback_data="show_terms")],
-                    [InlineKeyboardButton("← Назад к тарифам", callback_data="open:pricing")],
-                ])
-            )
+            # Проверяем, не тестовая ли это ссылка
+            if "test_" in payment_url:
+                await q.edit_message_text(
+                    f"⚠️ Система платежей в режиме разработки\n\n"
+                    f"Выбрано: {plan['name']} — {plan['price_rub']} ₽\n\n"
+                    f"📋 Что включено:\n"
+                    f"• {plan['videos']} видео\n"
+                    f"• {plan['photos']} фотографий\n\n"
+                    f"🔧 Для активации реальных платежей необходимо:\n"
+                    f"1. Зарегистрироваться в ЮKassa\n"
+                    f"2. Получить реальные ключи API\n"
+                    f"3. Настроить переменные окружения\n\n"
+                    f"📞 Обратитесь к администратору для настройки платежей.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
+                        [InlineKeyboardButton("← Назад к тарифам", callback_data="open:pricing")],
+                    ])
+                )
+            else:
+                await q.edit_message_text(
+                    f"Выбрано: {plan['name']} — {plan['price_rub']} ₽\n"
+                    f"После оплаты лимиты будут зачислены автоматически.\n\n"
+                    f"📋 Что включено:\n"
+                    f"• {plan['videos']} видео\n"
+                    f"• {plan['photos']} фотографий\n\n"
+                    f"📋 Соглашаясь на оплату, вы принимаете условия оферты:\n"
+                    f"/terms — Пользовательское соглашение",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
+                        [InlineKeyboardButton("📋 Оферта", callback_data="show_terms")],
+                        [InlineKeyboardButton("← Назад к тарифам", callback_data="open:pricing")],
+                    ])
+                )
         except Exception as e:
             log.error(f"Error creating payment for plan {plan_key}: {e}")
-            await q.edit_message_text(
-                "❌ Ошибка создания платежа. Попробуйте позже.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("← Назад", callback_data="open:pricing")],
-                ])
-            )
+            error_msg = str(e)
+            if "тестовые ключи" in error_msg.lower() or "test" in error_msg.lower():
+                await q.edit_message_text(
+                    f"⚠️ Система платежей не настроена\n\n"
+                    f"Платежи временно недоступны.\n"
+                    f"Администратор должен настроить реальные ключи YooKassa.\n\n"
+                    f"📞 Обратитесь в поддержку для решения вопроса.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
+                        [InlineKeyboardButton("← Назад", callback_data="open:pricing")],
+                    ])
+                )
+            else:
+                await q.edit_message_text(
+                    f"❌ Ошибка создания платежа: {error_msg}\n\n"
+                    f"Попробуйте позже или обратитесь в поддержку.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
+                        [InlineKeyboardButton("← Назад", callback_data="open:pricing")],
+                    ])
+                )
         return
     
     # Покупка аддона
@@ -2551,6 +2585,26 @@ Telegram бот "Babka Bot"
             terms_text,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⬅️ Назад к тарифам", callback_data="open:pricing")],
+            ])
+        )
+        return
+    
+    # Связь с поддержкой
+    if data == "contact_support":
+        await q.edit_message_text(
+            "📞 Связь с поддержкой\n\n"
+            "По вопросам платежей и технических проблем:\n\n"
+            "📧 Email: antonkudo.ai@gmail.com\n"
+            "💬 Telegram: @antonkudo\n\n"
+            "🕐 Время ответа: обычно в течение 24 часов\n\n"
+            "При обращении укажите:\n"
+            "• Ваш Telegram ID\n"
+            "• Описание проблемы\n"
+            "• Скриншоты (если есть)",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📧 Написать на Email", url="mailto:antonkudo.ai@gmail.com")],
+                [InlineKeyboardButton("💬 Написать в Telegram", url="https://t.me/antonkudo")],
+                [InlineKeyboardButton("⬅️ Назад", callback_data="open:pricing")],
             ])
         )
         return

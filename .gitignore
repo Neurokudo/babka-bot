@@ -1,7 +1,26 @@
+# Секретные файлы
 veo-bot-key.json
 *.json
 .env
-.env
-.env
+.env.*
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Логи
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
