@@ -1275,9 +1275,18 @@ async def cmd_test_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Ошибка тестовой оплаты: {e}")
 
 async def cmd_add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда для начисления тестовых бонусов"""
-    if not await check_access(update): return
+    """Команда для начисления тестовых бонусов - ТОЛЬКО ДЛЯ АДМИНИСТРАТОРА"""
     uid = update.effective_user.id
+    
+    # Проверка: только владелец может начислять бонусы
+    ADMIN_ID = 5015100177  # Ваш Telegram ID
+    if uid != ADMIN_ID:
+        await update.message.reply_text(
+            "⛔ Эта команда доступна только администратору бота.",
+            reply_markup=kb_home_inline()
+        )
+        return
+    
     _ensure(uid)
     
     st = users[uid]
