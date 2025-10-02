@@ -2267,23 +2267,24 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         videos_left = st.get("videos_left", 0)
         photos_left = st.get("photos_left", 0)
         
+        # Улучшенное отображение профиля с четким разделением бонусов и ресурсов
         profile_text = f"👤 Профиль\n\n"
         
-        if video_bonus > 0 or photo_bonus > 0 or tryon_bonus > 0:
-            bonus_items = []
-            if video_bonus > 0:
-                bonus_items.append(f"{video_bonus} видео")
-            if photo_bonus > 0:
-                bonus_items.append(f"{photo_bonus} фото")
-            if tryon_bonus > 0:
-                bonus_items.append(f"{tryon_bonus} примерочная")
-            profile_text += f"🎁 Подарки: {', '.join(bonus_items)}\n"
+        # Показываем бонусы (бесплатные ресурсы)
+        profile_text += f"🎁 БОНУСЫ (бесплатно):\n"
+        profile_text += f"   🎬 Видео: {video_bonus}\n"
+        profile_text += f"   📸 Фото: {photo_bonus}\n"
+        profile_text += f"   👗 Примерки: {tryon_bonus}\n\n"
         
-        profile_text += f"💰 Монетки: {coins}\n"
-        profile_text += f"📊 Тариф: {plan_name}\n"
-        profile_text += f"🎬 Видео: {videos_left}\n"
-        profile_text += f"📸 Фотографий: {photos_left}\n\n"
-        profile_text += f"💡 Пример: видео = 10 монеток, преобразование = 1 монетка"
+        # Показываем купленные ресурсы
+        profile_text += f"💰 РЕСУРСЫ:\n"
+        profile_text += f"   💎 Монеток: {coins}\n"
+        profile_text += f"   🎬 Видео (тариф): {videos_left}\n"
+        profile_text += f"   📸 Фото (тариф): {photos_left}\n\n"
+        
+        profile_text += f"📊 Тариф: {plan_name}\n\n"
+        profile_text += f"💡 Расход: видео = 10 монет, фото = 1 монета\n"
+        profile_text += f"✨ Бонусы расходуются первыми!"
         
         await q.message.edit_text(
             profile_text,
