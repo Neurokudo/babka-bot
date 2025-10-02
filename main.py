@@ -1994,7 +1994,10 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Обработка фото для примерочной ---
     stt = st["tryon"]
-    if stt["stage"] not in ("await_person", "await_garment", "confirm") and not stt.get("await_bg"):
+    # Проверяем, что пользователь НЕ ожидает фото для трансформации
+    if (not st.get("awaiting_transform", False) and 
+        stt["stage"] not in ("await_person", "await_garment", "confirm") and 
+        not stt.get("await_bg")):
         await update.message.reply_text(
             "Фото получено. Для виртуальной примерочной — зайдите в 👗 Виртуальная примерочная.",
             reply_markup=kb_home_inline()
