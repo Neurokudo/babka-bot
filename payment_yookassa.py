@@ -111,8 +111,15 @@ class YooKassaClient:
             log.error(f"Error getting YooKassa payment: {e}")
             raise YooKassaError(str(e))
 
-# Глобальный клиент
-yookassa_client = YooKassaClient(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY)
+# Глобальный клиент (создается лениво, чтобы избежать ошибок во время сборки)
+yookassa_client = None
+
+def get_yookassa_client():
+    """Получить клиент YooKassa (ленивая инициализация)"""
+    global yookassa_client
+    if yookassa_client is None:
+        yookassa_client = YooKassaClient(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY)
+    return yookassa_client
 
 def create_payment_link(user_id: int, amount: float, description: str, 
                        metadata: Dict[str, Any] = None) -> str:
@@ -136,7 +143,8 @@ def create_payment_link(user_id: int, amount: float, description: str,
         if metadata:
             payment_metadata.update(metadata)
             
-        payment = yookassa_client.create_payment(
+        client = get_yookassa_client()
+        payment = client.create_payment(
             amount=amount,
             description=description,
             metadata=payment_metadata,
