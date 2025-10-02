@@ -1,3 +1,3 @@
-release: bash apply_migration.sh
+release: python RUN_MIGRATIONS.py
 web: python webhook_server.py
 worker: python main.py
