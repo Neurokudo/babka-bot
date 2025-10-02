@@ -1935,30 +1935,31 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Открываем PNG с прозрачностью
                     png_image = Image.open(io.BytesIO(result_bytes)).convert("RGBA")
                     
-                    # Создаем зеленый фон
-                    green_bg = Image.new("RGB", png_image.size, (0, 255, 0))  # Ярко-зеленый
+                    # Создаем зеленый фон (chroma key green - стандартный цвет для хромакея)
+                    chroma_green = (0, 177, 64)  # Стандартный chroma key зеленый
+                    green_bg = Image.new("RGB", png_image.size, chroma_green)
                     
-                    # Накладываем объект на зеленый фон
+                    # Накладываем объект на зеленый фон с учетом альфа-канала
                     green_bg.paste(png_image, (0, 0), png_image)
                     
-                    # Сохраняем как JPG
+                    # Сохраняем как JPG с высоким качеством
                     jpg_buffer = io.BytesIO()
-                    green_bg.save(jpg_buffer, format="JPEG", quality=95)
+                    green_bg.save(jpg_buffer, format="JPEG", quality=98, optimize=True)
                     jpg_bytes = jpg_buffer.getvalue()
                     
                     await update.message.reply_document(
                         document=jpg_bytes,
                         filename="на_зеленом_фоне.jpg",
-                        caption="✅ JPG файл на зеленом фоне",
+                        caption="✅ JPG файл на зеленом фоне (chroma key)",
                         reply_markup=kb_transform_result()
                     )
                     
                 except Exception as e:
                     log.error("Failed to create green background version: %s", e)
-                    # Если не удалось создать зеленый фон, отправляем обычное фото
-                    await update.message.reply_photo(
-                        photo=result_bytes,
-                        caption="✅ Фон удален!",
+                    # Если не удалось создать зеленый фон, отправляем только PNG
+                    await update.message.reply_text(
+                        "⚠️ Не удалось создать JPG с зеленым фоном.\n"
+                        "PNG файл с прозрачным фоном уже отправлен выше.",
                         reply_markup=kb_transform_result()
                     )
             else:
