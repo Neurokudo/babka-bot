@@ -84,7 +84,6 @@ from config import (
 from payment_yookassa import create_payment_link, process_payment_webhook
 from billing import (
     can_spend, hold_and_start, on_success, on_error, retry,
-    check_daily_cap, inc_daily_video, get_daily_videos_left,
     check_low_coins, get_retry_cost, can_retry,
     has_video_bonus, has_photo_bonus, can_generate_video, can_generate_photo
 )
@@ -768,8 +767,6 @@ def _ensure(uid: int):
                 "plan": "lite",  # тарифный план
                 "jobs": {},  # история задач
                 "daily": {"date": "", "videos": 0},  # дневная статистика
-                "videos_left": 0,  # оставшиеся ролики
-                "photos_left": 0,  # оставшиеся фотографии
                 "processed_payments": set(),  # обработанные платежи для идемпотентности
                 # трансформации изображений
                 "awaiting_transform": False,  # ожидаем загрузку фото
@@ -1055,14 +1052,18 @@ def pricing_text() -> str:
         "💰 Тарифы\n\n"
         "✨ *Лайт — 1 990 ₽*\n"
         "🎬 10 видео + 📸 20 фотографий\n"
+        "💎 120 монеток (~16,6 ₽/монета)\n"
         "Отлично, чтобы начать и протестировать возможности.\n\n"
-        "⭐ *Стандарт — 2 490 ₽*\n"
+        "⭐ *Стандарт — 2 490 ₽* ⭐ РЕКОМЕНДУЕМ\n"
         "🎬 16 видео + 📸 50 фотографий\n"
+        "💎 210 монеток (~11,8 ₽/монета)\n"
         "Самый удобный баланс цены и объёма.\n\n"
         "💎 *Про — 4 990 ₽*\n"
         "🎬 32 видео + 📸 120 фотографий\n"
+        "💎 440 монеток (~11,3 ₽/монета)\n"
         "Полный набор для мощного контент-плана.\n\n"
-        "📸 *Фотографии* = любые фото-инструменты: виртуальная примерочная, полароид, ретушь, фон и т.д."
+        "📸 *Фотографии* = любые фото-инструменты: виртуальная примерочная, полароид, ретушь, фон и т.д.\n\n"
+        "💡 *Подписки выгоднее разовых покупок!*"
     )
 
 def pricing_keyboard() -> InlineKeyboardMarkup:
@@ -1174,17 +1175,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Проверяем низкий баланс монет (только для существующих пользователей)
     if st.get("coins", 0) > 0 and check_low_coins(st):
         coins = st.get("coins", 0)
-        videos_left = st.get("videos_left", 0)
-        photos_left = st.get("photos_left", 0)
-        
         await update.message.reply_text(
             f"⚠️ У вас осталось мало монет: {coins}\n\n"
-            f"🎬 Видео: {videos_left}\n"
-            f"📸 Фотографий: {photos_left}\n\n"
-            f"💳 Пополнить баланс?",
+            f"💡 Рекомендуем пополнить баланс для продолжения работы",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_addons")],
-                [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
+                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
                 [InlineKeyboardButton("⬅️ Пропустить", callback_data="skip_low_coins")],
             ])
         )
@@ -1473,11 +1469,11 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += f"📸 Фото: {st.get('photo_bonus', 0)}\n"
     text += f"👗 Примерки: {st.get('tryon_bonus', 0)}\n\n"
     
-    # Тарифные лимиты
-    if st.get('videos_allowed', 0) > 0 or st.get('photos_allowed', 0) > 0:
-        text += f"🎯 <b>Тарифные лимиты:</b>\n"
-        text += f"🎬 Видео: {st.get('videos_allowed', 0)}\n"
-        text += f"📸 Фото: {st.get('photos_allowed', 0)}\n\n"
+    # Тарифные лимиты (устарело - теперь используются монетки)
+    # if st.get('videos_allowed', 0) > 0 or st.get('photos_allowed', 0) > 0:
+    #     text += f"🎯 <b>Тарифные лимиты:</b>\n"
+    #     text += f"🎬 Видео: {st.get('videos_allowed', 0)}\n"
+    #     text += f"📸 Фото: {st.get('photos_allowed', 0)}\n\n"
     
     # Монеты
     text += f"💎 <b>Монеты:</b> {st.get('coins', 0)}\n"
@@ -1706,8 +1702,6 @@ async def cmd_reset_my_profile(update: Update, context: ContextTypes.DEFAULT_TYP
     st["tryon_bonus"] = 10
     st["coins"] = 0
     st["admin_coins"] = 500  # Админские монетки восстанавливаем
-    st["videos_left"] = 0
-    st["photos_left"] = 0
     st["plan"] = "lite"
     
     # Сохраняем в БД
@@ -2238,48 +2232,35 @@ async def handle_payment_webhook(webhook_data: dict, context: ContextTypes.DEFAU
             plan_key = metadata["plan"]
             plan = PLANS[plan_key]
             
-            # Добавляем монетки и квоты
+            # Добавляем монетки и активируем план
             st["coins"] = st.get("coins", 0) + plan["coins"]
-            st["videos_left"] = st.get("videos_left", 0) + plan["videos"]
-            st["photos_left"] = st.get("photos_left", 0) + plan["photos"]
             st["plan"] = plan_key
             
             message = (
                 f"✅ Оплата получена!\n\n"
                 f"📋 Тариф {plan['name']} активирован:\n"
-                f"• +{plan['coins']} монеток\n"
-                f"• +{plan['videos']} видео\n"
-                f"• +{plan['photos']} фотографий\n\n"
+                f"• +{plan['coins']} монеток\n\n"
                 f"💰 Текущий баланс:\n"
                 f"• {st['coins']} монеток\n"
-                f"• {st['videos_left']} видео\n"
-                f"• {st['photos_left']} фотографий"
+                f"• {st.get('video_bonus', 0)} видео бонусов\n"
+                f"• {st.get('photo_bonus', 0)} фото бонусов"
             )
             
         elif "addon" in metadata:
             addon_key = metadata["addon"]
             addon = ADDONS[addon_key]
             
-            # Добавляем монетки и квоты
+            # Добавляем монетки
             st["coins"] = st.get("coins", 0) + addon["coins"]
-            st["videos_left"] = st.get("videos_left", 0) + addon["videos"]
-            st["photos_left"] = st.get("photos_left", 0) + addon["photos"]
-            
-            description = []
-            if addon["videos"] > 0:
-                description.append(f"• +{addon['videos']} видео")
-            if addon["photos"] > 0:
-                description.append(f"• +{addon['photos']} фотографий")
             
             message = (
                 f"✅ Оплата получена!\n\n"
-                f"📋 {addon['title']} активирован:\n"
-                + "\n".join(description) + f"\n"
+                f"📦 Аддон {addon['title']} активирован:\n"
                 f"• +{addon['coins']} монеток\n\n"
                 f"💰 Текущий баланс:\n"
                 f"• {st['coins']} монеток\n"
-                f"• {st['videos_left']} видео\n"
-                f"• {st['photos_left']} фотографий"
+                f"• {st.get('video_bonus', 0)} видео бонусов\n"
+                f"• {st.get('photo_bonus', 0)} фото бонусов"
             )
         else:
             log.warning(f"Unknown payment type in metadata: {metadata}")
@@ -2716,8 +2697,6 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         admin_coins = st.get("admin_coins", 0)
         plan = st.get("plan", "lite")
         plan_name = PLANS.get(plan, {}).get("name", "Не выбран")
-        videos_left = st.get("videos_left", 0)
-        photos_left = st.get("photos_left", 0)
         
         # Улучшенное отображение профиля с четким разделением бонусов и ресурсов
         profile_text = f"👤 Профиль\n\n"
@@ -2736,8 +2715,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Показываем купленные ресурсы
         profile_text += f"💰 РЕСУРСЫ:\n"
         profile_text += f"   💎 Монеток: {coins}\n"
-        profile_text += f"   🎬 Видео (тариф): {videos_left}\n"
-        profile_text += f"   📸 Фото (тариф): {photos_left}\n\n"
+        profile_text += f"   🎬 Видео бонусов: {st.get('video_bonus', 0)}\n"
+        profile_text += f"   📸 Фото бонусов: {st.get('photo_bonus', 0)}\n\n"
         
         profile_text += f"📊 Тариф: {plan_name}\n\n"
         profile_text += f"💡 Расход: видео = 10 монет, фото = 1 монета\n"
@@ -3024,14 +3003,14 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Контекстная расстановка приоритета
         uid = q.from_user.id
         st = users.get(uid, {})
-        videos_left = st.get("videos_left", 0)
-        photos_left = st.get("photos_left", 0)
+        coins = st.get("coins", 0)
         
         order = []
-        if videos_left <= 2:
-            order += ["v5", "v10"]
-        if photos_left <= 10:
-            order += ["p20", "p50"]
+        # Проверяем баланс монеток для рекомендаций
+        if coins <= 20:
+            order += ["v5", "v10"]  # Рекомендуем видео пакеты
+        if coins <= 10:
+            order += ["p20", "p50"]  # Рекомендуем фото пакеты
         # добиваем до полного списка, сохраняя уникальность
         for k in ["v5", "v10", "p20", "p50", "mix"]:
             if k not in order: 
@@ -4273,18 +4252,17 @@ Telegram бот "Babka Bot"
                 )
                 return
 
-        # Проверяем дневной лимит
-        if not check_daily_cap(st, "video"):
-            videos_left = get_daily_videos_left(st)
-            plan = st.get("plan", "light")
-            plan_name = PLANS[plan]["name"]
+        # Проверяем баланс монеток для видео
+        from subscription_system import can_generate_video_with_plan
+        if not can_generate_video_with_plan(st):
+            from billing import check_insufficient_coins
+            insufficient_msg = check_insufficient_coins(st, "video")
             await q.message.reply_text(
-                f"❌ Дневной лимит видео исчерпан.\n"
-                f"План {plan_name}: {DAILY_CAP_VIDEOS[plan]} видео в день.\n\n"
-                f"Попробуйте завтра или смените тарифный план.",
+                insufficient_msg,
+                parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📚 Сменить тариф", callback_data="open:pricing")],
-                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                    [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
                 ])
             )
             return

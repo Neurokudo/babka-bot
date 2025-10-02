@@ -67,12 +67,6 @@ class Database:
                         welcome_granted BOOLEAN DEFAULT FALSE,
                         plan VARCHAR(20) DEFAULT 'lite',
                         plan_expiry TIMESTAMP NULL,
-                        videos_left INTEGER DEFAULT 0,
-                        photos_left INTEGER DEFAULT 0,
-                        videos_allowed INTEGER DEFAULT 0,
-                        photos_allowed INTEGER DEFAULT 0,
-                        daily_date VARCHAR(10) DEFAULT '',
-                        daily_videos INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT NOW(),
                         updated_at TIMESTAMP DEFAULT NOW()
                     )
@@ -98,18 +92,6 @@ class Database:
                         completed_at TIMESTAMP,
                         error_at TIMESTAMP,
                         FOREIGN KEY (user_id) REFERENCES users (user_id)
-                    )
-                """)
-                
-                # Таблица обработанных платежей
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS processed_payments (
-                        payment_id VARCHAR(255) PRIMARY KEY,
-                        user_id BIGINT NOT NULL,
-                        amount DECIMAL(10,2),
-                        currency VARCHAR(3) DEFAULT 'RUB',
-                        metadata JSONB,
-                        created_at TIMESTAMP DEFAULT NOW()
                     )
                 """)
                 
@@ -171,8 +153,8 @@ class Database:
                     user_data = dict(result)
                     # Добавляем структуру для совместимости с существующим кодом
                     user_data["daily"] = {
-                        "date": user_data.get("daily_date", ""),
-                        "videos": user_data.get("daily_videos", 0)
+                        "date": "",
+                        "videos": 0
                     }
                     user_data["processed_payments"] = set()
                     user_data["jobs"] = {}
@@ -182,8 +164,6 @@ class Database:
                     user_data["welcome_granted"] = user_data.get("welcome_granted", False)
                     user_data["plan"] = user_data.get("plan", "lite")
                     user_data["plan_expiry"] = user_data.get("plan_expiry")
-                    user_data["videos_allowed"] = user_data.get("videos_allowed", 0)
-                    user_data["photos_allowed"] = user_data.get("photos_allowed", 0)
                     
                     return user_data
                 return None
@@ -199,17 +179,13 @@ class Database:
         
         try:
             with self.connection.cursor() as cursor:
-                # Подготавливаем данные для вставки
-                daily_data = user_data.get("daily", {})
                 
                 cursor.execute("""
                     INSERT INTO users (
                         user_id, coins, video_bonus, photo_bonus, tryon_bonus,
-                        admin_coins, welcome_granted, plan, plan_expiry,
-                        videos_left, photos_left, videos_allowed, photos_allowed,
-                        daily_date, daily_videos, updated_at
+                        admin_coins, welcome_granted, plan, plan_expiry, updated_at
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
                     )
                     ON CONFLICT (user_id) DO UPDATE SET
                         coins = EXCLUDED.coins,
@@ -220,12 +196,6 @@ class Database:
                         welcome_granted = EXCLUDED.welcome_granted,
                         plan = EXCLUDED.plan,
                         plan_expiry = EXCLUDED.plan_expiry,
-                        videos_left = EXCLUDED.videos_left,
-                        photos_left = EXCLUDED.photos_left,
-                        videos_allowed = EXCLUDED.videos_allowed,
-                        photos_allowed = EXCLUDED.photos_allowed,
-                        daily_date = EXCLUDED.daily_date,
-                        daily_videos = EXCLUDED.daily_videos,
                         updated_at = NOW()
                 """, (
                     user_id,
@@ -236,13 +206,7 @@ class Database:
                     user_data.get("admin_coins", 0),
                     user_data.get("welcome_granted", False),
                     user_data.get("plan", "lite"),
-                    user_data.get("plan_expiry"),
-                    user_data.get("videos_left", 0),
-                    user_data.get("photos_left", 0),
-                    user_data.get("videos_allowed", 0),
-                    user_data.get("photos_allowed", 0),
-                    daily_data.get("date", ""),
-                    daily_data.get("videos", 0)
+                    user_data.get("plan_expiry")
                 ))
                 
                 self.connection.commit()
@@ -602,8 +566,7 @@ class Database:
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     UPDATE users 
-                    SET plan = 'lite', plan_expiry = NULL,
-                        videos_allowed = 0, photos_allowed = 0
+                    SET plan = 'lite', plan_expiry = NULL
                     WHERE user_id = %s
                 """, (user_id,))
                 

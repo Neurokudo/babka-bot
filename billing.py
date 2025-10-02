@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, date
 from config import (
     COST_VIDEO, COST_TRANSFORM, COST_TRANSFORM_PREMIUM, 
-    FREE_RETRY_PER_JOB, DAILY_CAP_VIDEOS, LOW_COINS_THRESHOLD
+    FREE_RETRY_PER_JOB, LOW_COINS_THRESHOLD
 )
 from database import db
 
@@ -62,7 +62,7 @@ def hold_and_start(user, job_type, quality="basic", extra_cost=0):
         if not spend_video_resource(user):
             raise ValueError("NO_COINS")
         cost = 0  # Ресурс уже списан в spend_video_resource
-        bonus_type = "video_bonus" if user.get("video_bonus", 0) > 0 else "plan_limit" if user.get("videos_allowed", 0) > 0 else None
+        bonus_type = "video_bonus" if user.get("video_bonus", 0) > 0 else "coins"
     else:  # transform
         cost = COST_TRANSFORM_PREMIUM if quality == "premium" else COST_TRANSFORM
         cost += extra_cost
@@ -70,7 +70,7 @@ def hold_and_start(user, job_type, quality="basic", extra_cost=0):
         if not spend_photo_resource(user, cost):
             raise ValueError("NO_COINS")
         cost = 0  # Ресурс уже списан в spend_photo_resource
-        bonus_type = "photo_bonus" if user.get("photo_bonus", 0) > 0 else "plan_limit" if user.get("photos_allowed", 0) > 0 else None
+        bonus_type = "photo_bonus" if user.get("photo_bonus", 0) > 0 else "coins"
     
     # Создаем задачу
     job_id = new_job_id()
@@ -115,9 +115,9 @@ def on_success(user, job_id):
         # Обновляем last_job
         user["last_job"] = user["jobs"][job_id]
         
-        # Увеличиваем счетчик видео за день
-        if user["jobs"][job_id]["type"] == "video":
-            inc_daily_video(user)
+        # Увеличиваем счетчик видео за день (устарело - теперь используются монетки)
+        # if user["jobs"][job_id]["type"] == "video":
+        #     inc_daily_video(user)
 
 def on_error(user, job_id):
     """Возвращает ресурсы (бонусы или монеты) при ошибке"""
@@ -213,56 +213,6 @@ def retry(user, job_id):
         )
     
     return True
-
-def check_daily_cap(user, job_type):
-    """
-    Проверяет дневной лимит для типа задачи
-    
-    Args:
-        user: состояние пользователя
-        job_type: "video" | "transform"
-    
-    Returns:
-        bool: True если лимит не превышен
-    """
-    if job_type != "video":
-        return True
-    
-    # Инициализируем дневные данные если нужно
-    if "daily" not in user:
-        user["daily"] = {"date": today(), "videos": 0}
-    
-    # Сбрасываем счетчик если новый день
-    if user["daily"]["date"] != today():
-        user["daily"] = {"date": today(), "videos": 0}
-    
-    # Получаем план пользователя
-    plan = user.get("plan", "light")
-    max_videos = DAILY_CAP_VIDEOS.get(plan, 3)
-    
-    return user["daily"]["videos"] < max_videos
-
-def inc_daily_video(user):
-    """Увеличивает счетчик видео за день"""
-    if "daily" not in user:
-        user["daily"] = {"date": today(), "videos": 0}
-    
-    if user["daily"]["date"] != today():
-        user["daily"] = {"date": today(), "videos": 0}
-    
-    user["daily"]["videos"] += 1
-
-def get_daily_videos_left(user):
-    """Возвращает количество оставшихся видео за день"""
-    if "daily" not in user:
-        return DAILY_CAP_VIDEOS.get(user.get("plan", "light"), 3)
-    
-    if user["daily"]["date"] != today():
-        return DAILY_CAP_VIDEOS.get(user.get("plan", "light"), 3)
-    
-    plan = user.get("plan", "light")
-    max_videos = DAILY_CAP_VIDEOS.get(plan, 3)
-    return max_videos - user["daily"]["videos"]
 
 def check_low_coins(user):
     """Проверяет, нужно ли показать уведомление о низком балансе"""
