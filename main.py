@@ -1125,16 +1125,37 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "✅ Спасибо за оплату!\n\n"
                 "💳 Ваш платеж обрабатывается. Как только он будет подтвержден, "
-                "монеты автоматически поступят на ваш баланс.\n\n"
+                "тариф автоматически активируется.\n\n"
                 "⏱️ Обычно это занимает несколько минут.\n\n"
                 "Если у вас есть вопросы, обратитесь в поддержку.",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
-                    [InlineKeyboardButton("💰 Мой баланс", callback_data="show_balance")],
+                    [InlineKeyboardButton("💰 Мой профиль", callback_data="show_profile")],
                     [InlineKeyboardButton("📞 Поддержка", callback_data="support")],
                 ])
             )
             return
+    
+    # Выдаем приветственный бонус новому пользователю
+    st = users[uid]
+    if not st.get("welcome_granted", False):
+        from database import db
+        if db.grant_welcome_bonus(uid):
+            # Обновляем локальные данные
+            st["video_bonus"] = 2
+            st["photo_bonus"] = 2
+            st["tryon_bonus"] = 2
+            st["welcome_granted"] = True
+            
+            await update.message.reply_text(
+                "🎉 <b>Добро пожаловать!</b>\n\n"
+                "🎁 <b>Ваш приветственный бонус:</b>\n"
+                "🎬 2 видео\n"
+                "📸 2 фото\n"
+                "👗 2 примерки\n\n"
+                "💡 Используйте их для создания контента!",
+                parse_mode="HTML"
+            )
     
     # сброс ключевых флагов
     st = users[uid]
@@ -1201,6 +1222,246 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Для существующих пользователей - просто главное меню
     await update.message.reply_text("Главное меню:", reply_markup=kb_home_inline())
+
+async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextTypes.DEFAULT_TYPE):
+    """Обработка webhook'ов от YooKassa"""
+    try:
+        from payment_yookassa import process_payment_webhook, process_successful_payment
+        
+        # Обрабатываем webhook
+        payment_data = process_payment_webhook(webhook_data)
+        if not payment_data:
+            log.info("Webhook ignored or not supported")
+            return
+        
+        event_type = payment_data.get("event")
+        payment_id = payment_data.get("payment_id")
+        user_id = payment_data.get("user_id")
+        
+        log.info(f"Processing payment webhook: event={event_type}, payment_id={payment_id}, user_id={user_id}")
+        
+        # Обрабатываем только успешные платежи
+        if event_type == "payment.succeeded":
+            if process_successful_payment(payment_data):
+                log.info(f"Successfully processed payment {payment_id} for user {user_id}")
+                
+                # Отправляем уведомление пользователю
+                if user_id:
+                    try:
+                        user_id_int = int(user_id)
+                        plan = payment_data.get("metadata", {}).get("plan")
+                        
+                        if plan:
+                            plan_info = PLANS.get(plan, {})
+                            plan_name = plan_info.get("name", plan)
+                            
+                            message = (
+                                f"✅ <b>Тариф активирован!</b>\n\n"
+                                f"📋 Тариф: {plan_name}\n"
+                                f"🎬 Видео: {plan_info.get('videos', 0)}\n"
+                                f"📸 Фото: {plan_info.get('photos', 0)}\n"
+                                f"💎 Монеты: {plan_info.get('coins', 0)}\n\n"
+                                f"⏰ Тариф действует 30 дней\n\n"
+                                f"Приятного использования! 🎉"
+                            )
+                        else:
+                            message = (
+                                f"✅ <b>Платеж успешно обработан!</b>\n\n"
+                                f"💳 Сумма: {payment_data.get('amount', 0):.2f} ₽\n\n"
+                                f"Монеты поступят на ваш баланс в течение нескольких минут."
+                            )
+                        
+                        await context.bot.send_message(
+                            chat_id=user_id_int,
+                            text=message,
+                            parse_mode="HTML"
+                        )
+                        
+                    except Exception as e:
+                        log.error(f"Error sending notification to user {user_id}: {e}")
+            else:
+                log.error(f"Failed to process payment {payment_id} for user {user_id}")
+        
+    except Exception as e:
+        log.error(f"Error handling payment webhook: {e}")
+
+async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /profile - показать профиль пользователя"""
+    if not await check_access(update): return
+    uid = update.effective_user.id
+    _ensure(uid)
+    
+    from subscription_system import format_user_status
+    st = users[uid]
+    
+    status_text = format_user_status(st)
+    
+    await update.message.reply_text(
+        status_text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+        ])
+    )
+
+async def cmd_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /plans - показать список тарифов"""
+    if not await check_access(update): return
+    uid = update.effective_user.id
+    _ensure(uid)
+    
+    from subscription_system import format_plans_list
+    from config import PLANS
+    
+    plans_text = format_plans_list()
+    
+    # Создаем кнопки для покупки тарифов
+    keyboard = []
+    for plan_key, plan_info in PLANS.items():
+        emoji = "✨" if plan_key == "lite" else "⭐" if plan_key == "std" else "💎"
+        keyboard.append([InlineKeyboardButton(
+            f"{emoji} {plan_info['name']} — {plan_info['price_rub']:,} ₽",
+            callback_data=f"buy_plan_{plan_key}"
+        )])
+    
+    keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
+    
+    await update.message.reply_text(
+        plans_text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /buy - покупка тарифа"""
+    if not await check_access(update): return
+    uid = update.effective_user.id
+    _ensure(uid)
+    
+    args = context.args
+    if not args or len(args) == 0:
+        await update.message.reply_text(
+            "💳 <b>Покупка тарифа</b>\n\n"
+            "Использование: /buy <название_тарифа>\n\n"
+            "Доступные тарифы:\n"
+            "• lite — Лайт\n"
+            "• std — Стандарт\n"
+            "• pro — Про\n\n"
+            "Пример: /buy std",
+            parse_mode="HTML"
+        )
+        return
+    
+    plan_name = args[0].lower()
+    from config import PLANS
+    
+    if plan_name not in PLANS:
+        await update.message.reply_text(
+            f"❌ Неизвестный тариф: {plan_name}\n\n"
+            "Доступные тарифы: lite, std, pro"
+        )
+        return
+    
+    plan_info = PLANS[plan_name]
+    
+    try:
+        from payment_yookassa import create_payment_link
+        payment_url = create_payment_link(
+            user_id=uid,
+            amount=plan_info["price_rub"],
+            description=f"Тариф {plan_info['name']}",
+            plan=plan_name
+        )
+        
+        await update.message.reply_text(
+            f"💳 <b>Оплата тарифа {plan_info['name']}</b>\n\n"
+            f"💰 Сумма: {plan_info['price_rub']:,} ₽\n"
+            f"🎬 Видео: {plan_info['videos']}\n"
+            f"📸 Фото: {plan_info['photos']}\n"
+            f"💎 Монеты: {plan_info['coins']}\n\n"
+            f"⏰ Тариф действует 30 дней\n\n"
+            f"Нажмите кнопку ниже для оплаты:",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
+                [InlineKeyboardButton("📋 Все тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+            ])
+        )
+        
+    except Exception as e:
+        log.error(f"Error creating payment for user {uid}: {e}")
+        await update.message.reply_text(
+            "❌ Ошибка при создании платежа. Попробуйте позже или обратитесь в поддержку.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📞 Поддержка", callback_data="support")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+            ])
+        )
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /status - краткий статус ресурсов"""
+    if not await check_access(update): return
+    uid = update.effective_user.id
+    _ensure(uid)
+    
+    st = users[uid]
+    
+    # Проверяем истекшие тарифы
+    from subscription_system import check_and_reset_expired_plans
+    expired_users = check_and_reset_expired_plans()
+    if uid in expired_users:
+        await update.message.reply_text(
+            "⚠️ <b>Ваш тариф истек</b>\n\n"
+            "Тариф автоматически сброшен на Лайт. "
+            "Купите новый тариф для продолжения работы.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+            ])
+        )
+        return
+    
+    # Формируем краткий статус
+    text = "📊 <b>Ваш статус</b>\n\n"
+    
+    # Бонусы
+    text += f"🎁 <b>Бонусы:</b>\n"
+    text += f"🎬 Видео: {st.get('video_bonus', 0)}\n"
+    text += f"📸 Фото: {st.get('photo_bonus', 0)}\n"
+    text += f"👗 Примерки: {st.get('tryon_bonus', 0)}\n\n"
+    
+    # Тарифные лимиты
+    if st.get('videos_allowed', 0) > 0 or st.get('photos_allowed', 0) > 0:
+        text += f"🎯 <b>Тарифные лимиты:</b>\n"
+        text += f"🎬 Видео: {st.get('videos_allowed', 0)}\n"
+        text += f"📸 Фото: {st.get('photos_allowed', 0)}\n\n"
+    
+    # Монеты
+    text += f"💎 <b>Монеты:</b> {st.get('coins', 0)}\n"
+    
+    # План
+    plan = st.get('plan', 'lite')
+    plan_expiry = st.get('plan_expiry')
+    if plan != 'lite' and plan_expiry:
+        try:
+            from datetime import datetime
+            expiry_date = datetime.fromisoformat(str(plan_expiry).replace('Z', '+00:00'))
+            text += f"📋 <b>Тариф:</b> {plan} (до {expiry_date.strftime('%d.%m.%Y')})\n"
+        except:
+            text += f"📋 <b>Тариф:</b> {plan}\n"
+    
+    await update.message.reply_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("💰 Полный профиль", callback_data="show_profile")],
+            [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+        ])
+    )
 
 async def cmd_whereami(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_access(update): return
@@ -2686,6 +2947,90 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(addons_text(), reply_markup=addons_keyboard(order))
         return
     
+    # --- Новые callback'ы для системы тарифов ---
+    if data == "show_profile":
+        from subscription_system import format_user_status
+        status_text = format_user_status(st)
+        await q.message.edit_text(
+            status_text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+            ])
+        )
+        return
+    
+    if data == "show_plans":
+        from subscription_system import format_plans_list
+        from config import PLANS
+        
+        plans_text = format_plans_list()
+        
+        # Создаем кнопки для покупки тарифов
+        keyboard = []
+        for plan_key, plan_info in PLANS.items():
+            emoji = "✨" if plan_key == "lite" else "⭐" if plan_key == "std" else "💎"
+            keyboard.append([InlineKeyboardButton(
+                f"{emoji} {plan_info['name']} — {plan_info['price_rub']:,} ₽",
+                callback_data=f"buy_plan_{plan_key}"
+            )])
+        
+        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
+        
+        await q.message.edit_text(
+            plans_text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+    
+    if data.startswith("buy_plan_"):
+        plan_name = data.replace("buy_plan_", "")
+        from config import PLANS
+        
+        if plan_name not in PLANS:
+            await q.message.edit_text("❌ Неизвестный тариф")
+            return
+        
+        plan_info = PLANS[plan_name]
+        
+        try:
+            from payment_yookassa import create_payment_link
+            payment_url = create_payment_link(
+                user_id=uid,
+                amount=plan_info["price_rub"],
+                description=f"Тариф {plan_info['name']}",
+                plan=plan_name
+            )
+            
+            await q.message.edit_text(
+                f"💳 <b>Оплата тарифа {plan_info['name']}</b>\n\n"
+                f"💰 Сумма: {plan_info['price_rub']:,} ₽\n"
+                f"🎬 Видео: {plan_info['videos']}\n"
+                f"📸 Фото: {plan_info['photos']}\n"
+                f"💎 Монеты: {plan_info['coins']}\n\n"
+                f"⏰ Тариф действует 30 дней\n\n"
+                f"Нажмите кнопку ниже для оплаты:",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
+                    [InlineKeyboardButton("📋 Все тарифы", callback_data="show_plans")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                ])
+            )
+            
+        except Exception as e:
+            log.error(f"Error creating payment for user {uid}: {e}")
+            await q.message.edit_text(
+                "❌ Ошибка при создании платежа. Попробуйте позже или обратитесь в поддержку.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📞 Поддержка", callback_data="support")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                ])
+            )
+        return
+    
     # Навигация
     if data == "open:pricing":
         await q.edit_message_text(pricing_text(), reply_markup=pricing_keyboard())
@@ -3954,6 +4299,10 @@ def main():
     
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("profile", cmd_profile))  # профиль пользователя
+    app.add_handler(CommandHandler("plans", cmd_plans))  # список тарифов
+    app.add_handler(CommandHandler("buy", cmd_buy))  # покупка тарифа
+    app.add_handler(CommandHandler("status", cmd_status))  # краткий статус
     app.add_handler(CommandHandler("whereami", cmd_whereami))  # утилита
     app.add_handler(CommandHandler("terms", cmd_terms))  # пользовательское соглашение
     app.add_handler(CommandHandler("test_payment", cmd_test_payment))  # тестовая команда

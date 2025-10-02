@@ -33,13 +33,15 @@ def has_photo_bonus(user):
 
 def can_generate_video(user):
     """Проверяет, может ли пользователь сгенерировать видео (бонус или монеты)"""
-    return has_video_bonus(user) or can_spend(user, COST_VIDEO)
+    # Используем новую систему тарифов
+    from subscription_system import can_generate_video_with_plan
+    return can_generate_video_with_plan(user)
 
 def can_generate_photo(user, cost=None):
     """Проверяет, может ли пользователь сгенерировать фото (бонус или монеты)"""
-    if cost is None:
-        cost = COST_TRANSFORM
-    return has_photo_bonus(user) or can_spend(user, cost)
+    # Используем новую систему тарифов
+    from subscription_system import can_generate_photo_with_plan
+    return can_generate_photo_with_plan(user, cost)
 
 def hold_and_start(user, job_type, quality="basic", extra_cost=0):
     """
@@ -53,45 +55,22 @@ def hold_and_start(user, job_type, quality="basic", extra_cost=0):
     """
     user_id = user.get("user_id")
     
+    # Используем новую систему списания ресурсов
+    from subscription_system import spend_video_resource, spend_photo_resource
+    
     if job_type == "video":
-        cost = COST_VIDEO
-        if has_video_bonus(user):
-            user["video_bonus"] -= 1
-            cost = 0  # Бонусное видео бесплатно
-            bonus_type = "video_bonus"
-        elif not can_spend(user, cost):
+        if not spend_video_resource(user):
             raise ValueError("NO_COINS")
-        else:
-            user["coins"] -= cost
-            bonus_type = None
+        cost = 0  # Ресурс уже списан в spend_video_resource
+        bonus_type = "video_bonus" if user.get("video_bonus", 0) > 0 else "plan_limit" if user.get("videos_allowed", 0) > 0 else None
     else:  # transform
         cost = COST_TRANSFORM_PREMIUM if quality == "premium" else COST_TRANSFORM
         cost += extra_cost
-        if has_photo_bonus(user):
-            user["photo_bonus"] -= 1
-            cost = 0  # Бонусное фото бесплатно
-            bonus_type = "photo_bonus"
-        elif not can_spend(user, cost):
-            raise ValueError("NO_COINS")
-        else:
-            user["coins"] -= cost
-            bonus_type = None
-    
-    # Сохраняем изменения в базе данных
-    if user_id:
-        db.save_user(user_id, user)
         
-        # Создаем транзакцию в базе данных
-        transaction_id = db.add_transaction(
-            user_id=user_id,
-            operation_type=job_type,
-            coins_spent=cost,
-            used_bonus=(cost == 0),
-            bonus_type=bonus_type,
-            quality=quality
-        )
-    else:
-        transaction_id = None
+        if not spend_photo_resource(user, cost):
+            raise ValueError("NO_COINS")
+        cost = 0  # Ресурс уже списан в spend_photo_resource
+        bonus_type = "photo_bonus" if user.get("photo_bonus", 0) > 0 else "plan_limit" if user.get("photos_allowed", 0) > 0 else None
     
     # Создаем задачу
     job_id = new_job_id()
@@ -106,7 +85,7 @@ def hold_and_start(user, job_type, quality="basic", extra_cost=0):
         "quality": quality,
         "created_at": datetime.now().isoformat(),
         "used_bonus": cost == 0,  # Отмечаем, что использовали бонус
-        "transaction_id": transaction_id  # Связываем с базой данных
+        "transaction_id": None  # Транзакция уже создана в spend_*_resource
     }
     
     # Обновляем last_job для совместимости

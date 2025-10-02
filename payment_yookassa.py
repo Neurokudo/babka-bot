@@ -186,7 +186,8 @@ def get_yookassa_client():
     return yookassa_client
 
 def create_payment_link(user_id: int, amount: float, description: str, 
-                       metadata: Dict[str, Any] = None, customer_email: str = None) -> str:
+                       metadata: Dict[str, Any] = None, customer_email: str = None,
+                       plan: str = None) -> str:
     """Создать ссылку для оплаты"""
     try:
         payment_metadata = {
@@ -196,6 +197,8 @@ def create_payment_link(user_id: int, amount: float, description: str,
         }
         if metadata:
             payment_metadata.update(metadata)
+        if plan:
+            payment_metadata["plan"] = plan
             
         client = get_yookassa_client()
         payment = client.create_payment(
@@ -214,7 +217,21 @@ def create_payment_link(user_id: int, amount: float, description: str,
             raise YooKassaError("No payment URL received from YooKassa")
             
         payment_id = payment.get("id")
-        log.info(f"Payment created successfully: user={user_id}, amount={amount}, payment_id={payment_id}")
+        
+        # Сохраняем платеж в базе данных для идемпотентности
+        from database import db
+        idempotency_key = str(uuid.uuid4())
+        db.create_payment(
+            payment_id=payment_id,
+            idempotency_key=idempotency_key,
+            user_id=user_id,
+            amount=amount,
+            currency="RUB",
+            plan=plan,
+            metadata=payment_metadata
+        )
+        
+        log.info(f"Payment created successfully: user={user_id}, amount={amount}, payment_id={payment_id}, plan={plan}")
         
         return payment_url
         
@@ -305,3 +322,45 @@ def get_payment_status(payment_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         log.error(f"Error getting payment status: {e}")
         return None
+
+def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
+    """Обработать успешный платеж и активировать тариф"""
+    try:
+        from database import db
+        from subscription_system import activate_plan
+        
+        payment_id = payment_data.get("payment_id")
+        user_id = payment_data.get("user_id")
+        plan = payment_data.get("metadata", {}).get("plan")
+        
+        if not payment_id or not user_id:
+            log.error("Missing payment_id or user_id in payment data")
+            return False
+        
+        # Проверяем, не обработан ли уже этот платеж
+        if db.is_payment_exists(payment_id):
+            log.info(f"Payment {payment_id} already processed")
+            return True
+        
+        # Обновляем статус платежа
+        db.update_payment_status(payment_id, "succeeded")
+        
+        # Если это покупка тарифа, активируем его
+        if plan and plan in ["lite", "std", "pro"]:
+            if activate_plan(user_id, plan):
+                log.info(f"Successfully activated plan {plan} for user {user_id}")
+                return True
+            else:
+                log.error(f"Failed to activate plan {plan} for user {user_id}")
+                return False
+        
+        # Если это обычная покупка монет (старая система)
+        else:
+            amount = payment_data.get("amount", 0)
+            # Здесь можно добавить логику для покупки монет
+            log.info(f"Processed coin purchase for user {user_id}, amount: {amount}")
+            return True
+        
+    except Exception as e:
+        log.error(f"Error processing successful payment: {e}")
+        return False
