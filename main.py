@@ -85,8 +85,7 @@ from billing import (
     can_spend, hold_and_start, on_success, on_error, retry,
     check_daily_cap, inc_daily_video, get_daily_videos_left,
     check_low_coins, get_retry_cost, can_retry,
-    has_video_bonus, has_photo_bonus, can_generate_video, can_generate_photo,
-    is_admin
+    has_video_bonus, has_photo_bonus, can_generate_video, can_generate_photo
 )
 
 # -----------------------------------------------------------------------------
@@ -3055,8 +3054,7 @@ Telegram бот "Babka Bot"
         tryon_bonus = st.get("tryon_bonus", 0)
         coins = st.get("coins", 0)
         
-        # Админ может использовать примерочную без ограничений
-        if not is_admin(st) and tryon_bonus == 0 and coins < COST_TRYON:
+        if tryon_bonus == 0 and coins < COST_TRYON:
             await q.message.reply_text(
                 f"❌ Не хватает ресурсов для примерочной.\n\n"
                 f"🎁 Бонусных примерок: {tryon_bonus}\n"
@@ -3071,9 +3069,7 @@ Telegram бот "Babka Bot"
             return
         
         # Списываем ресурсы (бонусы или монеты)
-        if is_admin(st):
-            cost_text = "0 монеток (админ)"
-        elif tryon_bonus > 0:
+        if tryon_bonus > 0:
             st["tryon_bonus"] -= 1
             cost_text = "0 монеток (бонус)"
         else:
@@ -3088,12 +3084,11 @@ Telegram бот "Babka Bot"
             stt["stage"] = "after"
         except Exception as e:
             log.exception("VTO failed")
-            # Возвращаем ресурсы при ошибке (кроме админа)
-            if not is_admin(st):
-                if tryon_bonus > 0:
-                    st["tryon_bonus"] += 1
-                else:
-                    st["coins"] += COST_TRYON
+            # Возвращаем ресурсы при ошибке
+            if tryon_bonus > 0:
+                st["tryon_bonus"] += 1
+            else:
+                st["coins"] += COST_TRYON
             await q.message.reply_text(f"⚠️ Ошибка примерочной: {e}")
             await q.message.reply_text("Возврат в меню:", reply_markup=kb_home_inline())
         return

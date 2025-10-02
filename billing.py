@@ -7,8 +7,7 @@ import uuid
 from datetime import datetime, date
 from config import (
     COST_VIDEO, COST_TRANSFORM, COST_TRANSFORM_PREMIUM, 
-    FREE_RETRY_PER_JOB, DAILY_CAP_VIDEOS, LOW_COINS_THRESHOLD,
-    ADMIN_USER_ID
+    FREE_RETRY_PER_JOB, DAILY_CAP_VIDEOS, LOW_COINS_THRESHOLD
 )
 from database import db
 
@@ -20,15 +19,8 @@ def today():
     """Возвращает сегодняшнюю дату в формате YYYY-MM-DD"""
     return date.today().strftime("%Y-%m-%d")
 
-def is_admin(user):
-    """Проверяет, является ли пользователь администратором"""
-    return user.get("user_id") == ADMIN_USER_ID
-
 def can_spend(user, cost):
     """Проверяет, может ли пользователь потратить указанное количество монет"""
-    # Админ может тратить монеты без ограничений
-    if is_admin(user):
-        return True
     return user.get("coins", 0) >= cost
 
 def has_video_bonus(user):
@@ -41,16 +33,10 @@ def has_photo_bonus(user):
 
 def can_generate_video(user):
     """Проверяет, может ли пользователь сгенерировать видео (бонус или монеты)"""
-    # Админ может генерировать видео без ограничений
-    if is_admin(user):
-        return True
     return has_video_bonus(user) or can_spend(user, COST_VIDEO)
 
 def can_generate_photo(user, cost=None):
     """Проверяет, может ли пользователь сгенерировать фото (бонус или монеты)"""
-    # Админ может генерировать фото без ограничений
-    if is_admin(user):
-        return True
     if cost is None:
         cost = COST_TRANSFORM
     return has_photo_bonus(user) or can_spend(user, cost)
@@ -69,11 +55,7 @@ def hold_and_start(user, job_type, quality="basic", extra_cost=0):
     
     if job_type == "video":
         cost = COST_VIDEO
-        if is_admin(user):
-            # Админ не тратит монеты
-            cost = 0
-            bonus_type = "admin"
-        elif has_video_bonus(user):
+        if has_video_bonus(user):
             user["video_bonus"] -= 1
             cost = 0  # Бонусное видео бесплатно
             bonus_type = "video_bonus"
@@ -85,11 +67,7 @@ def hold_and_start(user, job_type, quality="basic", extra_cost=0):
     else:  # transform
         cost = COST_TRANSFORM_PREMIUM if quality == "premium" else COST_TRANSFORM
         cost += extra_cost
-        if is_admin(user):
-            # Админ не тратит монеты
-            cost = 0
-            bonus_type = "admin"
-        elif has_photo_bonus(user):
+        if has_photo_bonus(user):
             user["photo_bonus"] -= 1
             cost = 0  # Бонусное фото бесплатно
             bonus_type = "photo_bonus"
@@ -220,11 +198,7 @@ def retry(user, job_id):
         return True
     
     # Платный ретрай - используем бонусы или монеты
-    if is_admin(user):
-        # Админ делает ретрай бесплатно
-        job["retry_used"] += 1
-        bonus_type = "admin"
-    elif job["type"] == "video":
+    if job["type"] == "video":
         if has_video_bonus(user):
             user["video_bonus"] -= 1
             job["retry_used"] += 1
@@ -272,10 +246,6 @@ def check_daily_cap(user, job_type):
     Returns:
         bool: True если лимит не превышен
     """
-    # Админ не ограничен дневными лимитами
-    if is_admin(user):
-        return True
-        
     if job_type != "video":
         return True
     
@@ -333,10 +303,6 @@ def get_retry_cost(user, job_id):
 
 def can_retry(user, job_id):
     """Проверяет, может ли пользователь сделать ретрай"""
-    # Админ может делать ретрай без ограничений
-    if is_admin(user):
-        return True
-        
     if "jobs" not in user or job_id not in user["jobs"]:
         return False
     
