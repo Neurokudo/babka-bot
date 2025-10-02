@@ -750,7 +750,7 @@ def _ensure(uid: int):
                 "coins": coins,
                 "video_bonus": video_bonus,
                 "photo_bonus": photo_bonus,
-                "tryon_bonus": tryon_bonus
+                "tryon_bonus": tryon_bonus,
                 "plan": "lite",  # тарифный план
                 "jobs": {},  # история задач
                 "daily": {"date": "", "videos": 0},  # дневная статистика
