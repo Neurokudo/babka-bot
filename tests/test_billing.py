@@ -1,5 +1,4 @@
 import copy
-
 import pathlib
 import sys
 
@@ -9,111 +8,353 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import billing
+from app.billing.coins import atomic_spend_coins, add_coins, get_balance, can_afford
+from app.billing.plans import check_subscription, activate_plan, give_welcome_bonus
+from app.billing.config import COST_VIDEO, COST_TRANSFORM, COST_TRANSFORM_PREMIUM, COST_TRYON
+
+
+class StubCursor:
+    def __init__(self, db):
+        self.db = db
+        self.last_result = []
+        self.description = [
+            ("user_id", None, None, None, None, None, None),
+            ("coins", None, None, None, None, None, None),
+            ("plan", None, None, None, None, None, None),
+            ("plan_expiry", None, None, None, None, None, None),
+            ("admin_coins", None, None, None, None, None, None),
+        ]
+
+    def execute(self, query, params=None):
+        """Имитирует выполнение SQL запроса"""
+        if "SELECT coins FROM users WHERE user_id" in query:
+            user_id = params[0] if params else None
+            user = self.db.users.get(user_id)
+            if user:
+                self.last_result = [(user["coins"],)]
+            else:
+                self.last_result = []
+        elif "INSERT INTO users" in query:
+            user_id = params[0] if params else None
+            coins = params[1] if len(params) > 1 else 0
+            self.db.users[user_id] = {
+                "user_id": user_id,
+                "coins": coins,
+                "plan": "lite",
+                "plan_expiry": None,
+                "admin_coins": 0
+            }
+        elif "UPDATE users SET coins = coins +" in query:
+            amount = params[0] if params else 0
+            user_id = params[1] if len(params) > 1 else None
+            if user_id in self.db.users:
+                self.db.users[user_id]["coins"] += amount
+        elif "INSERT INTO transactions" in query and "operation_type" in query:
+            user_id = params[0] if params else None
+            operation_type = params[1] if len(params) > 1 else ""
+            coins_spent = params[2] if len(params) > 2 else 0
+            transaction_id = self.db.next_transaction_id
+            self.db.next_transaction_id += 1
+            self.db.transactions.append({
+                "id": transaction_id,
+                "user_id": user_id,
+                "operation_type": operation_type,
+                "coins_spent": coins_spent,
+                "status": "completed"
+            })
+            self.last_result = [(transaction_id,)]
+        elif "UPDATE users SET coins = coins -" in query:
+            amount = params[0] if params else 0
+            user_id = params[1] if len(params) > 1 else None
+            if user_id in self.db.users:
+                self.db.users[user_id]["coins"] -= amount
+        elif "INSERT INTO transactions" in query:
+            user_id = params[0] if params else None
+            operation_type = params[1] if len(params) > 1 else ""
+            coins_spent = params[2] if len(params) > 2 else 0
+            transaction_id = self.db.next_transaction_id
+            self.db.next_transaction_id += 1
+            self.db.transactions.append({
+                "id": transaction_id,
+                "user_id": user_id,
+                "operation_type": operation_type,
+                "coins_spent": coins_spent,
+                "status": "pending"
+            })
+            self.last_result = [(transaction_id,)]
+        elif "SELECT COUNT(*) FROM transactions WHERE user_id" in query:
+            user_id = params[0] if params else None
+            count = len([tx for tx in self.db.transactions if tx["user_id"] == user_id and tx["operation_type"] == "welcome_bonus"])
+            self.last_result = [(count,)]
+        elif "SELECT * FROM users WHERE user_id" in query:
+            user_id = params[0] if params else None
+            user = self.db.users.get(user_id)
+            if user:
+                self.last_result = [(user["user_id"], user["coins"], user["plan"], user["plan_expiry"], user["admin_coins"])]
+            else:
+                self.last_result = []
+        elif "UPDATE users SET plan" in query:
+            # Обновление плана
+            pass
+        elif "UPDATE users SET admin_coins" in query:
+            # Обновление админских монет
+            pass
+        else:
+            self.last_result = []
+
+    def fetchone(self):
+        """Возвращает одну строку результата"""
+        if self.last_result:
+            return self.last_result[0]
+        return None
+
+    def commit(self):
+        """Имитирует коммит транзакции"""
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
 
 
 class StubDB:
     def __init__(self):
-        self.atomic_calls = []
-        self.updated = []
-        self.refunds = []
-        self.saved = []
+        self.users = {}
+        self.transactions = []
+        self.payments = []
+        self.next_transaction_id = 1
+        self.connection = self  # Для совместимости с реальным DB
 
-    def atomic_spend_coins(self, user_id, cost, operation_type, status="pending"):
-        call = {
-            "user_id": user_id,
-            "cost": cost,
-            "operation_type": operation_type,
-            "status": status,
-        }
-        self.atomic_calls.append(call)
-        return len(self.atomic_calls)
+    def cursor(self):
+        """Возвращает контекстный менеджер для cursor"""
+        return StubCursor(self)
 
-    def update_transaction_status(self, transaction_id, status):
-        self.updated.append((transaction_id, status))
+    def commit(self):
+        """Имитирует коммит транзакции"""
+        pass
 
-    def add_refund_transaction(self, user_id, amount, original_transaction_id=None):
-        self.refunds.append(
-            {
-                "user_id": user_id,
-                "amount": amount,
-                "metadata": {"original_transaction_id": original_transaction_id},
-            }
-        )
-        return len(self.refunds)
+    def get_user(self, user_id):
+        return copy.deepcopy(self.users.get(user_id))
 
     def save_user(self, user_id, user_data):
-        self.saved.append((user_id, copy.deepcopy(user_data)))
+        self.users[user_id] = copy.deepcopy(user_data)
+
+    def atomic_spend_coins(self, user_id, cost, operation_type):
+        """Имитирует атомарное списание монет"""
+        user = self.users.get(user_id)
+        if not user:
+            return None
+        
+        if user["coins"] < cost:
+            return None
+        
+        user["coins"] -= cost
+        transaction_id = self.next_transaction_id
+        self.next_transaction_id += 1
+        
+        self.transactions.append({
+            "id": transaction_id,
+            "user_id": user_id,
+            "operation_type": operation_type,
+            "coins_spent": cost,
+            "status": "pending"
+        })
+        
+        return transaction_id
+
+    def update_transaction_status(self, transaction_id, status):
+        """Обновляет статус транзакции"""
+        for tx in self.transactions:
+            if tx["id"] == transaction_id:
+                tx["status"] = status
+                break
+
+    def add_refund_transaction(self, user_id, amount, original_transaction_id=None):
+        """Добавляет транзакцию возврата"""
+        user = self.users.get(user_id)
+        if user:
+            user["coins"] += amount
+        
+        transaction_id = self.next_transaction_id
+        self.next_transaction_id += 1
+        
+        self.transactions.append({
+            "id": transaction_id,
+            "user_id": user_id,
+            "operation_type": f"refund{'_' + str(original_transaction_id) if original_transaction_id else ''}",
+            "coins_spent": amount,
+            "status": "refunded"
+        })
+        
+        return transaction_id
+
+
+@pytest.fixture
+def stub_db(monkeypatch):
+    stub = StubDB()
+    # Мокаем глобальную переменную db
+    import app.db.queries
+    monkeypatch.setattr(app.db.queries, "db", stub)
+    
+    # Мокаем connection для прямого использования в функциях
+    import app.billing.coins
+    monkeypatch.setattr(app.billing.coins, "db", stub)
+    
+    import app.billing.plans
+    monkeypatch.setattr(app.billing.plans, "db", stub)
+    
+    return stub
 
 
 def make_user(coins=100):
     return {
         "user_id": 1,
         "coins": coins,
-        "jobs": {},
-        "last_job": None,
+        "plan": "lite",
+        "plan_expiry": None,
+        "admin_coins": 0,
     }
 
 
-@pytest.fixture
-def stub_db(monkeypatch):
-    stub = StubDB()
-    monkeypatch.setattr(billing, "db", stub)
-    return stub
-
-
 def test_video_generation_charges_10_coins(stub_db):
+    """Тест: генерация видео списывает 10 монет"""
     user = make_user(coins=30)
+    stub_db.users[1] = user
 
-    job_id = billing.hold_and_start(user, "video")
-
-    assert stub_db.atomic_calls[-1]["cost"] == billing.COST_VIDEO == 10
+    transaction_id = atomic_spend_coins(1, COST_VIDEO, "video")
+    
+    assert transaction_id is not None
     assert user["coins"] == 20
-    assert user["jobs"][job_id]["coin_cost"] == 10
-
-    billing.on_success(user, job_id)
-    assert stub_db.updated[-1] == (1, "completed")
+    assert stub_db.transactions[-1]["coins_spent"] == COST_VIDEO
+    assert stub_db.transactions[-1]["operation_type"] == "video"
 
 
 def test_photo_basic_and_premium_costs(stub_db):
+    """Тест: фото базовое и премиум имеют разную стоимость"""
     user = make_user(coins=10)
+    stub_db.users[1] = user
 
-    job_basic = billing.hold_and_start(user, "transform", quality="basic")
+    # Базовое фото
+    tx1 = atomic_spend_coins(1, COST_TRANSFORM, "photo")
+    assert tx1 is not None
     assert user["coins"] == 9
-    assert user["jobs"][job_basic]["coin_cost"] == billing.COST_TRANSFORM == 1
+    assert stub_db.transactions[-1]["coins_spent"] == COST_TRANSFORM
 
-    job_premium = billing.hold_and_start(user, "transform", quality="premium")
+    # Премиум фото
+    tx2 = atomic_spend_coins(1, COST_TRANSFORM_PREMIUM, "photo_premium")
+    assert tx2 is not None
     assert user["coins"] == 7  # 9 - 2
-    assert user["jobs"][job_premium]["coin_cost"] == billing.COST_TRANSFORM_PREMIUM == 2
+    assert stub_db.transactions[-1]["coins_spent"] == COST_TRANSFORM_PREMIUM
 
 
 def test_tryon_costs_one_coin(stub_db):
+    """Тест: примерочная стоит 1 монету"""
     user = make_user(coins=5)
+    stub_db.users[1] = user
 
-    job_id = billing.hold_and_start(user, "tryon")
-
+    transaction_id = atomic_spend_coins(1, COST_TRYON, "tryon")
+    
+    assert transaction_id is not None
     assert user["coins"] == 4
-    assert user["jobs"][job_id]["coin_cost"] == billing.COST_TRYON == 1
+    assert stub_db.transactions[-1]["coins_spent"] == COST_TRYON
 
 
-def test_json_mode_costs_like_video(stub_db):
-    user = make_user(coins=20)
+def test_insufficient_funds_returns_none(stub_db):
+    """Тест: недостаточно средств возвращает None"""
+    user = make_user(coins=5)
+    stub_db.users[1] = user
 
-    job_id = billing.hold_and_start(user, "json")
+    transaction_id = atomic_spend_coins(1, COST_VIDEO, "video")  # 10 монет
+    
+    assert transaction_id is None
+    assert user["coins"] == 5  # не изменился
 
-    assert user["coins"] == 10
-    assert user["jobs"][job_id]["coin_cost"] == billing.COST_VIDEO
+
+def test_add_coins_increases_balance(stub_db):
+    """Тест: добавление монет увеличивает баланс"""
+    user = make_user(coins=10)
+    stub_db.users[1] = user
+
+    new_balance = add_coins(1, 50, "test")
+    
+    assert new_balance == 60
+    assert user["coins"] == 60
 
 
-def test_refund_returns_coins_and_logs(stub_db):
+def test_can_afford_checks_balance(stub_db):
+    """Тест: проверка достаточности средств"""
     user = make_user(coins=15)
-    job_id = billing.hold_and_start(user, "transform", quality="basic")
+    stub_db.users[1] = user
 
-    assert user["coins"] == 14
+    assert can_afford(1, 10) is True
+    assert can_afford(1, 20) is False
 
-    billing.on_error(user, job_id, reason="timeout")
 
-    # coins refunded
-    assert user["coins"] == 15
-    # refund transaction recorded
-    assert stub_db.refunds[-1]["amount"] == 1
+def test_activate_plan_adds_coins_and_sets_expiry(stub_db):
+    """Тест: активация плана начисляет монеты и устанавливает срок"""
+    user = make_user(coins=0)
+    stub_db.users[1] = user
+
+    result = activate_plan(1, "lite")
+    assert result["coins"] == 120  # план lite дает 120 монет
+    assert result["plan"] == "lite"
+    assert result["plan_expiry"] is None
+
+    result = activate_plan(1, "std")
+    assert result["plan"] == "std"
+    assert result["coins"] == 330  # 120 + 210
+    assert result["plan_expiry"] is not None
+
+
+def test_check_subscription_resets_expired_plan(stub_db):
+    """Тест: проверка подписки сбрасывает истекший план"""
+    from datetime import datetime, timedelta, timezone
+    
+    expired_user = {
+        "user_id": 2,
+        "coins": 50,
+        "plan": "std",
+        "plan_expiry": datetime.now(timezone.utc) - timedelta(days=1),
+        "admin_coins": 0,
+    }
+    stub_db.users[2] = expired_user
+
+    updated = check_subscription(2)
+    assert updated["plan"] == "lite"
+    assert updated["plan_expiry"] is None
+
+
+def test_give_welcome_bonus_once(stub_db):
+    """Тест: стартовые бонусы выдаются только один раз"""
+    user = make_user(coins=0)
+    stub_db.users[1] = user
+
+    # Первый раз - выдаем бонусы
+    result1 = give_welcome_bonus(1)
+    assert result1 is True
+    assert user["coins"] == 23  # стартовые бонусы
+
+    # Второй раз - не выдаем
+    result2 = give_welcome_bonus(1)
+    assert result2 is False
+    assert user["coins"] == 23  # не изменился
+
+
+def test_transaction_logging(stub_db):
+    """Тест: все операции логируются в транзакции"""
+    user = make_user(coins=20)
+    stub_db.users[1] = user
+
+    # Списание
+    tx1 = atomic_spend_coins(1, 5, "test_operation")
+    assert tx1 is not None
+    assert len(stub_db.transactions) == 1
+    assert stub_db.transactions[0]["operation_type"] == "test_operation"
+    assert stub_db.transactions[0]["coins_spent"] == 5
+
+    # Добавление
+    add_coins(1, 10, "test_add")
+    # Добавление монет теперь тоже создает транзакцию
+    assert len(stub_db.transactions) == 2
