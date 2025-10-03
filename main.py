@@ -81,7 +81,8 @@ DEFAULT_AUDIO = True  # по умолчанию с аудио
 # -----------------------------------------------------------------------------
 from app.services.pricing import (
     feature_cost_coins, get_available_tariffs, get_available_topup_packs,
-    calculate_coin_rate_rub, calculate_coin_rate_rub_topup
+    calculate_coin_rate_rub, calculate_coin_rate_rub_topup,
+    format_plans_list, format_feature_costs, pricing_text
 )
 from app.services.wallet import (
     get_balance, charge_feature, buy_tariff, buy_topup, get_user_tariff_info
@@ -137,15 +138,6 @@ def format_user_status(user: Dict[str, Any]) -> str:
     return text
 
 
-def format_plans_list() -> str:
-    lines = ["💰 <b>Тарифы (30 дней)</b>\n"]
-    tariffs = get_available_tariffs()
-    for key, tariff in tariffs.items():
-        icon = "✨" if key == "lite" else "⭐" if key == "standard" else "💎"
-        lines.append(f"{icon} <b>{key.title()}</b> — {tariff.price_rub:,} ₽")
-        lines.append(f"🎟 {tariff.coins} монет")
-        lines.append("")
-    return "\n".join(lines)
 
 def format_topup_packs() -> str:
     """Форматирование пакетов пополнения"""
@@ -164,15 +156,6 @@ def format_topup_packs() -> str:
     lines.append("\n💡 Докупка монет не продлевает подписку.")
     return "\n".join(lines)
 
-def format_feature_costs() -> str:
-    """Форматирование стоимости функций"""
-    lines = ["🎬 <b>Видео (8 сек)</b>"]
-    lines.append("🔊 Со звуком — 20 монет")
-    lines.append("🔇 Без звука — 16 монет")
-    lines.append("")
-    lines.append("📸 <b>Фото-инструменты</b> — 1 монета")
-    lines.append("👗 <b>Примерка одежды</b> — 3 монеты")
-    return "\n".join(lines)
 
 # -----------------------------------------------------------------------------
 # GPT

@@ -64,15 +64,15 @@ app/
 
 The bot uses a coin-based billing system:
 
-- **Video generation**: 10 coins
-- **Photo (basic)**: 1 coin
-- **Photo (premium)**: 2 coins
-- **Virtual try-on**: 1 coin
+- **Video generation (with audio)**: 20 coins
+- **Video generation (mute)**: 16 coins
+- **Photo tools**: 1 coin
+- **Virtual try-on**: 3 coins
 
 ### Plans
-- **Lite**: 1,990 ₽ → 120 coins
-- **Standard**: 2,490 ₽ → 210 coins (recommended)
-- **Pro**: 4,990 ₽ → 440 coins
+- **Lite**: 1,990 ₽ → 120 coins (~16.6 ₽/coin)
+- **Standard**: 2,490 ₽ → 210 coins (~11.9 ₽/coin) - recommended
+- **Pro**: 4,990 ₽ → 440 coins (~11.3 ₽/coin)
 
 ### Features
 - ✅ Atomic coin operations
@@ -137,7 +137,7 @@ Test coverage includes:
 
 ## 🔧 Configuration
 
-All prices and plans are centralized in `app/config/pricing.py`:
+All prices and plans are centralized in `app/config/pricing.py` and accessed through `app/services/pricing.py`:
 
 ```python
 # Operation costs (from app/config/pricing.py)
@@ -153,6 +153,14 @@ TARIFFS = {
     "lite": Tariff(price_rub=1990, coins=120),
     "standard": Tariff(price_rub=2490, coins=210),
     "pro": Tariff(price_rub=4990, coins=440),
+}
+
+# Top-up packs (from app/config/pricing.py)
+TOPUP_PACKS_RUB = {
+    50: 990,
+    120: 1990,
+    250: 3990,
+    500: 7490,
 }
 ```
 

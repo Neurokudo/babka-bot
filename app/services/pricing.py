@@ -42,3 +42,35 @@ def calculate_coin_rate_rub(tariff_name: str) -> float:
 def calculate_coin_rate_rub_topup(coins: int) -> float:
     """Рассчитать стоимость 1 монеты в рублях для пакета пополнения"""
     return TOPUP_PACKS_RUB[coins] / coins
+
+def format_plans_list() -> str:
+    """Форматирование списка тарифов для пользователей"""
+    lines = ["💰 <b>Тарифы (30 дней)</b>\n"]
+    tariffs = get_available_tariffs()
+    for key, tariff in tariffs.items():
+        rate = calculate_coin_rate_rub(key)
+        line_parts = [
+            f"🎟 {tariff.coins} монет",
+            f"{tariff.price_rub:,} ₽",
+            f"~{rate:.1f} ₽/монета"
+        ]
+        lines.append(" · ".join(line_parts))
+    
+    lines.append("\n💡 Докупка монет не продлевает подписку.")
+    return "\n".join(lines)
+
+def format_feature_costs() -> str:
+    """Форматирование стоимости функций для пользователей"""
+    lines = ["🎬 <b>Видео (8 сек)</b>"]
+    lines.append("🔊 Со звуком — 20 монет")
+    lines.append("🔇 Без звука — 16 монет")
+    lines.append("")
+    lines.append("📸 <b>Фото-инструменты</b> — 1 монета")
+    lines.append("👗 <b>Примерка одежды</b> — 3 монеты")
+    return "\n".join(lines)
+
+def pricing_text() -> str:
+    """Полный текст с тарифами и стоимостью функций"""
+    plans_text = format_plans_list()
+    costs_text = format_feature_costs()
+    return f"{plans_text}\n\n{costs_text}"

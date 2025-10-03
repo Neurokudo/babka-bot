@@ -112,3 +112,4 @@ curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
 - Проверьте `DATABASE_URL`
 - Убедитесь, что база данных доступна
 - Проверьте миграции: `python RUN_MIGRATIONS.py`
+
