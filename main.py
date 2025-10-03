@@ -1321,7 +1321,7 @@ async def cmd_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for plan_key, plan_info in tariffs.items():
         emoji = "✨" if plan_key == "lite" else "⭐" if plan_key == "standard" else "💎"
         keyboard.append([InlineKeyboardButton(
-            f"{emoji} {plan_key.title()} — {plan_info.price_rub:,} ₽",
+            f"{emoji} {plan_key.title()} — {plan_info['price']:,} ₽",
             callback_data=f"buy_plan_{plan_key}"
         )])
     
@@ -1369,15 +1369,15 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from payment_yookassa import create_payment_link
         payment_url = create_payment_link(
             user_id=uid,
-            amount=plan_info.price_rub,
+            amount=plan_info['price'],
             description=f"Тариф {plan_name.title()}",
             plan=plan_name
         )
         
         await update.message.reply_text(
             f"💳 <b>Оплата тарифа {plan_name.title()}</b>\n\n"
-            f"💰 Сумма: {plan_info.price_rub:,} ₽\n"
-            f"🪙 Монеты: {plan_info.coins}\n\n"
+            f"💰 Сумма: {plan_info['price']:,} ₽\n"
+            f"🪙 Монеты: {plan_info['coins']}\n\n"
             f"⏰ Тариф действует 30 дней\n"
             f"💡 Монеты тратятся на все операции: видео, фото, примерочную\n\n"
             f"Нажмите кнопку ниже для оплаты:",
@@ -2851,7 +2851,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for plan_key, plan_info in tariffs.items():
             emoji = "✨" if plan_key == "lite" else "⭐" if plan_key == "standard" else "💎"
             keyboard.append([InlineKeyboardButton(
-                f"{emoji} {plan_key.title()} — {plan_info.price_rub:,} ₽",
+                f"{emoji} {plan_key.title()} — {plan_info['price']:,} ₽",
                 callback_data=f"buy_plan_{plan_key}"
             )])
         
@@ -2950,15 +2950,15 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from payment_yookassa import create_payment_link
             payment_url = create_payment_link(
                 user_id=uid,
-                amount=plan_info.price_rub,
+                amount=plan_info['price'],
                 description=f"Тариф {plan_name.title()}",
                 plan=plan_name
             )
             
             await q.message.edit_text(
                 f"💳 <b>Оплата тарифа {plan_name.title()}</b>\n\n"
-                f"💰 Сумма: {plan_info.price_rub:,} ₽\n"
-                f"💎 {plan_info.coins} монеток\n\n"
+                f"💰 Сумма: {plan_info['price']:,} ₽\n"
+                f"💎 {plan_info['coins']} монеток\n\n"
                 f"⏰ Тариф действует 30 дней\n"
                 f"💡 Подписки выгоднее разовых покупок!\n\n"
                 f"Нажмите кнопку ниже для оплаты:",
