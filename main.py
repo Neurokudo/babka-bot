@@ -20,6 +20,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from dotenv import load_dotenv
+import os
+import sys
+import fcntl
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
     ReplyKeyboardMarkup, KeyboardButton, InputMediaPhoto
@@ -4286,7 +4289,22 @@ def random_meme_scene() -> str:
 # ----------------------------------------------------------------------------- 
 # ЗАПУСК
 # -----------------------------------------------------------------------------
+def _acquire_singleton_lock() -> None:
+    """Prevent running more than one polling instance in the same container.
+    Uses an advisory lock on /tmp/babka_bot.lock.
+    """
+    try:
+        lock_path = "/tmp/babka_bot.lock"
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+        fcntl.lockf(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.write(lock_fd, str(os.getpid()).encode(errors="ignore"))
+    except OSError:
+        print("Another bot process is already running. Exiting to avoid 409 Conflict.")
+        sys.exit(0)
+
+
 def main():
+    _acquire_singleton_lock()
     if not BOT_TOKEN:
         raise RuntimeError("Не найден TELEGRAM_TOKEN / BOT_TOKEN")
     
@@ -4304,7 +4322,13 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     
     log.info("Bot is running…")
-    # Запускаем polling с автоматическим удалением webhook
+    # Явно удаляем вебхук перед стартом polling (доп. гарантия)
+    try:
+        import asyncio
+        asyncio.get_event_loop().run_until_complete(app.bot.delete_webhook(drop_pending_updates=True))
+    except Exception:
+        pass
+    # Запускаем polling
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
