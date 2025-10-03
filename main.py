@@ -1127,24 +1127,28 @@ def kb_video_result():
 
 
 def addons_text() -> str:
-    return (
-        "📦 Дополнительные пакеты\n\n"
-        "🎬 Видео:\n"
-        "• Video 5 — 1 190 ₽ → 🎟 50 монет\n"
-        "• Video 10 — 2 190 ₽ → 🎟 100 монет\n\n"
-        "📸 Фото:\n"
-        "• Photo 20 — 590 ₽ → 🎟 20 монет\n"
-        "• Photo 50 — 1 190 ₽ → 🎟 50 монет\n\n"
-        "🎛️ Микс:\n"
-        "• Mix — 1 690 ₽ → 🎟 70 монет (5 видео + 20 фото)\n\n"
-        "💡 *Разовые покупки дороже подписок за монету!*"
-    )
+    # Заменено на актуальные пакеты пополнения монет
+    from app.services.pricing import get_available_topup_packs
+    packs = get_available_topup_packs()
+    lines = ["➕ <b>Пополнить монеты</b>\n"]
+    items = list(packs.items())
+    for i in range(0, len(items), 2):
+        row = []
+        for j in range(i, min(i+2, len(items))):
+            coins, price = items[j]
+            row.append(f"{coins} — {price:,} ₽")
+        lines.append(" · ".join(row))
+    lines.append("\n💡 Докупка монет не продлевает подписку.")
+    return "\n".join(lines)
 
 
 def addons_keyboard(order=None) -> InlineKeyboardMarkup:
-    # order — список ключей в приоритетном порядке
-    keys = order or ["v5", "v10", "p20", "p50", "mix"]
-    rows = [[InlineKeyboardButton(ADDONS[k]["title"], callback_data=f"addon:{k}")] for k in keys]
+    # Используем актуальные пакеты из pricing
+    from app.services.pricing import get_available_topup_packs
+    packs = get_available_topup_packs()
+    rows = []
+    for coins, price in packs.items():
+        rows.append([InlineKeyboardButton(f"{coins} монет — {price:,} ₽", callback_data=f"buy_topup_{coins}")])
     rows.append([InlineKeyboardButton("← Назад к тарифам", callback_data="show_plans")])
     return InlineKeyboardMarkup(rows)
 
@@ -1325,12 +1329,13 @@ async def cmd_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     plans_text = format_plans_list()
     
-    # Создаем кнопки для покупки тарифов
+    # Создаем кнопки для покупки тарифов из актуального конфига
     keyboard = []
-    for plan_key, plan_info in PLANS.items():
-        emoji = "✨" if plan_key == "lite" else "⭐" if plan_key == "std" else "💎"
+    tariffs = get_available_tariffs()
+    for plan_key, plan_info in tariffs.items():
+        emoji = "✨" if plan_key == "lite" else "⭐" if plan_key == "standard" else "💎"
         keyboard.append([InlineKeyboardButton(
-            f"{emoji} {plan_info['name']} — {plan_info['price_rub']:,} ₽",
+            f"{emoji} {plan_key.title()} — {plan_info.price_rub:,} ₽",
             callback_data=f"buy_plan_{plan_key}"
         )])
     
@@ -1409,34 +1414,21 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def cmd_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /coins - покупка монеток (внутриботовая валюта)"""
+    """Команда /coins - покупка монеток (перенаправляет на новую систему)"""
     if not await check_access(update): return
     uid = update.effective_user.id
     _ensure(uid)
     
-    from app.billing.config import TOP_UPS
-    
-    text = "💰 <b>Покупка монеток</b>\n\n"
-    text += "Монетки — это внутриботовая валюта для дополнительных операций.\n\n"
-    text += "<b>Доступные пакеты:</b>\n"
-    
-    keyboard = []
-    for package in TOP_UPS:
-        text += f"💎 {package['coins']} монет — {package['price_rub']:,} ₽ ({package['label']})\n"
-        keyboard.append([InlineKeyboardButton(
-            f"💎 {package['coins']} монет — {package['price_rub']:,} ₽",
-            callback_data=f"buy_coins_{package['coins']}"
-        )])
-    
-        text += "\n💡 <i>Монеты списываются за каждую генерацию</i>"
-    
-    keyboard.append([InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")])
-    keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
-    
+    # Перенаправляем на новую систему пополнения
     await update.message.reply_text(
-        text,
+        "💰 <b>Пополнить баланс</b>\n\n"
+        "Выберите способ пополнения:",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+            [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+        ])
     )
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2191,7 +2183,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                     f"💳 Пополнить баланс?",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("💳 Докупить", callback_data="buy_coins_20")],
+                        [InlineKeyboardButton("💳 Докупить", callback_data="show_topup")],
                         [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
                     ])
                 )
@@ -2207,7 +2199,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                     "💳 Пополнить баланс?",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("💳 Докупить", callback_data="buy_coins_20")],
+                        [InlineKeyboardButton("💳 Докупить", callback_data="show_topup")],
                         [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
                     ])
                 )
@@ -2622,40 +2614,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # --- Покупка монет ---
-    if data == "buy_coins":
-        buttons = []
-        for top_up in TOP_UPS:
-            label = f"+{top_up['coins']} монеток — {top_up['price_rub']} ₽"
-            if top_up.get("label"):
-                label += f" ({top_up['label']})"
-            buttons.append([InlineKeyboardButton(label, callback_data=f"buy_{top_up['coins']}")])
-        
-        buttons.append([InlineKeyboardButton("⬅️ Назад", callback_data="menu_profile")])
-        
-        await q.message.edit_text(
-            "💳 Докупить монетки\n\n"
-            "Выберите количество монеток для покупки:",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-        return
-
-    # --- Обработка конкретной покупки ---
-    if data.startswith("buy_"):
-        coins_to_buy = int(data.split("_")[1])
-        top_up = next((t for t in TOP_UPS if t["coins"] == coins_to_buy), None)
-        
-        if top_up:
-            await q.message.edit_text(
-                f"💳 Покупка {coins_to_buy} монеток за {top_up['price_rub']} ₽\n\n"
-                f"Функция оплаты будет добавлена позже.\n"
-                f"Пока что монетки можно получить через тарифные планы.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📊 Тарифные планы", callback_data="change_plan")],
-                    [InlineKeyboardButton("⬅️ Назад", callback_data="buy_coins")],
-                ])
-            )
-        return
+    # --- Покупка монет (удалено - используем новую систему) ---
 
     # --- Смена тарифа ---
     if data == "change_plan":
@@ -2854,67 +2813,14 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         return
     
-    # Покупка аддона
+    # Покупка аддона (устарело) — перенаправляем на актуальные пакеты пополнения
     if data.startswith("addon:"):
-        addon_key = data.split(":")[1]
-        addon = ADDONS[addon_key]
-        
-        try:
-            payment_url = create_payment_link(
-                user_id=q.from_user.id,
-                amount=addon["price_rub"],
-                description=addon["title"],
-                metadata={"addon": addon_key, "type": "addon"}
-            )
-            
-            description_lines = [f"• {addon['coins']} монет"]
-            if addon['videos'] > 0:
-                description_lines.append(f"• Примерно {addon['videos']} видео")
-            if addon['photos'] > 0:
-                description_lines.append(f"• Примерно {addon['photos']} фото")
-            description = "\n".join(description_lines)
-
-            await q.edit_message_text(
-                f"Выбрано: {addon['title']}\n"
-                "После оплаты монеты поступят на баланс автоматически.\n\n"
-                f"📋 Что включено:\n{description}\n\n"
-                f"📋 Соглашаясь на оплату, вы принимаете условия оферты:\n"
-                f"/terms — Пользовательское соглашение",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
-                    [InlineKeyboardButton("📋 Оферта", callback_data="show_terms")],
-                    [InlineKeyboardButton("← Назад", callback_data="show_addons")],
-                ])
-            )
-        except Exception as e:
-            log.error(f"Error creating payment for addon {addon_key}: {e}")
-            await q.edit_message_text(
-                "❌ Ошибка создания платежа. Попробуйте позже.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("← Назад", callback_data="show_addons")],
-                ])
-            )
+        await q.edit_message_text(addons_text(), reply_markup=addons_keyboard())
         return
     
     # Показать аддоны
     if data == "show_addons":
-        # Контекстная расстановка приоритета
-        uid = q.from_user.id
-        st = users.get(uid, {})
-        coins = st.get("coins", 0)
-        
-        order = []
-        # Проверяем баланс монеток для рекомендаций
-        if coins <= 20:
-            order += ["v5", "v10"]  # Рекомендуем видео пакеты
-        if coins <= 10:
-            order += ["p20", "p50"]  # Рекомендуем фото пакеты
-        # добиваем до полного списка, сохраняя уникальность
-        for k in ["v5", "v10", "p20", "p50", "mix"]:
-            if k not in order: 
-                order.append(k)
-        
-        await q.edit_message_text(addons_text(), reply_markup=addons_keyboard(order))
+        await q.edit_message_text(addons_text(), reply_markup=addons_keyboard())
         return
     
     # --- Новые callback'ы для системы тарифов ---
@@ -3089,56 +2995,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
     
-    # --- Обработка покупки монеток ---
-    if data.startswith("buy_coins_"):
-        coins_amount = int(data.replace("buy_coins_", ""))
-        from app.billing.config import TOP_UPS
-        
-        # Находим пакет монеток
-        package = None
-        for pkg in TOP_UPS:
-            if pkg['coins'] == coins_amount:
-                package = pkg
-                break
-        
-        if not package:
-            await q.message.edit_text("❌ Неизвестный пакет монеток")
-            return
-        
-        try:
-            from payment_yookassa import create_payment_link
-            payment_url = create_payment_link(
-                user_id=uid,
-                amount=package["price_rub"],
-                description=f"Монетки {package['coins']} шт",
-                metadata={"coins": coins_amount, "type": "coins"}
-            )
-            
-            await q.message.edit_text(
-                f"💳 <b>Покупка монеток</b>\n\n"
-                f"💰 Сумма: {package['price_rub']:,} ₽\n"
-                f"💎 Монетки: {package['coins']}\n"
-                f"🏷️ {package['label']}\n\n"
-            "💡 Монеты списываются за каждую генерацию\n\n"
-                f"Нажмите кнопку ниже для оплаты:",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
-                    [InlineKeyboardButton("💰 Все пакеты", callback_data="show_topup")],
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
-                ])
-            )
-            
-        except Exception as e:
-            log.error(f"Error creating coins payment for user {uid}: {e}")
-            await q.message.edit_text(
-                "❌ Ошибка при создании платежа. Попробуйте позже или обратитесь в поддержку.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📞 Поддержка", callback_data="support")],
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
-                ])
-            )
-        return
+    # --- Обработка покупки монеток (удалено - используем новую систему) ---
     
     
     
@@ -3741,7 +3598,7 @@ Telegram бот "Babka Bot"
                 f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
+                    [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
                     [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
@@ -4172,7 +4029,7 @@ Telegram бот "Babka Bot"
                 f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
+                    [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
                     [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
@@ -4190,7 +4047,7 @@ Telegram бот "Babka Bot"
                 f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
+                    [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
                     [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
@@ -4311,7 +4168,7 @@ Telegram бот "Babka Bot"
                 f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
+                    [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
                     [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])

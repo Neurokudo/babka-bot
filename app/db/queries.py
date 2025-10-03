@@ -60,13 +60,33 @@ class Database:
     # ------------------------------------------------------------------
     
     def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """Получает данные пользователя"""
+        """Получает данные пользователя (совместимость со старой системой)"""
         if not self.ensure_connection():
             return None
         
         try:
             with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
+                # Получаем данные из кошелька
+                cursor.execute(
+                    """
+                    SELECT 
+                        u.user_id,
+                        u.created_at,
+                        u.updated_at,
+                        COALESCE(w.coins_balance, 0) as coins,
+                        COALESCE(w.active_tariff, 'lite') as plan,
+                        w.tariff_expires_at as plan_expiry,
+                        0 as video_bonus,
+                        0 as photo_bonus,
+                        0 as tryon_bonus,
+                        0 as admin_coins,
+                        FALSE as welcome_granted
+                    FROM users u
+                    LEFT JOIN users_wallet w ON u.user_id = w.user_id
+                    WHERE u.user_id = %s
+                    """,
+                    (user_id,)
+                )
                 result = cursor.fetchone()
                 return dict(result) if result else None
         except Exception as e:
@@ -74,58 +94,36 @@ class Database:
             return None
 
     def save_user(self, user_id: int, user_data: Dict[str, Any]) -> bool:
-        """Сохраняет данные пользователя"""
+        """Сохраняет данные пользователя (совместимость со старой системой)"""
         if not self.ensure_connection():
             return False
         
         try:
             with self.connection.cursor() as cursor:
-                # Проверяем, существует ли пользователь
-                cursor.execute("SELECT user_id FROM users WHERE user_id = %s", (user_id,))
-                exists = cursor.fetchone()
+                # Создаем пользователя в основной таблице если его нет
+                cursor.execute(
+                    "INSERT INTO users (user_id, created_at, updated_at) VALUES (%s, NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING",
+                    (user_id,)
+                )
                 
-                if exists:
-                    # Обновляем существующего пользователя
-                    cursor.execute(
-                        """
-                        UPDATE users 
-                        SET coins = %s, video_bonus = %s, photo_bonus = %s, tryon_bonus = %s,
-                            admin_coins = %s, welcome_granted = %s, plan = %s, plan_expiry = %s,
-                            updated_at = NOW()
-                        WHERE user_id = %s
-                        """,
-                        (
-                            user_data.get("coins", 0),
-                            user_data.get("video_bonus", 0),
-                            user_data.get("photo_bonus", 0),
-                            user_data.get("tryon_bonus", 0),
-                            user_data.get("admin_coins", 0),
-                            user_data.get("welcome_granted", False),
-                            user_data.get("plan", "lite"),
-                            user_data.get("plan_expiry"),
-                            user_id
-                        )
-                    )
-                else:
-                    # Создаем нового пользователя
-                    cursor.execute(
-                        """
-                        INSERT INTO users (user_id, coins, video_bonus, photo_bonus, tryon_bonus,
-                                         admin_coins, welcome_granted, plan, plan_expiry, created_at, updated_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                        """,
-                        (
-                            user_id,
-                            user_data.get("coins", 0),
-                            user_data.get("video_bonus", 0),
-                            user_data.get("photo_bonus", 0),
-                            user_data.get("tryon_bonus", 0),
-                            user_data.get("admin_coins", 0),
-                            user_data.get("welcome_granted", False),
-                            user_data.get("plan", "lite"),
-                            user_data.get("plan_expiry")
-                        )
-                    )
+                # Обновляем кошелек
+                coins_balance = user_data.get("coins", 0)
+                active_tariff = user_data.get("plan", "lite")
+                plan_expiry = user_data.get("plan_expiry")
+                
+                cursor.execute(
+                    """
+                    INSERT INTO users_wallet (user_id, coins_balance, active_tariff, tariff_expires_at)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id) 
+                    DO UPDATE SET 
+                        coins_balance = %s,
+                        active_tariff = %s,
+                        tariff_expires_at = %s
+                    """,
+                    (user_id, coins_balance, active_tariff, plan_expiry, 
+                     coins_balance, active_tariff, plan_expiry)
+                )
                 
                 self.connection.commit()
                 return True
