@@ -89,7 +89,7 @@ def activate_plan(user_id: int, plan_key: str) -> Optional[Dict[str, Any]]:
     
     Args:
         user_id: ID пользователя
-        plan_key: ключ плана (lite, std, pro)
+        plan_key: ключ плана (lite, standard, pro)
     
     Returns:
         Обновленные данные пользователя или None если план не найден

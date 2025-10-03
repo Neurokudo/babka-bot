@@ -1363,9 +1363,9 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Использование: /buy <название_тарифа>\n\n"
             "Доступные тарифы:\n"
             "• lite — Лайт\n"
-            "• std — Стандарт\n"
+            "• standard — Стандарт\n"
             "• pro — Про\n\n"
-            "Пример: /buy std",
+            "Пример: /buy standard",
             parse_mode="HTML"
         )
         return

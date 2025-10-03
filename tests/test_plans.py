@@ -187,9 +187,9 @@ def test_activate_plan_adds_coins_and_sets_expiry(stub_db):
     assert result["plan"] == "lite"
     assert result["plan_expiry"] is None
 
-    result = activate_plan(1, "std")
-    assert result["plan"] == "std"
-    assert result["coins"] == PLANS["lite"]["coins"] + PLANS["std"]["coins"]
+    result = activate_plan(1, "standard")
+    assert result["plan"] == "standard"
+    assert result["coins"] == PLANS["lite"]["coins"] + PLANS["standard"]["coins"]
     expiry = result["plan_expiry"]
     assert isinstance(expiry, datetime)
     if expiry.tzinfo:
@@ -205,7 +205,7 @@ def test_check_subscription_resets_expired_plan(stub_db):
     expired_user = {
         "user_id": 2,
         "coins": 50,
-        "plan": "std",
+        "plan": "standard",
         "plan_expiry": datetime.now(timezone.utc) - timedelta(days=1),
         "admin_coins": 0,
     }
@@ -221,14 +221,14 @@ def test_get_user_plan_info(stub_db):
     user = {
         "user_id": 3,
         "coins": 100,
-        "plan": "std",
+        "plan": "standard",
         "plan_expiry": datetime.now(timezone.utc) + timedelta(days=15),
         "admin_coins": 0,
     }
     stub_db.users[3] = user
 
     plan_info = get_user_plan_info(3)
-    assert plan_info["plan"] == "std"
+    assert plan_info["plan"] == "standard"
     assert plan_info["is_active"] is True
     assert plan_info["plan_info"]["name"] == "Стандарт"
 
@@ -255,7 +255,7 @@ def test_plan_expiry_text(stub_db):
     expired_user = {
         "user_id": 5,
         "coins": 30,
-        "plan": "std",
+        "plan": "standard",
         "plan_expiry": datetime.now(timezone.utc) - timedelta(days=1),
         "admin_coins": 0,
     }
@@ -310,16 +310,16 @@ def test_plan_extension(stub_db):
     user = {
         "user_id": 8,
         "coins": 100,
-        "plan": "std",
+        "plan": "standard",
         "plan_expiry": datetime.now(timezone.utc) + timedelta(days=10),
         "admin_coins": 0,
     }
     stub_db.users[8] = user
     
     original_expiry = user["plan_expiry"]
-    result = activate_plan(8, "std")
+    result = activate_plan(8, "standard")
     
     # План должен быть продлен на 30 дней
-    assert result["plan"] == "std"
+    assert result["plan"] == "standard"
     assert result["plan_expiry"] > original_expiry
-    assert result["coins"] == 100 + PLANS["std"]["coins"]  # старые + новые монеты
+    assert result["coins"] == 100 + PLANS["standard"]["coins"]  # старые + новые монеты

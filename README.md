@@ -149,7 +149,7 @@ COST_TRYON = 1
 # Plans
 PLANS = {
     "lite": {"price_rub": 1990, "coins": 120},
-    "std": {"price_rub": 2490, "coins": 210},
+    "standard": {"price_rub": 2490, "coins": 210},
     "pro": {"price_rub": 4990, "coins": 440},
 }
 ```

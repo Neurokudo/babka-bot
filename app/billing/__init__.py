@@ -141,12 +141,10 @@ def can_generate_json(user_data):
     cost = feature_cost_coins("video_8s_audio")
     return balance >= cost
 
-def apply_top_up(user_data, coins):
+def apply_top_up(user_id, coins, operation_type="topup_purchase"):
     """Применение пополнения"""
     from app.services.wallet import add_coins
-    user_id = user_data.get('user_id', 0)
-    add_coins(user_id, coins, "topup_purchase")
-    user_data['coins'] = user_data.get('coins', 0) + coins
+    add_coins(user_id, coins, operation_type)
     return True
 
 def get_cost_for_operation(operation_type, quality=None):

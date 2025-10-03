@@ -213,7 +213,7 @@ def create_payment_link(user_id: int, amount: float, description: str,
         payment_id = payment.get("id")
         
         # Сохраняем платеж в базе данных
-        from database import db
+        from app.db.queries import db
         db.create_payment(
             payment_id=payment_id,
             user_id=user_id,
@@ -324,8 +324,9 @@ def get_payment_status(payment_id: str) -> Optional[Dict[str, Any]]:
 def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
     """Обработать успешный платеж и активировать тариф"""
     try:
-        from database import db
+        from app.db.queries import db
         from app.billing import activate_plan, apply_top_up
+        from app.services.pricing import TARIFFS
 
         payment_id = payment_data.get("payment_id")
         user_id = payment_data.get("user_id")
@@ -339,11 +340,13 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
         # Обновляем статус платежа
         db.update_payment_status(payment_id, "succeeded")
 
-        if plan in ("lite", "std", "pro"):
+        # Проверяем новые тарифы из pricing.py
+        if plan in TARIFFS:
             activate_plan(user_id, plan)
             log.info("Plan %s activated for user %s", plan, user_id)
             return True
 
+        # Разовые пополнения монет
         if meta.get("type") == "coins":
             coins_amount = int(meta.get("coins", 0))
             if coins_amount > 0:
@@ -356,4 +359,36 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
 
     except Exception as e:
         log.error(f"Error processing successful payment: {e}")
+        return False
+
+def apply_refund(payment_data: Dict[str, Any]) -> bool:
+    """Обработать возврат платежа"""
+    try:
+        from app.db.queries import db
+        from app.billing.coins import refund_coins
+
+        payment_id = payment_data.get("payment_id")
+        user_id = payment_data.get("user_id")
+        amount = payment_data.get("amount", 0)
+
+        if not payment_id or not user_id:
+            log.error("Missing payment_id or user_id in refund data")
+            return False
+
+        # Обновляем статус платежа
+        db.update_payment_status(payment_id, "refunded")
+
+        # Возвращаем монеты пользователю
+        # Для упрощения возвращаем эквивалент в монетах (примерно 1 монета = 15-20 рублей)
+        coins_to_refund = int(amount / 15)  # Примерный курс
+        if coins_to_refund > 0:
+            refund_coins(user_id, coins_to_refund, payment_id)
+            log.info("Refund processed for user %s: %s coins for payment %s", user_id, coins_to_refund, payment_id)
+            return True
+
+        log.info("Refund %s processed without coins refund", payment_id)
+        return True
+
+    except Exception as e:
+        log.error(f"Error processing refund: {e}")
         return False

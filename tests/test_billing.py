@@ -302,8 +302,8 @@ def test_activate_plan_adds_coins_and_sets_expiry(stub_db):
     assert result["plan"] == "lite"
     assert result["plan_expiry"] is None
 
-    result = activate_plan(1, "std")
-    assert result["plan"] == "std"
+    result = activate_plan(1, "standard")
+    assert result["plan"] == "standard"
     assert result["coins"] == 330  # 120 + 210
     assert result["plan_expiry"] is not None
 
@@ -315,7 +315,7 @@ def test_check_subscription_resets_expired_plan(stub_db):
     expired_user = {
         "user_id": 2,
         "coins": 50,
-        "plan": "std",
+        "plan": "standard",
         "plan_expiry": datetime.now(timezone.utc) - timedelta(days=1),
         "admin_coins": 0,
     }
