@@ -5,6 +5,17 @@ Billing system - coins, plans, payments
 
 # Старые импорты удалены - используем новую систему app.services.wallet
 
+# Импорты из plans.py
+from .plans import (
+    activate_plan,
+    check_subscription,
+    check_and_reset_expired_plans,
+    get_user_plan_info,
+    is_plan_active,
+    get_plan_expiry_text,
+    give_welcome_bonus
+)
+
 # Функции для совместимости с новой системой
 def can_spend(user_data, cost):
     """Проверка возможности трат"""
