@@ -1,60 +1,108 @@
 from typing import Optional
 from decimal import Decimal
 from app.services.pricing import feature_cost_coins, cogs_usd, calculate_coin_rate_rub, calculate_coin_rate_rub_topup
-from app.db.queries import execute_query, fetch_one, fetch_all
+from app.db.queries import db
 
 def get_balance(user_id: int) -> int:
     """Получить баланс монет пользователя"""
-    result = fetch_one(
-        "SELECT coins_balance FROM users_wallet WHERE user_id = %s",
-        (user_id,)
-    )
-    return result['coins_balance'] if result else 0
+    if not db.ensure_connection():
+        return 0
+    
+    try:
+        with db.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT coins_balance FROM users_wallet WHERE user_id = %s",
+                (user_id,)
+            )
+            result = cursor.fetchone()
+            return result[0] if result else 0
+    except Exception as e:
+        print(f"Error getting balance for user {user_id}: {e}")
+        return 0
 
 def set_balance(user_id: int, new_balance: int) -> None:
     """Установить новый баланс монет пользователя"""
-    execute_query(
-        """
-        INSERT INTO users_wallet (user_id, coins_balance) 
-        VALUES (%s, %s) 
-        ON CONFLICT (user_id) 
-        DO UPDATE SET coins_balance = %s
-        """,
-        (user_id, new_balance, new_balance)
-    )
+    if not db.ensure_connection():
+        return
+    
+    try:
+        with db.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO users_wallet (user_id, coins_balance) 
+                VALUES (%s, %s) 
+                ON CONFLICT (user_id) 
+                DO UPDATE SET coins_balance = %s
+                """,
+                (user_id, new_balance, new_balance)
+            )
+            db.connection.commit()
+    except Exception as e:
+        print(f"Error setting balance for user {user_id}: {e}")
 
 def get_user_tariff_info(user_id: int) -> Optional[dict]:
     """Получить информацию о тарифе пользователя"""
-    return fetch_one(
-        "SELECT active_tariff, tariff_expires_at FROM users_wallet WHERE user_id = %s",
-        (user_id,)
-    )
+    if not db.ensure_connection():
+        return None
+    
+    try:
+        with db.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT active_tariff, tariff_expires_at FROM users_wallet WHERE user_id = %s",
+                (user_id,)
+            )
+            result = cursor.fetchone()
+            if result:
+                return {
+                    'active_tariff': result[0],
+                    'tariff_expires_at': result[1]
+                }
+            return None
+    except Exception as e:
+        print(f"Error getting tariff info for user {user_id}: {e}")
+        return None
 
 def set_user_tariff(user_id: int, tariff_name: str, expires_at: str) -> None:
     """Установить тариф пользователя"""
-    execute_query(
-        """
-        INSERT INTO users_wallet (user_id, active_tariff, tariff_expires_at) 
-        VALUES (%s, %s, %s) 
-        ON CONFLICT (user_id) 
-        DO UPDATE SET active_tariff = %s, tariff_expires_at = %s
-        """,
-        (user_id, tariff_name, expires_at, tariff_name, expires_at)
-    )
+    if not db.ensure_connection():
+        return
+    
+    try:
+        with db.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO users_wallet (user_id, active_tariff, tariff_expires_at) 
+                VALUES (%s, %s, %s) 
+                ON CONFLICT (user_id) 
+                DO UPDATE SET active_tariff = %s, tariff_expires_at = %s
+                """,
+                (user_id, tariff_name, expires_at, tariff_name, expires_at)
+            )
+            db.connection.commit()
+    except Exception as e:
+        print(f"Error setting tariff for user {user_id}: {e}")
 
 def log_transaction(user_id: int, kind: str, coins_delta: int,
                    feature_key: Optional[str] = None,
                    rub_value: Optional[float] = None,
                    cogs_usd_value: Optional[float] = None) -> None:
     """Записать транзакцию в лог"""
-    execute_query(
-        """
-        INSERT INTO wallet_transactions 
-        (user_id, kind, feature_key, coins_delta, rub_value, cogs_usd, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, NOW())
-        """,
-        (user_id, kind, feature_key, coins_delta, rub_value, cogs_usd_value)
-    )
+    if not db.ensure_connection():
+        return
+    
+    try:
+        with db.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO wallet_transactions 
+                (user_id, kind, feature_key, coins_delta, rub_value, cogs_usd, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                """,
+                (user_id, kind, feature_key, coins_delta, rub_value, cogs_usd_value)
+            )
+            db.connection.commit()
+    except Exception as e:
+        print(f"Error logging transaction for user {user_id}: {e}")
 
 def charge_feature(user_id: int, feature_key: str) -> bool:
     """Списать монеты за использование функции"""
@@ -122,13 +170,33 @@ def buy_topup(user_id: int, pack_coins: int) -> None:
 
 def get_transaction_history(user_id: int, limit: int = 50) -> list:
     """Получить историю транзакций пользователя"""
-    return fetch_all(
-        """
-        SELECT kind, feature_key, coins_delta, rub_value, cogs_usd, created_at
-        FROM wallet_transactions 
-        WHERE user_id = %s 
-        ORDER BY created_at DESC 
-        LIMIT %s
-        """,
-        (user_id, limit)
-    )
+    if not db.ensure_connection():
+        return []
+    
+    try:
+        with db.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT kind, feature_key, coins_delta, rub_value, cogs_usd, created_at
+                FROM wallet_transactions 
+                WHERE user_id = %s 
+                ORDER BY created_at DESC 
+                LIMIT %s
+                """,
+                (user_id, limit)
+            )
+            results = cursor.fetchall()
+            return [
+                {
+                    'kind': row[0],
+                    'feature_key': row[1],
+                    'coins_delta': row[2],
+                    'rub_value': row[3],
+                    'cogs_usd': row[4],
+                    'created_at': row[5]
+                }
+                for row in results
+            ]
+    except Exception as e:
+        print(f"Error getting transaction history for user {user_id}: {e}")
+        return []
