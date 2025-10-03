@@ -126,31 +126,11 @@ def root():
         }
     }), 200
 
-def start_telegram_bot():
-    """Запуск Telegram бота в отдельном потоке"""
-    import threading
-    import subprocess
-    import sys
-    
-    def run_bot():
-        try:
-            log.info("Starting Telegram bot in background...")
-            subprocess.run([sys.executable, "main.py"], check=True)
-        except Exception as e:
-            log.error(f"Error running Telegram bot: {e}")
-    
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    return bot_thread
+# Удалено: автозапуск Telegram-бота из вебхука. Этот модуль теперь ТОЛЬКО веб-сервер.
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 8000))
     debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
-    
-    # Запускаем Telegram бота в фоновом режиме (только если не Railway)
-    # Railway лучше использовать отдельные сервисы
-    if not os.getenv('RAILWAY_ENVIRONMENT'):
-        start_telegram_bot()
     
     log.info(f"Starting webhook server on port {port}")
     app.run(host='0.0.0.0', port=port, debug=debug)
