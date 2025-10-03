@@ -889,8 +889,8 @@ def kb_home_inline():
         [InlineKeyboardButton("📸 Изменить фото", callback_data="menu_transforms")],
         [InlineKeyboardButton("👗 Виртуальная примерочная", callback_data="menu_tryon")],
         [InlineKeyboardButton("🧾 JSON (для продвинутых)", callback_data="menu_jsonpro")],
-        [InlineKeyboardButton("📚 Гайды / Оплата", callback_data="menu_guides")],
-        [InlineKeyboardButton("👤 Профиль / Баланс", callback_data="menu_profile")],
+        [InlineKeyboardButton("📚 Гайды", callback_data="menu_guides")],
+        [InlineKeyboardButton("👤 Профиль / Баланс 💰", callback_data="menu_profile")],
     ])
 
 def kb_modes():
@@ -1125,29 +1125,6 @@ def kb_video_result():
 # ТАРИФЫ И АДДОНЫ
 # -----------------------------------------------------------------------------
 
-def pricing_text() -> str:
-    return (
-        "💰 Тарифы\n\n"
-        "💳 *Подписки (на 30 дней)*\n\n"
-        "✨ *Лайт — 1 990 ₽*\n"
-        "🎟 120 монет\n\n"
-        "⭐ *Стандарт — 2 490 ₽* ⭐ РЕКОМЕНДУЕМ\n"
-        "🎟 210 монет\n\n"
-        "💎 *Про — 4 990 ₽*\n"
-        "🎟 440 монет\n\n"
-        "💡 *Подписки выгоднее разовых покупок!*"
-    )
-
-def pricing_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Купить «Лайт»", callback_data="plan:lite")],
-        [InlineKeyboardButton("Купить «Стандарт»", callback_data="plan:std")],
-        [InlineKeyboardButton("Купить «Про»", callback_data="plan:pro")],
-        [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
-        [InlineKeyboardButton("💰 Разовые пополнения", callback_data="show_coins")],
-        [InlineKeyboardButton("🎬 Стоимость операций", callback_data="show_costs")],
-        [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
-    ])
 
 def addons_text() -> str:
     return (
@@ -1163,21 +1140,12 @@ def addons_text() -> str:
         "💡 *Разовые покупки дороже подписок за монету!*"
     )
 
-def costs_text() -> str:
-    return (
-        "🎬 Стоимость операций\n\n"
-        "Видео (любое) → 10 монет\n\n"
-        "Фото базовое (ретушь, фон, полароид и т.п.) → 1 монета\n\n"
-        "Фото премиум (улучшенное качество) → 2 монеты\n\n"
-        "Виртуальная примерочная → 1 монета\n\n"
-        "💡 *Все операции списывают монеты с вашего баланса*"
-    )
 
 def addons_keyboard(order=None) -> InlineKeyboardMarkup:
     # order — список ключей в приоритетном порядке
     keys = order or ["v5", "v10", "p20", "p50", "mix"]
     rows = [[InlineKeyboardButton(ADDONS[k]["title"], callback_data=f"addon:{k}")] for k in keys]
-    rows.append([InlineKeyboardButton("← Назад к тарифам", callback_data="open:pricing")])
+    rows.append([InlineKeyboardButton("← Назад к тарифам", callback_data="show_plans")])
     return InlineKeyboardMarkup(rows)
 
 # -----------------------------------------------------------------------------
@@ -1344,7 +1312,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
-            [InlineKeyboardButton("💰 Монетки", callback_data="show_coins")],
+            [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
             [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
         ])
     )
@@ -1493,8 +1461,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("💰 Полный профиль", callback_data="show_profile")],
-            [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
-            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                    [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                    [InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")],
         ])
     )
 
@@ -2531,10 +2499,22 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=kb_jsonpro_start()
         ); return
     if data == "menu_guides":
-        await q.message.edit_text(pricing_text(), reply_markup=pricing_keyboard())
+        await q.message.edit_text(
+            "📚 <b>Гайды и инструкции</b>\n\n"
+            "Здесь будут размещены подробные инструкции по использованию бота:\n\n"
+            "• Как создавать качественные видео\n"
+            "• Секреты эффективных промтов\n"
+            "• Советы по работе с фото\n"
+            "• FAQ и решение проблем\n\n"
+            "Раздел в разработке...",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+            ])
+        )
         return
     if data == "menu_profile":
-        coins = st.get("coins", 0)
+        coins = get_balance(uid)
         admin_coins = st.get("admin_coins", 0)
         plan = st.get("plan", "lite")
         tariffs = get_available_tariffs()
@@ -2542,7 +2522,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         plan_name = plan_info.name if plan_info else "Лайт"
         plan_expiry = st.get("plan_expiry")
 
-        profile_text = "👤 Профиль\n\n"
+        profile_text = "👤 <b>Профиль / Баланс 💰</b>\n\n"
 
         if uid == 5015100177:
             profile_text += f"⭐️ БАЛАНС АДМИНА: {admin_coins} монеток\n\n"
@@ -2557,17 +2537,87 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-        profile_text += ("\n💡 Стоимость генераций:\n"
-                         "• Видео и JSON — 10 монет\n"
-                         "• Фото: 1 (быстро) или 2 (премиум) монеты\n"
-                         "• Примерочная — 1 монета")
+        profile_text += ("\n💡 <b>Стоимость генераций:</b>\n"
+                         "• Видео со звуком — 20 монет\n"
+                         "• Видео без звука — 16 монет\n"
+                         "• Фото-инструменты — 1 монета\n"
+                         "• Примерочная — 3 монеты")
 
         await q.message.edit_text(
             profile_text,
+            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
-                [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("➕ Пополнить монеты", callback_data="show_topup")],
+                [InlineKeyboardButton("📊 История операций", callback_data="show_history")],
                 [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+            ])
+        )
+        return
+
+    # --- История операций ---
+    if data == "show_history":
+        from app.services.wallet import get_transaction_history
+        
+        transactions = get_transaction_history(uid, limit=10)
+        
+        if not transactions:
+            await q.message.edit_text(
+                "📊 <b>История операций</b>\n\n"
+                "У вас пока нет операций с монетами.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="menu_profile")],
+                ])
+            )
+            return
+        
+        history_text = "📊 <b>История операций</b>\n\n"
+        
+        for tx in transactions:
+            kind = tx.get('kind', 'unknown')
+            coins_delta = tx.get('coins_delta', 0)
+            feature_key = tx.get('feature_key', '')
+            rub_value = tx.get('rub_value', 0)
+            created_at = tx.get('created_at', '')
+            
+            # Форматируем дату
+            try:
+                from datetime import datetime
+                if isinstance(created_at, str):
+                    dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                else:
+                    dt = created_at
+                date_str = dt.strftime('%d.%m %H:%M')
+            except:
+                date_str = str(created_at)[:16]
+            
+            # Определяем тип операции
+            if kind == "tariff_purchase":
+                operation = f"📋 Покупка тарифа (+{coins_delta})"
+            elif kind == "topup_purchase":
+                operation = f"➕ Пополнение (+{coins_delta})"
+            elif kind == "feature_charge":
+                feature_names = {
+                    "video_8s_audio": "🎬 Видео со звуком",
+                    "video_8s_mute": "🎬 Видео без звука", 
+                    "image_basic": "📸 Фото",
+                    "virtual_tryon": "👗 Примерка"
+                }
+                feature_name = feature_names.get(feature_key, "🔧 Операция")
+                operation = f"{feature_name} (-{abs(coins_delta)})"
+            else:
+                operation = f"🔧 {kind} ({coins_delta:+d})"
+            
+            history_text += f"{date_str} — {operation}\n"
+        
+        history_text += f"\n💡 Показаны последние {len(transactions)} операций"
+        
+        await q.message.edit_text(
+            history_text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Назад", callback_data="menu_profile")],
             ])
         )
         return
@@ -2761,7 +2811,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📞 Обратитесь к администратору для настройки платежей.",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
-                        [InlineKeyboardButton("← Назад к тарифам", callback_data="open:pricing")],
+                        [InlineKeyboardButton("← Назад к тарифам", callback_data="show_plans")],
                     ])
                 )
             else:
@@ -2776,7 +2826,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
                         [InlineKeyboardButton("📋 Оферта", callback_data="show_terms")],
-                        [InlineKeyboardButton("← Назад к тарифам", callback_data="open:pricing")],
+                        [InlineKeyboardButton("← Назад к тарифам", callback_data="show_plans")],
                     ])
                 )
         except Exception as e:
@@ -2790,7 +2840,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📞 Обратитесь в поддержку для решения вопроса.",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
-                        [InlineKeyboardButton("← Назад", callback_data="open:pricing")],
+                        [InlineKeyboardButton("← Назад", callback_data="show_plans")],
                     ])
                 )
             else:
@@ -2799,7 +2849,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"Попробуйте позже или обратитесь в поддержку.",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
-                        [InlineKeyboardButton("← Назад", callback_data="open:pricing")],
+                        [InlineKeyboardButton("← Назад", callback_data="show_plans")],
                     ])
                 )
         return
@@ -2875,7 +2925,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
-                [InlineKeyboardButton("💰 Монетки", callback_data="show_coins")],
+                [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
                 [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
             ])
         )
@@ -2893,7 +2943,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
-                [InlineKeyboardButton("💰 Монетки", callback_data="show_coins")],
+                [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
                 [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
             ])
         )
@@ -2914,7 +2964,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )])
         
         keyboard.append([InlineKeyboardButton("➕ Пополнить монеты", callback_data="show_topup")])
-        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
+        keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
         
         full_text = f"{plans_text}\n\n{costs_text}"
         
@@ -2938,7 +2988,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )])
         
         keyboard.append([InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")])
-        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
+        keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
         
         await q.message.edit_text(
             topup_text,
@@ -2977,8 +3027,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
-                        [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
-                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                    [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                    [InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")],
                     ])
                 )
             except Exception as e:
@@ -2986,8 +3036,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await q.message.edit_text(
                     "❌ Ошибка создания платежа. Попробуйте позже.",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
-                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                    [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                    [InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")],
                     ])
                 )
         except ValueError:
@@ -3074,7 +3124,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
-                    [InlineKeyboardButton("💰 Все пакеты", callback_data="show_coins")],
+                    [InlineKeyboardButton("💰 Все пакеты", callback_data="show_topup")],
                     [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
                 ])
             )
@@ -3090,49 +3140,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
     
-    if data == "show_coins":
-        from app.billing.config import TOP_UPS
-        
-        text = "💰 Разовые пополнения\n\n"
-        text += "20 монет — 390 ₽\n"
-        text += "50 монет — 890 ₽\n"
-        text += "100 монет — 1 490 ₽\n"
-        text += "300 монет — 3 990 ₽\n"
-        text += "700 монет — 9 990 ₽\n\n"
-        text += "💡 *Разовые покупки дороже подписок за монету!*"
-        
-        keyboard = []
-        for package in TOP_UPS:
-            keyboard.append([InlineKeyboardButton(
-                f"💎 {package['coins']} монет — {package['price_rub']:,} ₽",
-                callback_data=f"buy_coins_{package['coins']}"
-            )])
-        
-        keyboard.append([InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")])
-        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
-        
-        await q.message.edit_text(
-            text,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
     
-    # Стоимость операций
-    if data == "show_costs":
-        await q.edit_message_text(
-            costs_text(),
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
-            ])
-        )
-        return
-    
-    # Навигация
-    if data == "open:pricing":
-        await q.edit_message_text(pricing_text(), reply_markup=pricing_keyboard())
-        return
     
     # Показать оферту
     if data == "show_terms":
@@ -3734,7 +3742,7 @@ Telegram бот "Babka Bot"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
@@ -4165,7 +4173,7 @@ Telegram бот "Babka Bot"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
@@ -4183,7 +4191,7 @@ Telegram бот "Babka Bot"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
@@ -4304,7 +4312,7 @@ Telegram бот "Babka Bot"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
@@ -4322,7 +4330,7 @@ Telegram бот "Babka Bot"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="open:pricing")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
