@@ -34,9 +34,9 @@ class TestPricingConsistency:
         # Проверяем наличие тарифов (количество монет)
         tariffs = get_available_tariffs()
         for tariff_name, tariff in tariffs.items():
-            assert str(tariff.coins) in plans_text
+            assert str(tariff["coins"]) in plans_text
             # Цены форматируются с запятыми
-            assert f"{tariff.price_rub:,}" in plans_text
+            assert f"{tariff['price']:,}" in plans_text
     
     def test_format_feature_costs_uses_coins_only(self):
         """Проверяем, что стоимость функций отображается только в монетах"""
@@ -88,14 +88,14 @@ class TestPricingConsistency:
         assert "pro" in tariffs
         
         # Проверяем цены
-        assert tariffs["lite"].price_rub == 1990
-        assert tariffs["lite"].coins == 120
+        assert tariffs["lite"]["price"] == 1990
+        assert tariffs["lite"]["coins"] == 120
         
-        assert tariffs["standard"].price_rub == 2490
-        assert tariffs["standard"].coins == 210
+        assert tariffs["standard"]["price"] == 2490
+        assert tariffs["standard"]["coins"] == 210
         
-        assert tariffs["pro"].price_rub == 4990
-        assert tariffs["pro"].coins == 440
+        assert tariffs["pro"]["price"] == 4990
+        assert tariffs["pro"]["coins"] == 440
     
     def test_feature_costs_match_config(self):
         """Проверяем, что стоимость функций соответствует конфигурации"""

@@ -109,7 +109,7 @@ def activate_plan(user_id: int, plan_key: str) -> Optional[Dict[str, Any]]:
         
         with db.connection.cursor() as cursor:
             # Начисляем монеты за план
-            coins_to_add = tariff.coins
+            coins_to_add = tariff["coins"]
             add_coins(user_id, coins_to_add, f"plan:{plan_key}")
             
             # Устанавливаем план и срок действия

@@ -184,13 +184,13 @@ def test_activate_plan_adds_coins_and_sets_expiry(stub_db):
 
     tariffs = get_available_tariffs()
     result = activate_plan(1, "lite")
-    assert result["coins"] == tariffs["lite"].coins
+    assert result["coins"] == tariffs["lite"]["coins"]
     assert result["plan"] == "lite"
     assert result["plan_expiry"] is None
 
     result = activate_plan(1, "standard")
     assert result["plan"] == "standard"
-    assert result["coins"] == tariffs["lite"].coins + tariffs["standard"].coins
+    assert result["coins"] == tariffs["lite"]["coins"] + tariffs["standard"]["coins"]
     expiry = result["plan_expiry"]
     assert isinstance(expiry, datetime)
     if expiry.tzinfo:
@@ -231,8 +231,8 @@ def test_get_user_plan_info(stub_db):
     plan_info = get_user_plan_info(3)
     assert plan_info["plan"] == "standard"
     assert plan_info["is_active"] is True
-    assert plan_info["plan_info"].price_rub == 2490
-    assert plan_info["plan_info"].coins == 210
+    assert plan_info["plan_info"]["price"] == 2490
+    assert plan_info["plan_info"]["coins"] == 210
 
 
 def test_plan_expiry_text(stub_db):
@@ -325,4 +325,4 @@ def test_plan_extension(stub_db):
     assert result["plan"] == "standard"
     assert result["plan_expiry"] > original_expiry
     tariffs = get_available_tariffs()
-    assert result["coins"] == 100 + tariffs["standard"].coins  # старые + новые монеты
+    assert result["coins"] == 100 + tariffs["standard"]["coins"]  # старые + новые монеты
