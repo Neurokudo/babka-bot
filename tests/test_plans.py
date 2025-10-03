@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.billing.plans import activate_plan, check_subscription, get_user_plan_info
-from app.config.pricing import TARIFFS
+from app.services.pricing import get_available_tariffs
 
 
 class StubCursor:
@@ -182,14 +182,15 @@ def test_activate_plan_adds_coins_and_sets_expiry(stub_db):
     }
     stub_db.users[1] = user
 
+    tariffs = get_available_tariffs()
     result = activate_plan(1, "lite")
-    assert result["coins"] == TARIFFS["lite"].coins
+    assert result["coins"] == tariffs["lite"].coins
     assert result["plan"] == "lite"
     assert result["plan_expiry"] is None
 
     result = activate_plan(1, "standard")
     assert result["plan"] == "standard"
-    assert result["coins"] == TARIFFS["lite"].coins + TARIFFS["standard"].coins
+    assert result["coins"] == tariffs["lite"].coins + tariffs["standard"].coins
     expiry = result["plan_expiry"]
     assert isinstance(expiry, datetime)
     if expiry.tzinfo:
@@ -323,4 +324,5 @@ def test_plan_extension(stub_db):
     # План должен быть продлен на 30 дней
     assert result["plan"] == "standard"
     assert result["plan_expiry"] > original_expiry
-    assert result["coins"] == 100 + TARIFFS["standard"].coins  # старые + новые монеты
+    tariffs = get_available_tariffs()
+    assert result["coins"] == 100 + tariffs["standard"].coins  # старые + новые монеты

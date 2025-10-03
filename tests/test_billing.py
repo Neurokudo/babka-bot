@@ -10,9 +10,10 @@ if str(ROOT) not in sys.path:
 
 from app.billing.coins import atomic_spend_coins, add_coins, get_balance, can_afford
 from app.billing.plans import check_subscription, activate_plan, give_welcome_bonus
-from app.config.pricing import FEATURE_COSTS
+from app.services.pricing import get_available_features
 
-# Стоимость операций в монетах (перенесено из старого конфига)
+# Стоимость операций в монетах (получаем из services/pricing.py)
+FEATURE_COSTS = get_available_features()
 COST_VIDEO = FEATURE_COSTS["video_8s_audio"]  # 20 монет
 COST_TRANSFORM = FEATURE_COSTS["image_basic"]  # 1 монета
 COST_TRANSFORM_PREMIUM = FEATURE_COSTS["image_basic"]  # 1 монета (базовое качество)

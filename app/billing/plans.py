@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 from app.db.queries import db
-from app.config.pricing import TARIFFS
+from app.services.pricing import get_available_tariffs
 from app.billing.coins import add_coins
 
 # Админ ID (перенесен из старого конфига)
@@ -97,7 +97,8 @@ def activate_plan(user_id: int, plan_key: str) -> Optional[Dict[str, Any]]:
     Returns:
         Обновленные данные пользователя или None если план не найден
     """
-    tariff = TARIFFS.get(plan_key)
+    tariffs = get_available_tariffs()
+    tariff = tariffs.get(plan_key)
     if not tariff:
         log.error(f"Unknown plan: {plan_key}")
         return None
@@ -211,7 +212,7 @@ def get_user_plan_info(user_id: int) -> Dict[str, Any]:
             "plan": plan,
             "plan_expiry": plan_expiry,
             "is_active": is_active,
-            "plan_info": TARIFFS.get(plan)
+            "plan_info": get_available_tariffs().get(plan)
         }
         
     except Exception as e:
