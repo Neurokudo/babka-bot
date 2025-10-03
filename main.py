@@ -76,10 +76,12 @@ DEFAULT_AUDIO = True  # по умолчанию с аудио
 # -----------------------------------------------------------------------------
 # КОНФИГУРАЦИЯ И БИЛЛИНГ
 # -----------------------------------------------------------------------------
-from app.billing.config import (
-    COST_VIDEO, COST_TRANSFORM, COST_TRANSFORM_PREMIUM, COST_TRYON,
-    LOW_COINS_THRESHOLD,
-    PLANS, TOP_UPS, ADDONS, IMG_SIZE, QUALITY
+from app.services.pricing import (
+    feature_cost_coins, get_available_tariffs, get_available_topup_packs,
+    calculate_coin_rate_rub, calculate_coin_rate_rub_topup
+)
+from app.services.wallet import (
+    get_balance, charge_feature, buy_tariff, buy_topup, get_user_tariff_info
 )
 from payment_yookassa import create_payment_link, process_payment_webhook
 from app.billing import (
@@ -114,10 +116,11 @@ def _format_plan_expiry(value) -> Optional[str]:
 
 def format_user_status(user: Dict[str, Any]) -> str:
     user = check_subscription(user)
-    coins = user.get("coins", 0)
+    coins = get_balance(user.get("user_id", 0))
     plan_key = user.get("plan", "lite")
-    plan_info = PLANS.get(plan_key, {})
-    plan_name = plan_info.get("name", plan_key.title())
+    tariffs = get_available_tariffs()
+    plan_info = tariffs.get(plan_key, {})
+    plan_name = plan_info.name if hasattr(plan_info, 'name') else plan_key.title()
 
     text = "💰 <b>Ваш профиль</b>\n\n"
     text += f"💎 Монеток: {coins}\n"
@@ -132,13 +135,40 @@ def format_user_status(user: Dict[str, Any]) -> str:
 
 
 def format_plans_list() -> str:
-    lines = ["📋 <b>Тарифные планы</b>\n"]
-    for key, info in PLANS.items():
-        icon = "✨" if key == "lite" else "⭐" if info.get("recommended") else "💎"
-        lines.append(f"{icon} <b>{info['name']}</b> — {info['price_rub']:,} ₽")
-        lines.append(f"💎 {info['coins']} монет")
-        lines.append("Действует 30 дней\n")
-    lines.append("🔁 Тарифы выгоднее разовых пополнений.")
+    lines = ["💰 <b>Тарифы (30 дней)</b>\n"]
+    tariffs = get_available_tariffs()
+    for key, tariff in tariffs.items():
+        icon = "✨" if key == "lite" else "⭐" if key == "standard" else "💎"
+        lines.append(f"{icon} <b>{key.title()}</b> — {tariff.price_rub:,} ₽")
+        lines.append(f"🎟 {tariff.coins} монет")
+        lines.append("")
+    return "\n".join(lines)
+
+def format_topup_packs() -> str:
+    """Форматирование пакетов пополнения"""
+    lines = ["➕ <b>Пополнить монеты</b>\n"]
+    topup_packs = get_available_topup_packs()
+    
+    # Группируем пакеты по 2 в строку
+    pack_items = list(topup_packs.items())
+    for i in range(0, len(pack_items), 2):
+        line_parts = []
+        for j in range(i, min(i + 2, len(pack_items))):
+            coins, price = pack_items[j]
+            line_parts.append(f"{coins} — {price:,} ₽")
+        lines.append(" · ".join(line_parts))
+    
+    lines.append("\n💡 Докупка монет не продлевает подписку.")
+    return "\n".join(lines)
+
+def format_feature_costs() -> str:
+    """Форматирование стоимости функций"""
+    lines = ["🎬 <b>Видео (8 сек)</b>"]
+    lines.append("🔊 Со звуком — 20 монет")
+    lines.append("🔇 Без звука — 16 монет")
+    lines.append("")
+    lines.append("📸 <b>Фото-инструменты</b> — 1 монета")
+    lines.append("👗 <b>Примерка одежды</b> — 3 монеты")
     return "\n".join(lines)
 
 # -----------------------------------------------------------------------------
@@ -1016,7 +1046,8 @@ def kb_tryon_need_garment():
     ])
 
 def kb_tryon_confirm():
-    button_text = f"✨ Примерить (−{COST_TRYON} монет)"
+    cost = feature_cost_coins("virtual_tryon")
+    button_text = f"✨ Примерить (−{cost} монет)"
 
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(button_text, callback_data="tryon_confirm")],
@@ -1050,30 +1081,32 @@ def kb_jsonpro_after_text():
 
 # Новые клавиатуры для "Измени фото"
 def kb_transforms():
+    cost = feature_cost_coins("image_basic")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✨ Удалить фон (−1 монетка)", callback_data="transform_remove_bg")],
-        [InlineKeyboardButton("👥 Совместить людей (−1 монетка)", callback_data="transform_merge_people")],
-        [InlineKeyboardButton("🧩 Внедрить объект на фото (−1 монетка)", callback_data="transform_inject_object")],
-        [InlineKeyboardButton("🪄 Магическая ретушь (−1 монетка)", callback_data="transform_retouch")],
-        [InlineKeyboardButton("📷 Polaroid (−1 монетка)", callback_data="transform_polaroid")],
+        [InlineKeyboardButton(f"✨ Удалить фон (−{cost} монетка)", callback_data="transform_remove_bg")],
+        [InlineKeyboardButton(f"👥 Совместить людей (−{cost} монетка)", callback_data="transform_merge_people")],
+        [InlineKeyboardButton(f"🧩 Внедрить объект на фото (−{cost} монетка)", callback_data="transform_inject_object")],
+        [InlineKeyboardButton(f"🪄 Магическая ретушь (−{cost} монетка)", callback_data="transform_retouch")],
+        [InlineKeyboardButton(f"📷 Polaroid (−{cost} монетка)", callback_data="transform_polaroid")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
     ])
 
 def kb_transform_quality():
+    basic_cost = feature_cost_coins("image_basic")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ Быстрое −1 монетка", callback_data="quality_basic")],
-        [InlineKeyboardButton("🎨 Премиум −2 монетки", callback_data="quality_premium")],
+        [InlineKeyboardButton(f"⚡ Быстрое −{basic_cost} монетка", callback_data="quality_basic")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
     ])
 
 def kb_transform_result():
+    cost = feature_cost_coins("image_basic")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Ещё вариант (−1 монетка)", callback_data="transform_retry")],
+        [InlineKeyboardButton(f"🔄 Ещё вариант (−{cost} монетка)", callback_data="transform_retry")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
     ])
 
 def kb_video_generate(with_audio=True):
-    cost = 10  # COST_VIDEO
+    cost = feature_cost_coins("video_8s_audio" if with_audio else "video_8s_mute")
     audio_text = "🔊 Со звуком" if with_audio else "🔇 Тихий режим"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"🚀 Сгенерировать ролик (−{cost} монеток)", callback_data="generate_now")],
@@ -1082,8 +1115,9 @@ def kb_video_generate(with_audio=True):
     ])
 
 def kb_video_result():
+    cost = feature_cost_coins("video_8s_audio")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Сделать ещё вариант (−10 монеток)", callback_data="video_retry")],
+        [InlineKeyboardButton(f"🔄 Сделать ещё вариант (−{cost} монеток)", callback_data="video_retry")],
         [InlineKeyboardButton("⬅️ Главное меню", callback_data="back_home")],
     ])
 
@@ -1254,8 +1288,9 @@ async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextT
                         plan = payment_data.get("metadata", {}).get("plan")
                         
                         if plan:
-                            plan_info = PLANS.get(plan, {})
-                            plan_name = plan_info.get("name", plan)
+                            tariffs = get_available_tariffs()
+                            plan_info = tariffs.get(plan)
+                            plan_name = plan_info.name if plan_info else plan.title()
                             
                             message = (
                                 f"✅ <b>Тариф активирован!</b>\n\n"
@@ -1360,30 +1395,30 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     plan_name = args[0].lower()
-    from app.billing.config import PLANS
+    tariffs = get_available_tariffs()
     
-    if plan_name not in PLANS:
+    if plan_name not in tariffs:
         await update.message.reply_text(
             f"❌ Неизвестный тариф: {plan_name}\n\n"
-            "Доступные тарифы: lite, std, pro"
+            "Доступные тарифы: lite, standard, pro"
         )
         return
     
-    plan_info = PLANS[plan_name]
+    plan_info = tariffs[plan_name]
     
     try:
         from payment_yookassa import create_payment_link
         payment_url = create_payment_link(
             user_id=uid,
-            amount=plan_info["price_rub"],
-            description=f"Тариф {plan_info['name']}",
+            amount=plan_info.price_rub,
+            description=f"Тариф {plan_name.title()}",
             plan=plan_name
         )
         
         await update.message.reply_text(
-            f"💳 <b>Оплата тарифа {plan_info['name']}</b>\n\n"
-            f"💰 Сумма: {plan_info['price_rub']:,} ₽\n"
-            f"🪙 Монеты: {plan_info['coins']}\n\n"
+            f"💳 <b>Оплата тарифа {plan_name.title()}</b>\n\n"
+            f"💰 Сумма: {plan_info.price_rub:,} ₽\n"
+            f"🪙 Монеты: {plan_info.coins}\n\n"
             f"⏰ Тариф действует 30 дней\n"
             f"💡 Монеты тратятся на все операции: видео, фото, примерочную\n\n"
             f"Нажмите кнопку ниже для оплаты:",
@@ -2502,7 +2537,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         coins = st.get("coins", 0)
         admin_coins = st.get("admin_coins", 0)
         plan = st.get("plan", "lite")
-        plan_name = PLANS.get(plan, {}).get("name", "Лайт")
+        tariffs = get_available_tariffs()
+        plan_info = tariffs.get(plan)
+        plan_name = plan_info.name if plan_info else "Лайт"
         plan_expiry = st.get("plan_expiry")
 
         profile_text = "👤 Профиль\n\n"
@@ -2573,9 +2610,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Смена тарифа ---
     if data == "change_plan":
         buttons = []
-        for plan_id, plan_data in PLANS.items():
-            label = f"{plan_data['name']} — {plan_data['price_rub']} ₽ • {plan_data['coins']} монеток"
-            if plan_data.get("recommended"):
+        tariffs = get_available_tariffs()
+        for plan_id, plan_data in tariffs.items():
+            label = f"{plan_id.title()} — {plan_data.price_rub} ₽ • {plan_data.coins} монеток"
+            if plan_id == "standard":
                 label += " (Рекомендуем)"
             buttons.append([InlineKeyboardButton(label, callback_data=f"plan_{plan_id}")])
         
@@ -2591,13 +2629,14 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Обработка выбора тарифа ---
     if data.startswith("plan_"):
         plan_id = data.split("_")[1]
-        if plan_id in PLANS:
-            plan_data = PLANS[plan_id]
+        tariffs = get_available_tariffs()
+        if plan_id in tariffs:
+            plan_data = tariffs[plan_id]
 
             await q.message.edit_text(
-                f"📊 Тариф {plan_data['name']}\n\n"
-                f"💰 Цена: {plan_data['price_rub']} ₽\n"
-                f"🪙 Монеты: {plan_data['coins']}\n"
+                f"📊 Тариф {plan_id.title()}\n\n"
+                f"💰 Цена: {plan_data.price_rub} ₽\n"
+                f"🪙 Монеты: {plan_data.coins}\n"
                 f"🗓 Действует: 30 дней\n\n"
                 "Функция оплаты тарифа появится позже.",
                 reply_markup=InlineKeyboardMarkup([
@@ -2697,13 +2736,14 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Покупка тарифа
     if data.startswith("plan:"):
         plan_key = data.split(":")[1]
-        plan = PLANS[plan_key]
+        tariffs = get_available_tariffs()
+        plan = tariffs[plan_key]
         
         try:
             payment_url = create_payment_link(
                 user_id=q.from_user.id,
-                amount=plan["price_rub"],
-                description=f"Тариф {plan['name']} — {plan['coins']} монет",
+                amount=plan.price_rub,
+                description=f"Тариф {plan_key.title()} — {plan.coins} монет",
                 metadata={"plan": plan_key, "type": "plan"}
             )
             
@@ -2861,49 +2901,122 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if data == "show_plans":
         plans_text = format_plans_list()
+        costs_text = format_feature_costs()
         
         # Создаем кнопки для покупки тарифов
         keyboard = []
-        for plan_key, plan_info in PLANS.items():
-            emoji = "✨" if plan_key == "lite" else "⭐" if plan_key == "std" else "💎"
+        tariffs = get_available_tariffs()
+        for plan_key, plan_info in tariffs.items():
+            emoji = "✨" if plan_key == "lite" else "⭐" if plan_key == "standard" else "💎"
             keyboard.append([InlineKeyboardButton(
-                f"{emoji} {plan_info['name']} — {plan_info['price_rub']:,} ₽",
+                f"{emoji} {plan_key.title()} — {plan_info.price_rub:,} ₽",
                 callback_data=f"buy_plan_{plan_key}"
             )])
         
+        keyboard.append([InlineKeyboardButton("➕ Пополнить монеты", callback_data="show_topup")])
         keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
         
+        full_text = f"{plans_text}\n\n{costs_text}"
+        
         await q.message.edit_text(
-            plans_text,
+            full_text,
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
     
+    if data == "show_topup":
+        topup_text = format_topup_packs()
+        
+        # Создаем кнопки для покупки пакетов пополнения
+        keyboard = []
+        topup_packs = get_available_topup_packs()
+        for coins, price in topup_packs.items():
+            keyboard.append([InlineKeyboardButton(
+                f"{coins} монет — {price:,} ₽",
+                callback_data=f"buy_topup_{coins}"
+            )])
+        
+        keyboard.append([InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")])
+        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
+        
+        await q.message.edit_text(
+            topup_text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+    
+    if data.startswith("buy_topup_"):
+        coins_str = data.replace("buy_topup_", "")
+        try:
+            coins = int(coins_str)
+            topup_packs = get_available_topup_packs()
+            
+            if coins not in topup_packs:
+                await q.message.edit_text("❌ Неизвестный пакет пополнения")
+                return
+            
+            price = topup_packs[coins]
+            
+            try:
+                from payment_yookassa import create_payment_link
+                payment_url = create_payment_link(
+                    user_id=uid,
+                    amount=price,
+                    description=f"Пополнение {coins} монет",
+                    metadata={"coins": coins, "type": "topup"}
+                )
+                
+                await q.message.edit_text(
+                    f"💳 <b>Пополнение {coins} монет</b>\n\n"
+                    f"💰 Сумма: {price:,} ₽\n"
+                    f"🎟 Монеты: {coins}\n\n"
+                    f"💡 Докупка монет не продлевает подписку.\n\n"
+                    f"Нажмите кнопку ниже для оплаты:",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
+                        [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                    ])
+                )
+            except Exception as e:
+                log.error(f"Error creating topup payment: {e}")
+                await q.message.edit_text(
+                    "❌ Ошибка создания платежа. Попробуйте позже.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                    ])
+                )
+        except ValueError:
+            await q.message.edit_text("❌ Неверный формат пакета")
+        return
+    
     if data.startswith("buy_plan_"):
         plan_name = data.replace("buy_plan_", "")
-        from app.billing.config import PLANS
+        tariffs = get_available_tariffs()
         
-        if plan_name not in PLANS:
+        if plan_name not in tariffs:
             await q.message.edit_text("❌ Неизвестный тариф")
             return
         
-        plan_info = PLANS[plan_name]
+        plan_info = tariffs[plan_name]
         
         try:
             from payment_yookassa import create_payment_link
             payment_url = create_payment_link(
                 user_id=uid,
-                amount=plan_info["price_rub"],
-                description=f"Тариф {plan_info['name']}",
+                amount=plan_info.price_rub,
+                description=f"Тариф {plan_name.title()}",
                 plan=plan_name
             )
             
             await q.message.edit_text(
-                f"💳 <b>Оплата тарифа {plan_info['name']}</b>\n\n"
-                f"💰 Сумма: {plan_info['price_rub']:,} ₽\n"
-                f"{plan_info['description']}\n"
-                f"💎 {plan_info['coins']} монеток\n\n"
+                f"💳 <b>Оплата тарифа {plan_name.title()}</b>\n\n"
+                f"💰 Сумма: {plan_info.price_rub:,} ₽\n"
+                f"💎 {plan_info.coins} монеток\n\n"
                 f"⏰ Тариф действует 30 дней\n"
                 f"💡 Подписки выгоднее разовых покупок!\n\n"
                 f"Нажмите кнопку ниже для оплаты:",
@@ -3613,10 +3726,11 @@ Telegram бот "Babka Bot"
         try:
             job_id = hold_and_start(st, "tryon")
         except ValueError:
-            coins = st.get("coins", 0)
+            coins = get_balance(uid)
+            cost = feature_cost_coins("virtual_tryon")
             await q.message.reply_text(
                 "❌ Не хватает монет для примерочной.\n\n"
-                f"💰 Монеток: {coins} (нужно: {COST_TRYON})\n\n"
+                f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
@@ -4043,10 +4157,11 @@ Telegram бот "Babka Bot"
         if not st.get("orientation"): st["orientation"] = DEFAULT_ORIENTATION
 
         if not can_generate_video(st):
-            coins = st.get("coins", 0)
+            coins = get_balance(uid)
+            cost = feature_cost_coins("video_8s_audio")
             await q.message.reply_text(
                 f"❌ Не хватает монет для генерации видео.\n\n"
-                f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
+                f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
@@ -4060,10 +4175,11 @@ Telegram бот "Babka Bot"
             job_id = hold_and_start(st, "video")
             st["current_job_id"] = job_id
         except ValueError:
-            coins = st.get("coins", 0)
+            coins = get_balance(uid)
+            cost = feature_cost_coins("video_8s_audio")
             await q.message.reply_text(
                 f"❌ Не хватает монет для генерации видео.\n\n"
-                f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
+                f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
@@ -4180,10 +4296,11 @@ Telegram бот "Babka Bot"
                                       reply_markup=kb_jsonpro_start()); return
         orr = st["jsonpro"].get("orientation", DEFAULT_ORIENTATION)
         if not can_generate_json(st):
-            coins = st.get("coins", 0)
+            coins = get_balance(uid)
+            cost = feature_cost_coins("video_8s_audio")
             await q.message.reply_text(
                 f"❌ Не хватает монет для JSON-генерации.\n\n"
-                f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
+                f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
@@ -4197,10 +4314,11 @@ Telegram бот "Babka Bot"
             job_id = hold_and_start(st, "json")
             st["current_job_id"] = job_id
         except ValueError:
-            coins = st.get("coins", 0)
+            coins = get_balance(uid)
+            cost = feature_cost_coins("video_8s_audio")
             await q.message.reply_text(
                 f"❌ Не хватает монет для JSON-генерации.\n\n"
-                f"💰 Монеток: {coins} (нужно: {COST_VIDEO})\n\n"
+                f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
