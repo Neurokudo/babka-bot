@@ -4303,8 +4303,8 @@ def _acquire_singleton_lock() -> None:
         sys.exit(0)
 
 
-def main():
-    _acquire_singleton_lock()
+def create_app():
+    """Создание Telegram Application для использования в webhook режиме"""
     if not BOT_TOKEN:
         raise RuntimeError("Не найден TELEGRAM_TOKEN / BOT_TOKEN")
     
@@ -4321,15 +4321,17 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))  # приём фото (примерочная)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     
-    log.info("Bot is running…")
-    # Явно удаляем вебхук перед стартом polling (доп. гарантия)
-    try:
-        import asyncio
-        asyncio.get_event_loop().run_until_complete(app.bot.delete_webhook(drop_pending_updates=True))
-    except Exception:
-        pass
-    # Запускаем polling
-    app.run_polling(drop_pending_updates=True)
+    return app
+
+def main():
+    """Основная функция для запуска бота в webhook режиме"""
+    _acquire_singleton_lock()
+    app = create_app()
+    
+    log.info("Bot is running in webhook mode…")
+    # Webhook режим - бот будет получать обновления через webhook_server.py
+    # Не запускаем polling, чтобы избежать конфликтов
+    pass
 
 if __name__ == "__main__":
     main()

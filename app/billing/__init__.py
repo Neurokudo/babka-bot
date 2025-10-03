@@ -3,38 +3,7 @@
 Billing system - coins, plans, payments
 """
 
-# Импорты из подмодулей
-from .coins import (
-    atomic_spend_coins,
-    add_coins,
-    get_balance,
-    can_afford,
-    add_admin_coins,
-    get_admin_balance,
-    update_transaction_status,
-    refund_coins,
-)
-
-from .plans import (
-    check_subscription,
-    activate_plan,
-    check_and_reset_expired_plans,
-    get_user_plan_info,
-    is_plan_active,
-    get_plan_expiry_text,
-    give_welcome_bonus,
-)
-
-from .payments import (
-    create_payment_record,
-    update_payment_status,
-    process_payment_success,
-    process_payment_failure,
-    is_payment_processed,
-    get_payment_by_idempotent_key,
-    validate_webhook_signature,
-    process_yookassa_webhook,
-)
+# Старые импорты удалены - используем новую систему app.services.wallet
 
 # Функции для совместимости с новой системой
 def can_spend(user_data, cost):

@@ -28,10 +28,8 @@ def init_telegram_app():
     """Инициализация Telegram Application для отправки сообщений"""
     global telegram_app
     if telegram_app is None:
-        bot_token = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
-        if not bot_token:
-            raise RuntimeError("Не найден TELEGRAM_TOKEN / BOT_TOKEN")
-        telegram_app = Application.builder().token(bot_token).build()
+        from main import create_app
+        telegram_app = create_app()
     return telegram_app
 
 @app.route('/webhook/yookassa', methods=['POST'])
