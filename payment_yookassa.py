@@ -325,7 +325,7 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
     """Обработать успешный платеж и активировать тариф"""
     try:
         from database import db
-        from billing import activate_plan, apply_top_up
+        from app.billing import activate_plan, apply_top_up
 
         payment_id = payment_data.get("payment_id")
         user_id = payment_data.get("user_id")
