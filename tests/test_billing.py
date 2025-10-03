@@ -13,10 +13,10 @@ from app.billing.plans import check_subscription, activate_plan, give_welcome_bo
 from app.config.pricing import FEATURE_COSTS
 
 # Стоимость операций в монетах (перенесено из старого конфига)
-COST_VIDEO = FEATURE_COSTS["video_8s_audio"]
-COST_TRANSFORM = FEATURE_COSTS["image_basic"]
-COST_TRANSFORM_PREMIUM = FEATURE_COSTS["image_basic"]  # базовое качество
-COST_TRYON = FEATURE_COSTS["virtual_tryon"]
+COST_VIDEO = FEATURE_COSTS["video_8s_audio"]  # 20 монет
+COST_TRANSFORM = FEATURE_COSTS["image_basic"]  # 1 монета
+COST_TRANSFORM_PREMIUM = FEATURE_COSTS["image_basic"]  # 1 монета (базовое качество)
+COST_TRYON = FEATURE_COSTS["virtual_tryon"]  # 3 монеты
 
 
 class StubCursor:
@@ -224,46 +224,46 @@ def make_user(coins=100):
     }
 
 
-def test_video_generation_charges_10_coins(stub_db):
-    """Тест: генерация видео списывает 10 монет"""
+def test_video_generation_charges_20_coins(stub_db):
+    """Тест: генерация видео списывает 20 монет"""
     user = make_user(coins=30)
     stub_db.users[1] = user
 
     transaction_id = atomic_spend_coins(1, COST_VIDEO, "video")
     
     assert transaction_id is not None
-    assert user["coins"] == 20
+    assert user["coins"] == 10  # 30 - 20
     assert stub_db.transactions[-1]["coins_spent"] == COST_VIDEO
     assert stub_db.transactions[-1]["operation_type"] == "video"
 
 
 def test_photo_basic_and_premium_costs(stub_db):
-    """Тест: фото базовое и премиум имеют разную стоимость"""
+    """Тест: фото базовое и премиум имеют одинаковую стоимость (1 монета)"""
     user = make_user(coins=10)
     stub_db.users[1] = user
 
     # Базовое фото
     tx1 = atomic_spend_coins(1, COST_TRANSFORM, "photo")
     assert tx1 is not None
-    assert user["coins"] == 9
+    assert user["coins"] == 9  # 10 - 1
     assert stub_db.transactions[-1]["coins_spent"] == COST_TRANSFORM
 
-    # Премиум фото
+    # Премиум фото (та же стоимость)
     tx2 = atomic_spend_coins(1, COST_TRANSFORM_PREMIUM, "photo_premium")
     assert tx2 is not None
-    assert user["coins"] == 7  # 9 - 2
+    assert user["coins"] == 8  # 9 - 1
     assert stub_db.transactions[-1]["coins_spent"] == COST_TRANSFORM_PREMIUM
 
 
-def test_tryon_costs_one_coin(stub_db):
-    """Тест: примерочная стоит 1 монету"""
+def test_tryon_costs_three_coins(stub_db):
+    """Тест: примерочная стоит 3 монеты"""
     user = make_user(coins=5)
     stub_db.users[1] = user
 
     transaction_id = atomic_spend_coins(1, COST_TRYON, "tryon")
     
     assert transaction_id is not None
-    assert user["coins"] == 4
+    assert user["coins"] == 2  # 5 - 3
     assert stub_db.transactions[-1]["coins_spent"] == COST_TRYON
 
 
@@ -272,7 +272,7 @@ def test_insufficient_funds_returns_none(stub_db):
     user = make_user(coins=5)
     stub_db.users[1] = user
 
-    transaction_id = atomic_spend_coins(1, COST_VIDEO, "video")  # 10 монет
+    transaction_id = atomic_spend_coins(1, COST_VIDEO, "video")  # 20 монет
     
     assert transaction_id is None
     assert user["coins"] == 5  # не изменился
