@@ -10,7 +10,13 @@ if str(ROOT) not in sys.path:
 
 from app.billing.coins import atomic_spend_coins, add_coins, get_balance, can_afford
 from app.billing.plans import check_subscription, activate_plan, give_welcome_bonus
-from app.billing.config import COST_VIDEO, COST_TRANSFORM, COST_TRANSFORM_PREMIUM, COST_TRYON
+from app.config.pricing import FEATURE_COSTS
+
+# Стоимость операций в монетах (перенесено из старого конфига)
+COST_VIDEO = FEATURE_COSTS["video_8s_audio"]
+COST_TRANSFORM = FEATURE_COSTS["image_basic"]
+COST_TRANSFORM_PREMIUM = FEATURE_COSTS["image_basic"]  # базовое качество
+COST_TRYON = FEATURE_COSTS["virtual_tryon"]
 
 
 class StubCursor:

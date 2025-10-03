@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 
 from app.db.queries import db
-from app.billing.config import PLANS, TOP_UPS
+from app.config.pricing import TARIFFS, TOPUP_PACKS_RUB
 from app.billing.plans import activate_plan
 from app.billing.coins import add_coins
 
@@ -113,7 +113,7 @@ def process_payment_success(
                 return False
             
             # Обрабатываем в зависимости от типа продукта
-            if subscription_type in PLANS:
+            if subscription_type in TARIFFS:
                 # Активируем план
                 user_data = activate_plan(user_id, subscription_type)
                 if not user_data:

@@ -8,8 +8,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 from app.db.queries import db
-from app.billing.config import PLANS, ADMIN_ID
+from app.config.pricing import TARIFFS
 from app.billing.coins import add_coins
+
+# Админ ID (перенесен из старого конфига)
+ADMIN_ID = 5015100177
 
 log = logging.getLogger("billing.plans")
 
@@ -94,8 +97,8 @@ def activate_plan(user_id: int, plan_key: str) -> Optional[Dict[str, Any]]:
     Returns:
         Обновленные данные пользователя или None если план не найден
     """
-    plan = PLANS.get(plan_key)
-    if not plan:
+    tariff = TARIFFS.get(plan_key)
+    if not tariff:
         log.error(f"Unknown plan: {plan_key}")
         return None
     
@@ -105,7 +108,7 @@ def activate_plan(user_id: int, plan_key: str) -> Optional[Dict[str, Any]]:
         
         with db.connection.cursor() as cursor:
             # Начисляем монеты за план
-            coins_to_add = plan["coins"]
+            coins_to_add = tariff.coins
             add_coins(user_id, coins_to_add, f"plan:{plan_key}")
             
             # Устанавливаем план и срок действия
@@ -208,7 +211,7 @@ def get_user_plan_info(user_id: int) -> Dict[str, Any]:
             "plan": plan,
             "plan_expiry": plan_expiry,
             "is_active": is_active,
-            "plan_info": PLANS.get(plan, {})
+            "plan_info": TARIFFS.get(plan)
         }
         
     except Exception as e:

@@ -137,20 +137,22 @@ Test coverage includes:
 
 ## 🔧 Configuration
 
-All prices and plans are centralized in `app/billing/config.py`:
+All prices and plans are centralized in `app/config/pricing.py`:
 
 ```python
-# Operation costs
-COST_VIDEO = 10
-COST_TRANSFORM = 1
-COST_TRANSFORM_PREMIUM = 2
-COST_TRYON = 1
+# Operation costs (from app/config/pricing.py)
+FEATURE_COSTS = {
+    "video_8s_audio": 20,
+    "video_8s_mute": 16,
+    "image_basic": 1,
+    "virtual_tryon": 3,
+}
 
-# Plans
-PLANS = {
-    "lite": {"price_rub": 1990, "coins": 120},
-    "standard": {"price_rub": 2490, "coins": 210},
-    "pro": {"price_rub": 4990, "coins": 440},
+# Plans (from app/config/pricing.py)
+TARIFFS = {
+    "lite": Tariff(price_rub=1990, coins=120),
+    "standard": Tariff(price_rub=2490, coins=210),
+    "pro": Tariff(price_rub=4990, coins=440),
 }
 ```
 

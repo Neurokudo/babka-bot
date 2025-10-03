@@ -7,7 +7,9 @@ import logging
 from typing import Optional
 
 from app.db.queries import db
-from app.billing.config import ADMIN_ID
+
+# Админ ID (перенесен из старого конфига)
+ADMIN_ID = 5015100177
 
 log = logging.getLogger("billing.coins")
 
