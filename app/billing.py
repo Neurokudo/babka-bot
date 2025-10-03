@@ -27,6 +27,12 @@ def check_low_coins(user: Dict) -> bool:
     return balance <= LOW_COINS_THRESHOLD
 
 
+def can_spend(user: Dict, cost: int) -> bool:
+    """Проверка, достаточно ли монет у пользователя для списания cost."""
+    uid = int(user.get("user_id"))
+    return get_balance(uid) >= int(cost)
+
+
 def _feature_key_for(kind: str, st: Dict, quality: Optional[str] = None) -> str:
     if kind == "video" or kind == "json":
         with_audio = bool(st.get("with_audio", True))
