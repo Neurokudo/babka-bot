@@ -89,6 +89,15 @@ def charge_feature(user_id: int, feature_key: str, with_audio: Optional[bool] = 
     return True
 
 
+def refund_feature(user_id: int, feature_key: str, coins: int) -> None:
+    """Возврат монет при технической ошибке выполнения операции."""
+    if coins <= 0:
+        return
+    _update_wallet_balance(user_id, coins)
+    # Для возврата rub_value/cogs_usd не указываем
+    _insert_wallet_tx(user_id, kind="feature_refund", coins_delta=coins, feature_key=feature_key, rub_value=None, cogs_value=None)
+
+
 def buy_tariff(user_id: int, tariff_name: str) -> None:
     coins = coins_for_tariff(tariff_name)
     rate = calculate_coin_rate_rub(tariff_name)
