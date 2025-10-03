@@ -38,14 +38,7 @@ TOP_UPS = [
     {"coins": 700, "price_rub": 9990, "label": "~14,2 ₽/монета"},
 ]
 
-# Дополнительные пакеты (дороже обычных пакетов)
-ADDONS = {
-    "v5": {"title": "Video 5 — 1 190 ₽", "price_rub": 1190, "coins": 50, "description": "5 видео"},
-    "v10": {"title": "Video 10 — 2 190 ₽", "price_rub": 2190, "coins": 100, "description": "10 видео"},
-    "p20": {"title": "Photo 20 — 590 ₽", "price_rub": 590, "coins": 20, "description": "20 фото"},
-    "p50": {"title": "Photo 50 — 1 190 ₽", "price_rub": 1190, "coins": 50, "description": "50 фото"},
-    "mix": {"title": "Mix — 1 690 ₽", "price_rub": 1690, "coins": 70, "description": "5 видео + 20 фото"},
-}
+# Дополнительные пакеты удалены - используем только новую систему тарифов в монетах
 
 # Качество/размер изображений
 IMG_SIZE = {

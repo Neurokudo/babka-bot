@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 
 from app.db.queries import db
-from app.billing.config import PLANS, TOP_UPS, ADDONS
+from app.billing.config import PLANS, TOP_UPS
 from app.billing.plans import activate_plan
 from app.billing.coins import add_coins
 
@@ -127,12 +127,6 @@ def process_payment_success(
                 coins_amount = int(subscription_type.split("_")[1])
                 add_coins(user_id, coins_amount, f"purchase:{subscription_type}")
                 log.info(f"Successfully added {coins_amount} coins to user {user_id}")
-                
-            elif subscription_type in ADDONS:
-                # Маркетинговые бандлы
-                addon = ADDONS[subscription_type]
-                add_coins(user_id, addon["coins"], f"purchase:addon{subscription_type}")
-                log.info(f"Successfully added {addon['coins']} coins to user {user_id}")
                 
             else:
                 log.error(f"Unknown subscription type: {subscription_type}")
