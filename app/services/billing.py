@@ -16,6 +16,51 @@ user_states = {}
 # Глобальное хранилище задач
 user_jobs = {}
 
+def check_subscription(user_id: int):
+    """Проверка активной подписки и получение полной информации о пользователе"""
+    try:
+        from app.db import db_subscriptions as db
+        from app.services.pricing import get_available_tariffs
+        
+        # Получаем данные из базы данных
+        plan_data = db.get_user_plan(user_id)
+        
+        # Получаем актуальные тарифы из конфигурации
+        tariffs = get_available_tariffs()
+        plan_name = plan_data.get("plan", "lite")
+        
+        # Получаем информацию о тарифе из конфигурации (tariffs - это список)
+        tariff_info = next((t for t in tariffs if t["name"] == plan_name), {})
+        coins_from_tariff = tariff_info.get("coins", 0) if tariff_info else 0
+        
+        # Используем монеты из базы данных, если они есть, иначе из тарифа
+        coins = plan_data.get("coins", coins_from_tariff)
+        
+        # Логируем источник данных
+        log.info(f"[SubscriptionCheck] user_id={user_id} plan={plan_name} coins={coins} source=db")
+        
+        # Возвращаем полную информацию о пользователе
+        return {
+            "user_id": user_id,
+            "plan": plan_name,
+            "coins": coins,
+            "expires_at": plan_data.get("expiry"),
+            "is_active": plan_data.get("is_active", False),
+            "source": "db"  # Указываем источник данных
+        }
+        
+    except Exception as e:
+        log.warning(f"Failed to check subscription for user {user_id}: {e}")
+        # Возвращаем дефолтные значения при ошибке
+        return {
+            "user_id": user_id,
+            "plan": "lite",
+            "coins": 0,
+            "expires_at": None,
+            "is_active": False,
+            "source": "error"
+        }
+
 def get_user_state(user_id: int) -> Dict[str, Any]:
     """Получить состояние пользователя"""
     if user_id not in user_states:
@@ -408,51 +453,6 @@ def activate_plan(user_id: int, plan_name: str) -> bool:
 def apply_top_up(user_id: int, coins: int) -> bool:
     """Применить пополнение монет"""
     return add_coins(user_id, coins)
-
-def check_subscription(user_id: int):
-    """Проверка активной подписки и получение полной информации о пользователе"""
-    try:
-        from app.db import db_subscriptions as db
-        from app.services.pricing import get_available_tariffs
-        
-        # Получаем данные из базы данных
-        plan_data = db.get_user_plan(user_id)
-        
-        # Получаем актуальные тарифы из конфигурации
-        tariffs = get_available_tariffs()
-        plan_name = plan_data.get("plan", "lite")
-        
-        # Получаем информацию о тарифе из конфигурации (tariffs - это список)
-        tariff_info = next((t for t in tariffs if t["name"] == plan_name), {})
-        coins_from_tariff = tariff_info.get("coins", 0) if tariff_info else 0
-        
-        # Используем монеты из базы данных, если они есть, иначе из тарифа
-        coins = plan_data.get("coins", coins_from_tariff)
-        
-        # Логируем источник данных
-        log.info(f"[SubscriptionCheck] user_id={user_id} plan={plan_name} coins={coins} source=db")
-        
-        # Возвращаем полную информацию о пользователе
-        return {
-            "user_id": user_id,
-            "plan": plan_name,
-            "coins": coins,
-            "expires_at": plan_data.get("expiry"),
-            "is_active": plan_data.get("is_active", False),
-            "source": "db"  # Указываем источник данных
-        }
-        
-    except Exception as e:
-        log.warning(f"Failed to check subscription for user {user_id}: {e}")
-        # Возвращаем дефолтные значения при ошибке
-        return {
-            "user_id": user_id,
-            "plan": "lite",
-            "coins": 0,
-            "expires_at": None,
-            "is_active": False,
-            "source": "error"
-        }
 
 def check_and_reset_expired_plans():
     """
