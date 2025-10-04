@@ -3039,29 +3039,29 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             plans_text = format_plans_list()
             costs_text = format_feature_costs()
             log.info("CALLBACK show_tariffs uid=%s - GOT TEXTS", update.effective_user.id)
-        
-        # Создаем кнопки для покупки тарифов
-        keyboard = []
-        tariffs = get_available_tariffs()
-        for tariff in tariffs:
-            plan_id = tariff["name"]
-            plan_title = tariff["title"]
-            plan_price = tariff["price_rub"]
-            plan_coins = tariff["coins"]
             
-            label = f"{plan_title} — {plan_price:,} ₽ → {plan_coins} монет"
-            if plan_id == "standard":
-                label += " (Рекомендуем)"
-            keyboard.append([InlineKeyboardButton(label, callback_data=f"plan_{plan_id}")])
-        
-        keyboard.append([InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")])
-        keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
-        
-        full_text = f"{plans_text}\n\n{costs_text}"
-        
-        # Логируем текст ответа
-        logging.debug(f"Editing message with text: {full_text[:120]}...")
-        
+            # Создаем кнопки для покупки тарифов
+            keyboard = []
+            tariffs = get_available_tariffs()
+            for tariff in tariffs:
+                plan_id = tariff["name"]
+                plan_title = tariff["title"]
+                plan_price = tariff["price_rub"]
+                plan_coins = tariff["coins"]
+                
+                label = f"{plan_title} — {plan_price:,} ₽ → {plan_coins} монет"
+                if plan_id == "standard":
+                    label += " (Рекомендуем)"
+                keyboard.append([InlineKeyboardButton(label, callback_data=f"plan_{plan_id}")])
+            
+            keyboard.append([InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")])
+            keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
+            
+            full_text = f"{plans_text}\n\n{costs_text}"
+            
+            # Логируем текст ответа
+            logging.debug(f"Editing message with text: {full_text[:120]}...")
+            
             await q.message.edit_text(
                 full_text,
                 parse_mode="HTML",
