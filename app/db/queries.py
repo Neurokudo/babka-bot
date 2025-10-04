@@ -16,7 +16,7 @@ Base = declarative_base()
 class User(Base):
     __tablename__ = "users"
     
-    id = Column(BigInteger, primary_key=True)
+    user_id = Column(BigInteger, primary_key=True)  # Исправлено: user_id вместо id
     username = Column(String(255), nullable=True)
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)
@@ -86,7 +86,7 @@ class DatabaseManager:
                 return None
                 
             with self.get_session() as session:
-                return session.query(User).filter(User.id == user_id).first()
+                return session.query(User).filter(User.user_id == user_id).first()
         except Exception as e:
             log.warning(f"Failed to get user {user_id}: {e}")
             return None
@@ -142,7 +142,7 @@ class DatabaseManager:
                 return False
                 
             with self.get_session() as session:
-                user = session.query(User).filter(User.id == user_id).first()
+                user = session.query(User).filter(User.user_id == user_id).first()
                 if user:
                     user.balance += amount
                     session.commit()
@@ -162,7 +162,7 @@ class DatabaseManager:
                 return False
                 
             with self.get_session() as session:
-                user = session.query(User).filter(User.id == user_id).first()
+                user = session.query(User).filter(User.user_id == user_id).first()
                 if user and user.balance >= amount:
                     user.balance -= amount
                     session.commit()
@@ -196,7 +196,7 @@ class DatabaseManager:
                 return 0
                 
             with self.get_session() as session:
-                user = session.query(User).filter(User.id == user_id).first()
+                user = session.query(User).filter(User.user_id == user_id).first()
                 return user.balance if user else 0
         except Exception as e:
             log.warning(f"Failed to get balance for user {user_id}: {e}")
@@ -212,7 +212,7 @@ class DatabaseManager:
                 return False
                 
             with self.get_session() as session:
-                user = session.query(User).filter(User.id == user_id).first()
+                user = session.query(User).filter(User.user_id == user_id).first()
                 if user:
                     user.balance += amount
                     session.commit()
