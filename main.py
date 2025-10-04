@@ -4088,7 +4088,13 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "tryon_reset":
         st["tryon"] = {"stage": "await_person", "person": None, "garment": None, "dressed": None, "await_bg": False, "await_prompt": False}
-        await q.message.edit_text("Сбросил. Пришлите фото человека.", reply_markup=kb_tryon_start())
+        await q.message.edit_media(
+            media=InputMediaPhoto(
+                media=st["tryon"].get("dressed", st["tryon"].get("person", b"")),  # Используем изображение если есть
+                caption="Сбросил. Пришлите фото человека."
+            ),
+            reply_markup=kb_tryon_start()
+        )
         return
 
     if data == "tryon_confirm":
@@ -4198,14 +4204,55 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         stt = st["tryon"]
-        stt["stage"] = "await_person"
+        
+        # Генерируем новую позу автоматически
         await q.message.edit_media(
             media=InputMediaPhoto(
-                media=stt["dressed"],  # Используем уже готовое изображение
-                caption="🔄 Другая поза (-3 монетки).\nПришлите новое фото человека в желаемой позе/ракурсе."
+                media=stt["dressed"],  # Показываем текущее изображение
+                caption="🔄 Генерирую новую позу (-3 монетки)..."
             ),
-            reply_markup=kb_tryon_need_garment()
+            reply_markup=kb_tryon_after()
         )
+        
+        try:
+            # Используем Gemini для генерации новой позы
+            from app.services.clients.nano_client import repose_or_relocate
+            
+            log.info("CALLBACK tryon_new_pose uid=%s - GENERATING NEW POSE", uid)
+            
+            # Генерируем новую позу на основе текущего результата
+            loop = asyncio.get_event_loop()
+            new_pose_bytes = await loop.run_in_executor(
+                None, 
+                repose_or_relocate, 
+                stt["dressed"],  # Используем уже готовое изображение
+                "pose_change",   # Тип операции - смена позы
+                "natural_pose"   # Стиль позы
+            )
+            
+            # Обновляем результат
+            stt["dressed"] = new_pose_bytes
+            stt["stage"] = "after"
+            
+            log.info("CALLBACK tryon_new_pose uid=%s - POSE GENERATED SUCCESSFULLY", uid)
+            
+            await q.message.edit_media(
+                media=InputMediaPhoto(
+                    media=new_pose_bytes,
+                    caption=f"✅ Готово! Поза изменена.\n💰 Списано: {cost} монеток"
+                ),
+                reply_markup=kb_tryon_after()
+            )
+            
+        except Exception as e:
+            log.exception("CALLBACK tryon_new_pose uid=%s - POSE GENERATION FAILED: %s", uid, str(e))
+            await q.message.edit_media(
+                media=InputMediaPhoto(
+                    media=stt["dressed"],
+                    caption=f"⚠️ Ошибка генерации позы: {e}\n💰 Списано: {cost} монеток"
+                ),
+                reply_markup=kb_tryon_after()
+            )
         return
 
     if data == "tryon_new_garment":
