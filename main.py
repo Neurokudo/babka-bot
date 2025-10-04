@@ -2703,7 +2703,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             profile_text,
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
                 [InlineKeyboardButton("➕ Пополнить монеты", callback_data="show_topup")],
                 [InlineKeyboardButton("📊 История операций", callback_data="show_history")],
                 [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
@@ -3033,6 +3033,41 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Купить «{plan_info['title']}»",
                 callback_data=f"buy_plan_{plan_key}"
             )])
+        
+        keyboard.append([InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")])
+        keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
+        
+        full_text = f"{plans_text}\n\n{costs_text}"
+        
+        # Логируем текст ответа
+        logging.debug(f"Editing message with text: {full_text[:120]}...")
+        
+        await q.message.edit_text(
+            full_text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+    
+    # Новый обработчик тарифов (вместо старого show_plans)
+    if data == "show_tariffs":
+        logging.warning(f"Handler fired: show_tariffs")
+        plans_text = format_plans_list()
+        costs_text = format_feature_costs()
+        
+        # Создаем кнопки для покупки тарифов
+        keyboard = []
+        tariffs = get_available_tariffs()
+        for tariff in tariffs:
+            plan_id = tariff["name"]
+            plan_title = tariff["title"]
+            plan_price = tariff["price_rub"]
+            plan_coins = tariff["coins"]
+            
+            label = f"{plan_title} — {plan_price:,} ₽ → {plan_coins} монет"
+            if plan_id == "standard":
+                label += " (Рекомендуем)"
+            keyboard.append([InlineKeyboardButton(label, callback_data=f"plan_{plan_id}")])
         
         keyboard.append([InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")])
         keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
