@@ -62,6 +62,8 @@ def create_combined_webhook_app():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
+                # Инициализируем Application перед обработкой update
+                loop.run_until_complete(telegram_app.initialize())
                 loop.run_until_complete(telegram_app.process_update(update))
             finally:
                 loop.close()
