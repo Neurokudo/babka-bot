@@ -168,6 +168,65 @@ def _format_plan_expiry(value) -> Optional[str]:
     except Exception:
         return None
 
+def get_access_denied_keyboard(access_check: dict) -> InlineKeyboardMarkup:
+    """
+    Создает клавиатуру для сообщения об отказе в доступе
+    в зависимости от причины отказа
+    """
+    if access_check["reason"] == "no_subscription":
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("💳 Купить подписку", callback_data="show_tariffs")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+        ])
+    elif access_check["reason"] == "insufficient_coins":
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("💰 Докупить монетки", callback_data="show_topup")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+        ])
+    else:
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+        ])
+
+async def check_feature_access(update: Update, feature_name: str, cost: int = None) -> bool:
+    """
+    Унифицированная проверка доступа к функции с единообразным сообщением об ошибке
+    
+    Args:
+        update: Telegram Update объект
+        feature_name: Название функции (например, "video_generation", "tryon", "transform")
+        cost: Стоимость функции в монетках (опционально)
+    
+    Returns:
+        True если доступ разрешен, False если отказано
+    """
+    uid = update.effective_user.id
+    
+    # Проверяем доступ
+    access_check = can_use_feature(uid, feature_name)
+    
+    if access_check["can_use"]:
+        return True
+    
+    # Логируем отказ
+    log.warning("ACCESS DENIED: user=%s feature=%s reason=%s", uid, feature_name, access_check["reason"])
+    
+    # Формируем сообщение об ошибке
+    error_message = access_check["message"]
+    if cost:
+        error_message += f"\n\n💰 Стоимость: {cost} монеток"
+    
+    # Получаем клавиатуру
+    keyboard = get_access_denied_keyboard(access_check)
+    
+    # Отправляем сообщение
+    if update.callback_query:
+        await update.callback_query.message.reply_text(error_message, reply_markup=keyboard)
+    else:
+        await update.message.reply_text(error_message, reply_markup=keyboard)
+    
+    return False
+
 
 def format_user_status(user: Dict[str, Any]) -> str:
     # Получаем user_id из переданного словаря
@@ -2610,6 +2669,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "transform_remove_bg":
+        # Проверяем доступ к функции трансформации
+        if not await check_feature_access(update, "transform", 1):
+            return
+            
         st["transform_type"] = "remove_bg"
         await q.message.edit_text(
             "✨ Удалить фон\n\n"
@@ -2619,6 +2682,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "transform_merge_people":
+        # Проверяем доступ к функции трансформации
+        if not await check_feature_access(update, "transform", 1):
+            return
+            
         st["transform_type"] = "merge_people"
         await q.message.edit_text(
             "👥 Совместить людей\n\n"
@@ -2629,6 +2696,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "transform_inject_object":
+        # Проверяем доступ к функции трансформации
+        if not await check_feature_access(update, "transform", 1):
+            return
+            
         st["transform_type"] = "inject_object"
         await q.message.edit_text(
             "🧩 Внедрить объект на фото\n\n"
@@ -2638,6 +2709,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "transform_retouch":
+        # Проверяем доступ к функции трансформации
+        if not await check_feature_access(update, "transform", 1):
+            return
+            
         st["transform_type"] = "retouch"
         await q.message.edit_text(
             "🪄 Магическая ретушь\n\n"
@@ -2648,6 +2723,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "transform_polaroid":
+        # Проверяем доступ к функции трансформации
+        if not await check_feature_access(update, "transform", 1):
+            return
+            
         st["transform_type"] = "polaroid"
         await q.message.edit_text(
             "📷 Polaroid\n\n"
@@ -3553,6 +3632,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # NEUROKUDO — одиночная
     if data == "nkudo_single":
+        # Проверяем доступ к функции генерации видео
+        if not await check_feature_access(update, "video_generation", 20):
+            return
+            
         await q.message.edit_text("⏳ Генерирую сцену...")
         st["scene"] = generate_nkudo_single_scene(); st["nkudo_type"] = "single"
         txt = "🔮 Сгенерирована сцена в стиле NEUROKUDO\n\n🎬 Сцена (8 сек):\n" + st["scene"] + "\n\nЧто делаем дальше?"
@@ -3795,6 +3878,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # LEGO — одиночная сцена
     if data == "lego_single":
+        # Проверяем доступ к функции генерации видео
+        if not await check_feature_access(update, "video_generation", 20):
+            return
+            
         await q.message.edit_text("⏳ Генерирую LEGO сцену...")
         st["scene"] = generate_lego_single_scene(); st["lego_type"] = "single"
         txt = "🧱 Сгенерирована LEGO сцена\n\n🎬 Сцена (8 сек):\n" + st["scene"] + "\n\nЧто делаем дальше?"
