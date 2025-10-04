@@ -290,6 +290,7 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
                 
                 # Отправляем уведомление пользователю
                 try:
+                    import asyncio
                     from main import bot
                     from app.services.pricing import get_available_tariffs
                     
@@ -307,12 +308,25 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
                         f"💡 Подписка будет продлена автоматически, пока вы её не отмените."
                     )
                     
-                    await bot.send_message(
-                        chat_id=user_id,
-                        text=success_message,
-                        parse_mode="HTML"
-                    )
-                    log.info(f"Success notification sent to user {user_id}")
+                    # Создаем новую задачу для отправки сообщения
+                    async def send_notification():
+                        try:
+                            await bot.send_message(
+                                chat_id=user_id,
+                                text=success_message,
+                                parse_mode="HTML"
+                            )
+                            log.info(f"Success notification sent to user {user_id}")
+                        except Exception as e:
+                            log.error(f"Failed to send success notification to user {user_id}: {e}")
+                    
+                    # Запускаем асинхронную задачу
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(send_notification())
+                    finally:
+                        loop.close()
                     
                 except Exception as e:
                     log.error(f"Failed to send success notification to user {user_id}: {e}")
