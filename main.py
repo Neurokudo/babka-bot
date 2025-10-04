@@ -4215,6 +4215,11 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
+            # Проверяем доступность Google credentials
+            google_creds = os.getenv("GOOGLE_CREDENTIALS_JSON") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            if not google_creds:
+                raise RuntimeError("Google credentials not configured")
+            
             # Используем Gemini для генерации новой позы
             from app.services.clients.nano_client import repose_or_relocate
             
@@ -4246,10 +4251,19 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         except Exception as e:
             log.exception("CALLBACK tryon_new_pose uid=%s - POSE GENERATION FAILED: %s", uid, str(e))
+            
+            # Возвращаем монетки, если генерация не удалась
+            try:
+                from app.services.wallet import add_coins
+                add_coins(uid, cost, "Refund for failed pose generation")
+                log.info("CALLBACK tryon_new_pose uid=%s - REFUNDED %s COINS", uid, cost)
+            except Exception as refund_error:
+                log.error("CALLBACK tryon_new_pose uid=%s - REFUND FAILED: %s", uid, refund_error)
+            
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=stt["dressed"],
-                    caption=f"⚠️ Ошибка генерации позы: {e}\n💰 Списано: {cost} монеток"
+                    caption=f"⚠️ Генерация позы временно недоступна.\n💰 Возвращено: {cost} монеток\n\nПопробуйте другие функции или обратитесь в поддержку."
                 ),
                 reply_markup=kb_tryon_after()
             )
