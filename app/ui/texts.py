@@ -11,8 +11,8 @@ T = {
         "menu.tryon": "👗 Виртуальная примерочная",
         "menu.transforms": "📸 Изменить фото",
         "menu.jsonpro": "JSON Pro режим",
-        "menu.guides": "📚 Гайды и инструкции",
-        "menu.profile": "👤 Профиль / Баланс 💰",
+        "menu.guides": "📚 Гайды",
+        "menu.profile": "👤 Профиль / Оплата 💰",
         
         # Кнопки главного меню
         "btn.generate": "🎬 Генерировать видео",
@@ -106,6 +106,40 @@ T = {
         "payment.support": "💬 Поддержка",
         "payment.change_plan": "🔄 Сменить тариф",
         "payment.show_history": "📜 История платежей",
+        "payment.quick_topup": "⚡ Быстрые докупки",
+        
+        # Профиль
+        "profile.title": "👤 Профиль",
+        "profile.balance": "💰 Осталось: {coins} монеток",
+        "profile.tariff": "📊 Тариф: {tariff_name}",
+        "profile.video_count": "🎬 Видео: {count}",
+        "profile.photo_count": "📸 Фотографий: {count}",
+        "profile.cost_examples": "💡 Пример: видео = 10 монеток, преобразование = 1 монетка",
+        
+        # Тарифы
+        "tariffs.title": "💰 Тарифы",
+        "tariffs.lite": "✨ Лайт — {price} ₽ → {coins} монет",
+        "tariffs.standard": "⭐ Стандарт — {price} ₽ → {coins} монет", 
+        "tariffs.pro": "💎 Про — {price} ₽ → {coins} монет",
+        "tariffs.lite_desc": "Отлично, чтобы начать и протестировать возможности.",
+        "tariffs.standard_desc": "Самый удобный баланс цены и объёма.",
+        "tariffs.pro_desc": "Полный набор для мощного контент-плана.",
+        "tariffs.buy_lite": "Купить «Лайт»",
+        "tariffs.buy_standard": "Купить «Стандарт»",
+        "tariffs.buy_pro": "Купить «Про»",
+        
+        # Пакеты монет
+        "topup.title": "💰 Пополнить монетки",
+        "topup.pack_50": "50 монет — 990 ₽",
+        "topup.pack_120": "120 монет — 1990 ₽", 
+        "topup.pack_250": "250 монет — 3990 ₽",
+        "topup.pack_500": "500 монет — 7490 ₽",
+        
+        # Примеры стоимости
+        "cost.video_audio": "🎬 Veo 3 Fast 8s (со звуком) — 20 монет",
+        "cost.video_mute": "🔇 Veo 3 Fast 8s (без звука) — 16 монет", 
+        "cost.photo_tools": "📸 Фото-инструменты — 1 монета",
+        "cost.tryon": "👗 Виртуальная примерочная — 3 монеты",
         
         # Дополнительные действия
         "action.add_prompt": "➕ Добавить промпт",

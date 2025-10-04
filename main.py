@@ -139,9 +139,16 @@ def format_user_status(user: Dict[str, Any]) -> str:
     plan_info = tariffs.get(plan_key, {})
     plan_name = plan_info.name if hasattr(plan_info, 'name') else plan_key.title()
 
-    text = "💰 <b>Ваш профиль</b>\n\n"
-    text += f"💎 Монеток: {coins}\n"
-    text += f"📋 Тариф: {plan_name}\n"
+    text = "👤 <b>Профиль</b>\n\n"
+    text += f"💰 Осталось: {coins} монеток\n"
+    text += f"📊 Тариф: {plan_name}\n"
+    text += f"🎬 Видео: 0\n"
+    text += f"📸 Фотографий: 0\n"
+    text += f"💡 Пример: видео = 10 монеток, преобразование = 1 монетка\n"
+    text += f"🎬 Veo 3 Fast 8s (со звуком) — 20 монет\n"
+    text += f"🔇 Veo 3 Fast 8s (без звука) — 16 монет\n"
+    text += f"📸 Фото-инструменты — 1 монета\n"
+    text += f"👗 Виртуальная примерочная — 3 монеты\n"
 
     expiry_text = _format_plan_expiry(user.get("plan_expiry"))
     if expiry_text:
@@ -902,7 +909,7 @@ def kb_home_inline():
         [InlineKeyboardButton("👗 Виртуальная примерочная", callback_data="menu_tryon")],
         [InlineKeyboardButton("🧾 JSON (для продвинутых)", callback_data="menu_jsonpro")],
         [InlineKeyboardButton("📚 Гайды", callback_data="menu_guides")],
-        [InlineKeyboardButton("👤 Профиль / Баланс 💰", callback_data="menu_profile")],
+        [InlineKeyboardButton("👤 Профиль / Оплата 💰", callback_data="menu_profile")],
     ])
 
 def kb_modes():
@@ -2841,9 +2848,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status_text,
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")],
                 [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
-                [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
             ])
         )
         return
@@ -2876,11 +2883,11 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for plan_key, plan_info in tariffs.items():
             emoji = "✨" if plan_key == "lite" else "⭐" if plan_key == "standard" else "💎"
             keyboard.append([InlineKeyboardButton(
-                f"{emoji} {plan_key.title()} — {plan_info['price']:,} ₽",
+                f"Купить «{plan_info['title']}»",
                 callback_data=f"buy_plan_{plan_key}"
             )])
         
-        keyboard.append([InlineKeyboardButton("➕ Пополнить монеты", callback_data="show_topup")])
+        keyboard.append([InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")])
         keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
         
         full_text = f"{plans_text}\n\n{costs_text}"
@@ -2893,15 +2900,16 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if data == "show_topup":
-        topup_text = format_topup_packs()
+        topup_text = "💰 Пополнить монетки\n\n"
+        topup_text += format_topup_packs()
         
         # Создаем кнопки для покупки пакетов пополнения
         keyboard = []
         topup_packs = get_available_topup_packs()
-        for coins, price in topup_packs.items():
+        for pack in topup_packs:
             keyboard.append([InlineKeyboardButton(
-                f"{coins} монет — {price:,} ₽",
-                callback_data=f"buy_topup_{coins}"
+                f"{pack['coins']} монет — {pack['price_rub']} ₽",
+                callback_data=f"buy_topup_{pack['coins']}"
             )])
         
         keyboard.append([InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")])

@@ -85,43 +85,37 @@ def format_plans_list() -> str:
     plans = []
     for tariff_data in get_available_tariffs():
         plans.append(
-            f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽\n"
-            f"🎟 {tariff_data['coins']} монет"
+            f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽ → {tariff_data['coins']} монет"
         )
-    return "\n\n".join(plans)
+    return "\n".join(plans)
 
 def format_feature_costs() -> str:
     """Форматированный список стоимости функций"""
     costs = []
     
     # Видео
-    costs.append("🎬 Видео (8 сек)")
-    costs.append(f"🔊 Со звуком — {FEATURE_COSTS['video_8s_audio']} монет")
-    costs.append(f"🔇 Без звука — {FEATURE_COSTS['video_8s_mute']} монет")
+    costs.append("🎬 Veo 3 Fast 8s (со звуком) — 20 монет")
+    costs.append("🔇 Veo 3 Fast 8s (без звука) — 16 монет")
     
     # Фото и примерка
-    costs.append("")
-    costs.append(f"📸 Фото-инструменты — {FEATURE_COSTS['image_basic']} монета")
-    costs.append(f"👗 Примерка одежды — {FEATURE_COSTS['virtual_tryon']} монеты")
+    costs.append("📸 Фото-инструменты — 1 монета")
+    costs.append("👗 Виртуальная примерочная — 3 монеты")
     
     return "\n".join(costs)
 
 def format_topup_packs() -> str:
     """Форматированный список пакетов пополнения"""
-    packs = ["➕ Пополнить монеты"]
+    packs = []
     for pack in TOPUP_PACKS:
-        rate = round(pack.price_rub / pack.coins, 2)
-        packs.append(f"{pack.coins} — {pack.price_rub} ₽")
-    packs.append("")
-    packs.append("Примечание: «Докупка монет не продлевает подписку».")
+        packs.append(f"{pack.coins} монет — {pack.price_rub} ₽")
     return "\n".join(packs)
 
 def pricing_text() -> str:
     """Полный текст с тарифами и стоимостью"""
-    text = "💰 Тарифы (30 дней)\n\n"
+    text = "💰 Тарифы\n\n"
     text += format_plans_list()
     text += "\n\n"
-    text += format_feature_costs()
-    text += "\n\n"
+    text += "📸 Фотографии = любые фото-инструменты: виртуальная примерочная, полароид, ретушь, фон и т.д.\n\n"
+    text += "➕ Пакеты монет:\n"
     text += format_topup_packs()
     return text
