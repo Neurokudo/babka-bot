@@ -1,0 +1,112 @@
+flowchart TD
+
+  root["🏠 Главное меню<br/>(9 кнопок)"]
+  modes["Выберите режим генерации:<br/>(5 кнопок)"]
+  lego_menu["🧱 Режим «LEGO мультики...<br/>(3 кнопок)"]
+  lego_single["🎬 Одна сцена<br/>(4 кнопок)"]
+  lego_reportage["📰 Репортаж<br/>(1 кнопок)"]
+  nkudo_menu["🎭 НКУДО<br/>(3 кнопок)"]
+  nkudo_single["🎬 Одна сцена<br/>(4 кнопок)"]
+  nkudo_reportage["📰 Репортаж<br/>(8 кнопок)"]
+  tryon_start["👗 Виртуальная примерочная<br/>(2 кнопок)"]
+  tryon_confirm["✅ Готово<br/>(2 кнопок)"]
+  tryon_after["tryon.after<br/>(7 кнопок)"]
+  transforms["📸 Изменить фото<br/>(6 кнопок)"]
+  transform_quality["transform.quality<br/>(3 кнопок)"]
+  jsonpro_start["JSON Pro режим<br/>(2 кнопок)"]
+  jsonpro_orientation["jsonpro.orientation<br/>(4 кнопок)"]
+  profile["👤 Профиль / Баланс 💰<br/>(7 кнопок)"]
+  styles["style.choose<br/>(3 кнопок)"]
+  orientation["orientation.choose<br/>(2 кнопок)"]
+  scene_edit["scene.edit<br/>(2 кнопок)"]
+  meme["😄 Мем<br/>(3 кнопок)"]
+  video_result["video.result<br/>(2 кнопок)"]
+  transform_result["transform.result<br/>(2 кнопок)"]
+  low_coins_warning["💰 Недостаточно монеток<br/>(2 кнопок)"]
+
+  root -->|"🎬 Генерирова...<br/>make"| modes
+  root -->|"🧱 LEGO мультики<br/>lego"| lego_menu
+  root -->|"🖼️ Оживить фото<br/>alive"| root
+  root -->|"👗 Примерочная<br/>tryon"| tryon_start
+  root -->|"📸 Изменить фото<br/>transforms"| transforms
+  root -->|"⚡ JSON Pro<br/>jsonpro"| jsonpro_start
+  root -->|"📚 Гайды<br/>guides"| root
+  root -->|"👤 Профиль<br/>profile"| profile
+  root -->|"📜 История<br/>history"| root
+  modes -->|"🤖 С помощником<br/>helper"| modes
+  modes -->|"✋ Вручную<br/>manual"| modes
+  modes -->|"😄 Мем<br/>meme"| modes
+  modes -->|"🎭 НКУДО<br/>nkudo"| nkudo_menu
+  modes -->|"⬅️ Назад<br/>back_modes"| root
+  lego_menu -->|"🎬 Одна сцена<br/>lego_single"| lego_single
+  lego_menu -->|"📰 Репортаж<br/>lego_reportage"| lego_reportage
+  lego_menu -->|"⬅️ Назад в меню<br/>lego_menu_back"| root
+  lego_single -->|"🔄 Перегенери...<br/>lego_regenerate"| lego_single
+  lego_single -->|"✨ Улучшить<br/>lego_improve"| lego_single
+  lego_single -->|"lego.embed_r...<br/>lego_embed_replica"| lego_single
+  lego_single -->|"⬅️ Назад<br/>nav"| lego_menu
+  lego_reportage -->|"⬅️ Назад<br/>nav"| lego_menu
+  nkudo_menu -->|"🎬 Одна сцена<br/>nkudo_single"| nkudo_single
+  nkudo_menu -->|"📰 Репортаж<br/>nkudo_reportage"| nkudo_reportage
+  nkudo_menu -->|"⬅️ Назад в меню<br/>nkudo_menu_back"| modes
+  nkudo_single -->|"🔄 Перегенери...<br/>nkudo_regenerate"| nkudo_single
+  nkudo_single -->|"✨ Улучшить<br/>nkudo_improve"| nkudo_single
+  nkudo_single -->|"nkudo.embed_...<br/>nkudo_embed_replica"| nkudo_single
+  nkudo_single -->|"⬅️ Назад<br/>nav"| nkudo_menu
+  nkudo_reportage -->|"🎲 Крутить сц...<br/>nkudo_reroll_scene1"| nkudo_reportage
+  nkudo_reportage -->|"🎲 Крутить сц...<br/>nkudo_reroll_scene2"| nkudo_reportage
+  nkudo_reportage -->|"✏️ Изменить ...<br/>nkudo_edit_scene1"| nkudo_reportage
+  nkudo_reportage -->|"✏️ Изменить ...<br/>nkudo_edit_scene2"| nkudo_reportage
+  nkudo_reportage -->|"🔄 Всё заново<br/>nkudo_regenerate_report"| nkudo_reportage
+  nkudo_reportage -->|"🧠✨ Улучшить ...<br/>nkudo_improve_report"| nkudo_reportage
+  nkudo_reportage -->|"➡️ Далее к г...<br/>nkudo_approve"| nkudo_reportage
+  nkudo_reportage -->|"⬅️ Назад<br/>nav"| nkudo_menu
+  tryon_start -->|"Начать примерку<br/>tryon_start"| tryon_start
+  tryon_start -->|"⬅️ Назад<br/>nav"| root
+  tryon_confirm -->|"✅ Готово<br/>tryon_confirm"| tryon_confirm
+  tryon_confirm -->|"⬅️ Назад<br/>nav"| tryon_start
+  tryon_after -->|"🔄 Поменять м...<br/>tryon_swap"| tryon_after
+  tryon_after -->|"🔄 Заново<br/>tryon_reset"| tryon_after
+  tryon_after -->|"🔄 Новая поза<br/>tryon_new_pose"| tryon_after
+  tryon_after -->|"🔄 Новая одежда<br/>tryon_new_garment"| tryon_after
+  tryon_after -->|"🔄 Новый фон<br/>tryon_new_bg"| tryon_after
+  tryon_after -->|"💬 Улучшить п...<br/>tryon_prompt"| tryon_after
+  tryon_after -->|"⬅️ Назад<br/>nav"| root
+  transforms -->|"✨ Удалить фон<br/>transform_remove_bg"| transforms
+  transforms -->|"👥 Совместить...<br/>transform_merge_people"| transforms
+  transforms -->|"🧩 Внедрить о...<br/>transform_inject_object"| transforms
+  transforms -->|"🪄 Магическая...<br/>transform_retouch"| transforms
+  transforms -->|"📷 Polaroid<br/>transform_polaroid"| transforms
+  transforms -->|"⬅️ Назад<br/>nav"| root
+  transform_quality -->|"⚡ Базовая<br/>quality_basic"| transform_quality
+  transform_quality -->|"💎 Премиум<br/>quality_premium"| transform_quality
+  transform_quality -->|"⬅️ Назад<br/>nav"| transforms
+  jsonpro_start -->|"Введите JSON<br/>jsonpro_enter"| jsonpro_start
+  jsonpro_start -->|"⬅️ Назад<br/>nav"| root
+  jsonpro_orientation -->|"📱 9:16<br/>jsonpro_ori_916"| jsonpro_orientation
+  jsonpro_orientation -->|"🖥️ 16:9<br/>jsonpro_ori_169"| jsonpro_orientation
+  jsonpro_orientation -->|"🚀 Генерировать<br/>jsonpro_generate"| jsonpro_orientation
+  jsonpro_orientation -->|"⬅️ Назад<br/>nav"| jsonpro_start
+  profile -->|"📋 Тарифы<br/>show_plans"| profile
+  profile -->|"💰 Монетки<br/>show_topup"| profile
+  profile -->|"🔄 Сменить тариф<br/>change_plan"| profile
+  profile -->|"📜 История пл...<br/>show_history"| profile
+  profile -->|"📄 Условия<br/>show_terms"| profile
+  profile -->|"💬 Поддержка<br/>contact_support"| profile
+  profile -->|"⬅️ Назад<br/>nav"| root
+  styles -->|"🇯🇵 Анимэ<br/>style_anime"| styles
+  styles -->|"🧱 LEGO<br/>style_lego"| styles
+  styles -->|"⏩ Без стиля ...<br/>style_none"| styles
+  orientation -->|"📱 Портрет (9...<br/>ori_916"| orientation
+  orientation -->|"🖥️ Альбом (1...<br/>ori_169"| orientation
+  scene_edit -->|"✅ Сохранить<br/>scene_save"| scene_edit
+  scene_edit -->|"❌ Отмена<br/>scene_cancel"| scene_edit
+  meme -->|"meme.again<br/>meme_again"| meme
+  meme -->|"meme.to_helper<br/>meme_to_helper"| meme
+  meme -->|"⬅️ Назад<br/>nav"| modes
+  video_result -->|"🔄 Повторить<br/>video_retry"| video_result
+  video_result -->|"⬅️ Назад<br/>nav"| root
+  transform_result -->|"🔄 Повторить<br/>transform_retry"| transform_result
+  transform_result -->|"⬅️ Назад<br/>nav"| transforms
+  low_coins_warning -->|"⏭️ Продолжит...<br/>skip_low_coins"| low_coins_warning
+  low_coins_warning -->|"💰 Монетки<br/>show_topup"| low_coins_warning

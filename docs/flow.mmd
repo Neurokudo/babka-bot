@@ -1,0 +1,112 @@
+flowchart TD
+
+  root["🏠 Главное меню"]
+  modes["Выберите режим генерации:"]
+  lego_menu["🧱 Режим «LEGO мультики» акт..."]
+  lego_single["🎬 Одна сцена"]
+  lego_reportage["📰 Репортаж"]
+  nkudo_menu["🎭 НКУДО"]
+  nkudo_single["🎬 Одна сцена"]
+  nkudo_reportage["📰 Репортаж"]
+  tryon_start["👗 Виртуальная примерочная"]
+  tryon_confirm["✅ Готово"]
+  tryon_after["tryon.after"]
+  transforms["📸 Изменить фото"]
+  transform_quality["transform.quality"]
+  jsonpro_start["JSON Pro режим"]
+  jsonpro_orientation["jsonpro.orientation"]
+  profile["👤 Профиль / Баланс 💰"]
+  styles["style.choose"]
+  orientation["orientation.choose"]
+  scene_edit["scene.edit"]
+  meme["😄 Мем"]
+  video_result["video.result"]
+  transform_result["transform.result"]
+  low_coins_warning["💰 Недостаточно монеток"]
+
+  root -->|"🎬 Генерировать видео"| modes
+  root -->|"🧱 LEGO мультики"| lego_menu
+  root -->|"🖼️ Оживить фото"| root
+  root -->|"👗 Примерочная"| tryon_start
+  root -->|"📸 Изменить фото"| transforms
+  root -->|"⚡ JSON Pro"| jsonpro_start
+  root -->|"📚 Гайды"| root
+  root -->|"👤 Профиль"| profile
+  root -->|"📜 История"| root
+  modes -->|"🤖 С помощником"| modes
+  modes -->|"✋ Вручную"| modes
+  modes -->|"😄 Мем"| modes
+  modes -->|"🎭 НКУДО"| nkudo_menu
+  modes -->|"⬅️ Назад"| root
+  lego_menu -->|"🎬 Одна сцена"| lego_single
+  lego_menu -->|"📰 Репортаж"| lego_reportage
+  lego_menu -->|"⬅️ Назад в меню"| root
+  lego_single -->|"🔄 Перегенерировать"| lego_single
+  lego_single -->|"✨ Улучшить"| lego_single
+  lego_single -->|"lego.embed_replica"| lego_single
+  lego_single -->|"⬅️ Назад"| lego_menu
+  lego_reportage -->|"⬅️ Назад"| lego_menu
+  nkudo_menu -->|"🎬 Одна сцена"| nkudo_single
+  nkudo_menu -->|"📰 Репортаж"| nkudo_reportage
+  nkudo_menu -->|"⬅️ Назад в меню"| modes
+  nkudo_single -->|"🔄 Перегенерировать"| nkudo_single
+  nkudo_single -->|"✨ Улучшить"| nkudo_single
+  nkudo_single -->|"nkudo.embed_replica"| nkudo_single
+  nkudo_single -->|"⬅️ Назад"| nkudo_menu
+  nkudo_reportage -->|"🎲 Крутить сцену 1"| nkudo_reportage
+  nkudo_reportage -->|"🎲 Крутить сцену 2"| nkudo_reportage
+  nkudo_reportage -->|"✏️ Изменить сцену 1"| nkudo_reportage
+  nkudo_reportage -->|"✏️ Изменить сцену 2"| nkudo_reportage
+  nkudo_reportage -->|"🔄 Всё заново"| nkudo_reportage
+  nkudo_reportage -->|"🧠✨ Улучшить помощ..."| nkudo_reportage
+  nkudo_reportage -->|"➡️ Далее к генерации"| nkudo_reportage
+  nkudo_reportage -->|"⬅️ Назад"| nkudo_menu
+  tryon_start -->|"Начать примерку"| tryon_start
+  tryon_start -->|"⬅️ Назад"| root
+  tryon_confirm -->|"✅ Готово"| tryon_confirm
+  tryon_confirm -->|"⬅️ Назад"| tryon_start
+  tryon_after -->|"🔄 Поменять местами"| tryon_after
+  tryon_after -->|"🔄 Заново"| tryon_after
+  tryon_after -->|"🔄 Новая поза"| tryon_after
+  tryon_after -->|"🔄 Новая одежда"| tryon_after
+  tryon_after -->|"🔄 Новый фон"| tryon_after
+  tryon_after -->|"💬 Улучшить промпт"| tryon_after
+  tryon_after -->|"⬅️ Назад"| root
+  transforms -->|"✨ Удалить фон"| transforms
+  transforms -->|"👥 Совместить людей"| transforms
+  transforms -->|"🧩 Внедрить объект..."| transforms
+  transforms -->|"🪄 Магическая ретушь"| transforms
+  transforms -->|"📷 Polaroid"| transforms
+  transforms -->|"⬅️ Назад"| root
+  transform_quality -->|"⚡ Базовая"| transform_quality
+  transform_quality -->|"💎 Премиум"| transform_quality
+  transform_quality -->|"⬅️ Назад"| transforms
+  jsonpro_start -->|"Введите JSON"| jsonpro_start
+  jsonpro_start -->|"⬅️ Назад"| root
+  jsonpro_orientation -->|"📱 9:16"| jsonpro_orientation
+  jsonpro_orientation -->|"🖥️ 16:9"| jsonpro_orientation
+  jsonpro_orientation -->|"🚀 Генерировать"| jsonpro_orientation
+  jsonpro_orientation -->|"⬅️ Назад"| jsonpro_start
+  profile -->|"📋 Тарифы"| profile
+  profile -->|"💰 Монетки"| profile
+  profile -->|"🔄 Сменить тариф"| profile
+  profile -->|"📜 История платежей"| profile
+  profile -->|"📄 Условия"| profile
+  profile -->|"💬 Поддержка"| profile
+  profile -->|"⬅️ Назад"| root
+  styles -->|"🇯🇵 Анимэ"| styles
+  styles -->|"🧱 LEGO"| styles
+  styles -->|"⏩ Без стиля – далее"| styles
+  orientation -->|"📱 Портрет (9:16)"| orientation
+  orientation -->|"🖥️ Альбом (16:9)"| orientation
+  scene_edit -->|"✅ Сохранить"| scene_edit
+  scene_edit -->|"❌ Отмена"| scene_edit
+  meme -->|"meme.again"| meme
+  meme -->|"meme.to_helper"| meme
+  meme -->|"⬅️ Назад"| modes
+  video_result -->|"🔄 Повторить"| video_result
+  video_result -->|"⬅️ Назад"| root
+  transform_result -->|"🔄 Повторить"| transform_result
+  transform_result -->|"⬅️ Назад"| transforms
+  low_coins_warning -->|"⏭️ Продолжить нес..."| low_coins_warning
+  low_coins_warning -->|"💰 Монетки"| low_coins_warning
