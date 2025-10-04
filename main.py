@@ -953,7 +953,7 @@ def reply_main_kb():
 def kb_home_inline():
     # Временно используем простое меню для отладки
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎬 Генерировать видео", callback_data="mode_helper")],
+        [InlineKeyboardButton("🎬 Генерировать видео", callback_data="show_modes")],
         [InlineKeyboardButton("🧱 LEGO мультики", callback_data="lego_single")],
         [InlineKeyboardButton("👗 Примерочная", callback_data="tryon_start")],
         [InlineKeyboardButton("📸 Изменить фото", callback_data="transform_remove_bg")],
@@ -965,6 +965,7 @@ def kb_modes():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🧠✨ Умный помощник", callback_data="mode_helper")],
         [InlineKeyboardButton("🔮 Как у NEUROKUDO", callback_data="mode_nkudo")],
+        [InlineKeyboardButton("🎤 Репортаж из деревни", callback_data="nkudo_reportage")],
         [InlineKeyboardButton("✏️ Я сам напишу промт", callback_data="mode_manual")],
         [InlineKeyboardButton("🎲 Мемный режим", callback_data="mode_meme")],
         [InlineKeyboardButton("⬅️ Назад в меню", callback_data="back_home")],
@@ -3273,6 +3274,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("⬅️ Назад", callback_data="show_tariffs")],
             ])
         )
+        return
+
+    if data == "show_modes":
+        await q.message.edit_text("🎬 Выберите режим генерации:", reply_markup=kb_modes())
         return
 
     if data == "back_home":
