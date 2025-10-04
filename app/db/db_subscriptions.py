@@ -88,29 +88,35 @@ def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             if is_postgres:
+                # Деактивируем предыдущие подписки
+                conn.execute("UPDATE subscriptions SET is_active = FALSE WHERE user_id = %s", (user_id,))
+                
                 # PostgreSQL синтаксис
                 conn.execute("""
                     INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, payment_id)
-                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '%s days')
-                """, (user_id, plan, coins, price_rub, duration_days))
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + (%s || ' days')::interval, %s)
+                """, (user_id, plan, coins, price_rub, duration_days, payment_id))
                 
                 conn.execute("""
                     UPDATE users
-                    SET plan = %s, plan_expiry = CURRENT_TIMESTAMP + INTERVAL '%s days', coins = coins + %s
+                    SET plan = %s, plan_expiry = CURRENT_TIMESTAMP + (%s || ' days')::interval, coins = coins + %s
                     WHERE user_id = %s
                 """, (plan, duration_days, coins, user_id))
             else:
+                # Деактивируем предыдущие подписки
+                conn.execute("UPDATE subscriptions SET is_active = 0 WHERE user_id = ?", (user_id,))
+                
                 # SQLite синтаксис
                 conn.execute("""
                     INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, payment_id)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, datetime('now', ?), ?)
-                """, (user_id, plan, coins, price_rub, f'+{duration_days} days', payment_id))
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, datetime('now', '+%s days'), ?)
+                """, (user_id, plan, coins, price_rub, duration_days, payment_id))
                 
                 conn.execute("""
                     UPDATE users
-                    SET plan = ?, plan_expiry = datetime('now', ?), coins = coins + ?
+                    SET plan = ?, plan_expiry = datetime('now', '+%s days'), coins = coins + ?
                     WHERE user_id = ?
-                """, (plan, f'+{duration_days} days', coins, user_id))
+                """, (plan, duration_days, coins, user_id))
             
             conn.commit()
             log.info(f"Subscription created for user {user_id}: {plan} plan, {coins} coins")
@@ -183,12 +189,12 @@ def check_expired_subscriptions():
                 """).fetchall()
             
             for (uid,) in expired:
-                # Сбрасываем план пользователя на lite
+                # Сбрасываем план пользователя на lite, обнуляем монеты и plan_expiry
                 if is_postgres:
-                    conn.execute("UPDATE users SET plan='lite', plan_expiry=NULL WHERE user_id=%s", (uid,))
+                    conn.execute("UPDATE users SET plan='lite', plan_expiry=NULL, coins=0 WHERE user_id=%s", (uid,))
                     conn.execute("UPDATE subscriptions SET is_active=FALSE WHERE user_id=%s", (uid,))
                 else:
-                    conn.execute("UPDATE users SET plan='lite', plan_expiry=NULL WHERE user_id=?", (uid,))
+                    conn.execute("UPDATE users SET plan='lite', plan_expiry=NULL, coins=0 WHERE user_id=?", (uid,))
                     conn.execute("UPDATE subscriptions SET is_active=0 WHERE user_id=?", (uid,))
                 log.info(f"Expired subscription deactivated for user {uid}")
             
@@ -198,6 +204,24 @@ def check_expired_subscriptions():
                 
     except Exception as e:
         log.error(f"Failed to check expired subscriptions: {e}")
+
+def get_active_subscribers():
+    """
+    Получить список всех активных подписчиков
+    """
+    try:
+        with db_conn() as conn:
+            # Определяем тип базы данных
+            is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
+            
+            if is_postgres:
+                return conn.execute("SELECT * FROM subscriptions WHERE is_active=TRUE").fetchall()
+            else:
+                return conn.execute("SELECT * FROM subscriptions WHERE is_active=1").fetchall()
+                
+    except Exception as e:
+        log.error(f"Failed to get active subscribers: {e}")
+        return []
 
 def get_user_balance(user_id: int) -> int:
     """Получить баланс пользователя"""
