@@ -294,8 +294,6 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
                 
                 # Отправляем уведомление пользователю
                 try:
-                    import asyncio
-                    from main import bot
                     from app.services.pricing import get_available_tariffs
                     
                     # Находим информацию о тарифе
@@ -318,7 +316,7 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
                         import json
                         
                         # Получаем токен бота из переменных окружения
-                        bot_token = os.getenv("BOT_TOKEN")
+                        bot_token = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
                         log.info(f"NOTIFICATION DEBUG: bot_token exists: {bool(bot_token)}")
                         log.info(f"NOTIFICATION DEBUG: user_id: {user_id}")
                         log.info(f"NOTIFICATION DEBUG: message length: {len(success_message)}")
