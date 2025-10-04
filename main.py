@@ -253,6 +253,19 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str):
         except Exception as e:
             logging.error("Failed to send report to %s: %s", cid, e)
 
+async def schedule_subscription_checks():
+    """
+    Автоматическая ежедневная проверка истёкших подписок в фоне
+    """
+    while True:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log.info(f"⏰ Автопроверка подписок ({now})...")
+        try:
+            check_and_reset_expired_plans()
+        except Exception as e:
+            log.error(f"Ошибка при автопроверке подписок: {e}")
+        await asyncio.sleep(86400)  # 24 часа
+
 # -----------------------------------------------------------------------------
 # ДЕТАЛИЗИРОВАННЫЕ СТИЛИ
 # -----------------------------------------------------------------------------
@@ -4382,6 +4395,7 @@ def main():
             
             # Проверяем и сбрасываем истёкшие подписки при старте
             check_and_reset_expired_plans()
+            log.info("Expired subscriptions checked on startup")
             
         except Exception as e:
             log.error(f"Database initialization failed: {e}")
@@ -4410,5 +4424,14 @@ def main():
         log.error(f"Failed to start bot: {e}")
         raise
 
-if __name__ == "__main__":
+async def run_bot_with_background_tasks():
+    """Запуск бота с фоновыми задачами"""
+    # Запускаем фоновую задачу проверки подписок
+    asyncio.create_task(schedule_subscription_checks())
+    log.info("Автоматическая проверка подписок запущена в фоне")
+    
+    # Запускаем основную функцию
     main()
+
+if __name__ == "__main__":
+    asyncio.run(run_bot_with_background_tasks())
