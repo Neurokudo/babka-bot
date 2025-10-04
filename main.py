@@ -3581,8 +3581,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "nkudo_approve":
         if st.get("nkudo_type") == "reportage":
-            # Показываем выбор стилей для репортажа
-            await q.message.edit_text("Выбери стиль для репортажа:", reply_markup=kb_styles())
+            # Пропускаем выбор стилей, сразу переходим к ориентации
+            await q.message.edit_text("✅ Репортаж готов!\n\nВыбери ориентацию:", reply_markup=kb_orientation())
             return
 
     # LEGO — одиночная сцена
@@ -3872,15 +3872,15 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         st["scene"] = improve_scene(st["source_text"], "normal")
         await q.message.edit_text(f"🔄 Переделано:\n\n{st['scene']}", reply_markup=kb_variants()); return
 
-    # Переход к стилям
+    # Переход к ориентации (пропускаем выбор стилей)
     if data in ("go_next", "choose_style"):
         log.info(f"User {q.from_user.id} pressed go_next, current mode: {st.get('mode')}, scene: {st.get('scene', 'None')[:50]}...")
-        # Для всех режимов показываем выбор стилей
+        # Пропускаем выбор стилей, сразу переходим к ориентации
         if st.get("scene"): 
-            await q.message.edit_text(f"✅ Сцена готова:\n\n{st['scene']}\n\nВыбери стиль:", reply_markup=kb_styles())
+            await q.message.edit_text(f"✅ Сцена готова:\n\n{st['scene']}\n\nВыбери ориентацию:", reply_markup=kb_orientation())
         else:
             log.warning(f"User {q.from_user.id} pressed go_next but no scene found")
-            await q.message.edit_text("Выбери стиль:", reply_markup=kb_styles())
+            await q.message.edit_text("Выбери ориентацию:", reply_markup=kb_orientation())
         return
 
     # --- Обработка стилей ---
