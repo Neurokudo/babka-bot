@@ -5,7 +5,6 @@
 import os
 import logging
 from flask import Flask, request, jsonify
-from app.web.telegram_web import create_telegram_web_app
 from app.services.yookassa_service import process_payment_webhook, process_successful_payment
 
 # Настройка логирования
@@ -40,12 +39,14 @@ def create_combined_webhook_app():
             
             log.info("WEBHOOK HIT: method=%s path=%s", request.method, request.path)
             
+            # Импортируем уже созданное приложение из main.py
+            from main import create_app
+            
             # Создаем объект Update из данных webhook
             from telegram import Update
-            from telegram.ext import Application
             
             # Создаем Application для обработки update
-            telegram_app = Application.builder().token(bot_token).build()
+            telegram_app = create_app()
             
             # Создаем объект Update
             update = Update.de_json(webhook_data, telegram_app.bot)
