@@ -55,7 +55,8 @@ def create_combined_webhook_app():
                 return jsonify({"status": "error", "message": "Invalid update"}), 400
             
             # Обрабатываем update через диспетчер
-            telegram_app.process_update(update)
+            import asyncio
+            asyncio.create_task(telegram_app.process_update(update))
             
             log.info("Telegram update processed successfully")
             return jsonify({"ok": True}), 200
