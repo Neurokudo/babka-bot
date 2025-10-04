@@ -17,7 +17,7 @@ import inspect
 
 # Расширенное логирование для отладки
 logging.basicConfig(
-    level=logging.INFO,  # INFO для production, DEBUG для локальной разработки
+    level=logging.WARNING,  # WARNING для production (чтобы точно видеть в Railway)
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 import time
