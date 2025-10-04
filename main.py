@@ -3034,9 +3034,11 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Новый обработчик тарифов (вместо старого show_plans)
     if data == "show_tariffs":
-        log.info("CALLBACK show_tariffs uid=%s", update.effective_user.id)
-        plans_text = format_plans_list()
-        costs_text = format_feature_costs()
+        log.info("CALLBACK show_tariffs uid=%s - STARTING", update.effective_user.id)
+        try:
+            plans_text = format_plans_list()
+            costs_text = format_feature_costs()
+            log.info("CALLBACK show_tariffs uid=%s - GOT TEXTS", update.effective_user.id)
         
         # Создаем кнопки для покупки тарифов
         keyboard = []
@@ -3060,12 +3062,20 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Логируем текст ответа
         logging.debug(f"Editing message with text: {full_text[:120]}...")
         
-        await q.message.edit_text(
-            full_text,
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
+            await q.message.edit_text(
+                full_text,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            log.info("CALLBACK show_tariffs uid=%s - SUCCESS", update.effective_user.id)
+            return
+        except Exception as e:
+            log.error("CALLBACK show_tariffs uid=%s - ERROR: %s", update.effective_user.id, e)
+            await q.message.edit_text(
+                f"❌ Ошибка при загрузке тарифов: {e}",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")]])
+            )
+            return
     
     if data == "show_topup":
         topup_text = "💰 Пополнить монетки\n\n"
