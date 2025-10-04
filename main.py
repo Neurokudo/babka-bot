@@ -951,18 +951,15 @@ def reply_main_kb():
     )
 
 def kb_home_inline():
-    # Новое главное меню - только нужные пункты
-    try:
-        from app.ui.keyboards import build_keyboard_with_description
-        text, kb = build_keyboard_with_description("root")
-        return kb
-    except Exception as e:
-        log.error(f"Failed to build new keyboard: {e}")
-        # Fallback на упрощенное меню
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton("📚 Гайды / Оплата", callback_data="menu_guides")],
-            [InlineKeyboardButton("👤 Профиль / Баланс", callback_data="menu_profile")],
-        ])
+    # Временно используем простое меню для отладки
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎬 Генерировать видео", callback_data="mode_helper")],
+        [InlineKeyboardButton("🧱 LEGO мультики", callback_data="lego_single")],
+        [InlineKeyboardButton("👗 Примерочная", callback_data="tryon_start")],
+        [InlineKeyboardButton("📸 Изменить фото", callback_data="transform_remove_bg")],
+        [InlineKeyboardButton("📚 Гайды / Оплата", callback_data="menu_guides")],
+        [InlineKeyboardButton("👤 Профиль / Баланс", callback_data="menu_profile")],
+    ])
 
 def kb_modes():
     return InlineKeyboardMarkup([
