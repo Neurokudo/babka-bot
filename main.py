@@ -901,7 +901,7 @@ def _ensure(uid: int):
                 "coins": coins,
                 "admin_coins": admin_coins,
                 "plan": "lite",
-                "plan_expiry": None,
+                "plan_expiry": None,  # У новых пользователей нет подписки
                 "jobs": {},  # история задач
                 "daily": {"date": "", "videos": 0},  # дневная статистика
                 # трансформации изображений
