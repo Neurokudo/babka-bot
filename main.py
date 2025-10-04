@@ -93,9 +93,8 @@ FROM_EMAIL = os.getenv("FROM_EMAIL") or SMTP_USER
 SUPPORT_TO_EMAIL = "antonkudo.ai@gmail.com"
 
 # Группа поддержки для отправки проблем пользователей
-# Чтобы получить ID группы: добавьте бота в группу, отправьте любое сообщение в группу,
-# затем найдите сообщение в логах бота - там будет chat_id группы
-SUPPORT_GROUP_ID = -1002345678901  # Замените на реальный ID группы @https://t.me/+uih2LROTM7FkZjhi
+# Группа: helpbabkakudo @https://t.me/+uih2LROTM7FkZjhi
+SUPPORT_GROUP_ID = -4853068696
 
 # (опционально) дублирование репортов в TG-чат(ы)
 ADMIN_CHAT_RAW = os.getenv("ADMIN_CHAT_ID", "").strip()
