@@ -4368,13 +4368,36 @@ def create_app():
 
 def main():
     """Основная функция для запуска бота в webhook режиме"""
-    _acquire_singleton_lock()
-    app = create_app()
-    
-    log.info("Bot is running in webhook mode…")
-    # Webhook режим - бот будет получать обновления через webhook_server.py
-    # Не запускаем polling, чтобы избежать конфликтов
-    pass
+    try:
+        # Инициализация базы данных
+        try:
+            from app.db import db_subscriptions as db
+            db.init_tables()
+            log.info("Database initialized successfully")
+        except Exception as e:
+            log.error(f"Database initialization failed: {e}")
+            # Продолжаем работу без БД в режиме заглушки
+        
+        # Инициализация YooKassa
+        try:
+            from app.services.yookassa_service import init_yookassa
+            init_yookassa()
+            log.info("YooKassa initialized successfully")
+        except Exception as e:
+            log.error(f"YooKassa initialization failed: {e}")
+            # Продолжаем работу без платежей
+        
+        _acquire_singleton_lock()
+        app = create_app()
+        
+        log.info("Bot is running in webhook mode…")
+        # Webhook режим - бот будет получать обновления через webhook_server.py
+        # Не запускаем polling, чтобы избежать конфликтов
+        pass
+        
+    except Exception as e:
+        log.error(f"Failed to start bot: {e}")
+        raise
 
 if __name__ == "__main__":
     main()

@@ -238,6 +238,10 @@ def apply_top_up(user_id: int, coins: int) -> bool:
 
 def check_subscription(user_id: int):
     """Проверка активной подписки"""
-    from app.db import db_subscriptions as db
-    plan = db.get_user_plan(user_id)
-    return bool(plan and plan.get("is_active"))
+    try:
+        from app.db import db_subscriptions as db
+        plan = db.get_user_plan(user_id)
+        return bool(plan and plan.get("is_active"))
+    except Exception as e:
+        log.warning(f"Failed to check subscription for user {user_id}: {e}")
+        return False

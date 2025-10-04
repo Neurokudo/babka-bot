@@ -51,14 +51,14 @@ def init_tables():
         # Создаем таблицу подписок
         cur.execute("""
             CREATE TABLE IF NOT EXISTS subscriptions (
-                id SERIAL PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id BIGINT NOT NULL,
                 plan TEXT NOT NULL,
                 coins INTEGER DEFAULT 0,
                 price_rub INTEGER NOT NULL,
                 start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 end_date TIMESTAMP NOT NULL,
-                is_active BOOLEAN DEFAULT TRUE,
+                is_active BOOLEAN DEFAULT 1,
                 payment_id TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -67,7 +67,7 @@ def init_tables():
         # Создаем таблицу транзакций
         cur.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
-                id SERIAL PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id BIGINT,
                 feature TEXT,
                 coins_spent INTEGER,

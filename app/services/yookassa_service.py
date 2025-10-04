@@ -21,6 +21,8 @@ def init_yookassa():
     Configuration.account_id = SHOP_ID
     Configuration.secret_key = SECRET_KEY
     
+    # Отладочная информация
+    print("DEBUG YOOKASSA:", SHOP_ID, SECRET_KEY[:10] + "..." if SECRET_KEY else "None")
     log.info(f"YooKassa initialized with shop_id: {SHOP_ID}")
     return True
 
@@ -273,11 +275,12 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
                 
                 # Обновляем баланс пользователя
                 with db.db_conn() as conn:
+                    cur = conn.cursor()
                     is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
                     if is_postgres:
-                        conn.execute("UPDATE users SET coins = %s WHERE user_id = %s", (new_balance, user_id))
+                        cur.execute("UPDATE users SET coins = %s WHERE user_id = %s", (new_balance, user_id))
                     else:
-                        conn.execute("UPDATE users SET coins = ? WHERE user_id = ?", (new_balance, user_id))
+                        cur.execute("UPDATE users SET coins = ? WHERE user_id = ?", (new_balance, user_id))
                     conn.commit()
                 
                 # Записываем транзакцию
