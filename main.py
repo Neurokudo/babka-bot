@@ -1321,6 +1321,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Для существующих пользователей - просто главное меню
     welcome_text = "🏠 Главное меню:"
     await update.message.reply_text(welcome_text, reply_markup=kb_home_inline())
+    
+    # Устанавливаем reply-клавиатуру (нижние кнопки)
+    await update.message.reply_text(
+        "📱 Быстрые кнопки внизу экрана:",
+        reply_markup=reply_main_kb()
+    )
 
 async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextTypes.DEFAULT_TYPE):
     """Обработка webhook'ов от YooKassa"""
