@@ -43,6 +43,12 @@ from telegram.ext import (
 from app.db.queries import db_manager
 from app.db import db_subscriptions as db
 
+# Диагностический маяк
+import hashlib, json
+from app.services.pricing import get_available_tariffs
+VERSION = os.getenv("GIT_SHA", "dev")
+PRICING_HASH = hashlib.md5(json.dumps(get_available_tariffs(), sort_keys=True, default=str).encode()).hexdigest()[:8]
+
 # -----------------------------------------------------------------------------
 # ОКРУЖЕНИЕ / ЛОГИ
 # -----------------------------------------------------------------------------
@@ -52,6 +58,10 @@ load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 from app.utils.logging import setup_logging
 logger = setup_logging()
 log = logging.getLogger("babka-bot")
+
+# Включаем INFO логи для хэндлеров и Telegram
+logging.getLogger("babka-bot").setLevel(logging.INFO)
+logging.getLogger("telegram.ext").setLevel(logging.INFO)
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -1283,7 +1293,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Для существующих пользователей - просто главное меню
-    await update.message.reply_text("Главное меню:", reply_markup=kb_home_inline())
+    welcome_text = f"🏠 Главное меню:\n\n🧩 version: {VERSION} • pricing: {PRICING_HASH}"
+    await update.message.reply_text(welcome_text, reply_markup=kb_home_inline())
 
 async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextTypes.DEFAULT_TYPE):
     """Обработка webhook'ов от YooKassa"""
@@ -3019,35 +3030,6 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    if data == "show_plans":
-        logging.warning(f"Handler fired: show_plans")
-        plans_text = format_plans_list()
-        costs_text = format_feature_costs()
-        
-        # Создаем кнопки для покупки тарифов
-        keyboard = []
-        tariffs = get_available_tariffs()
-        for plan_key, plan_info in tariffs.items():
-            emoji = "✨" if plan_key == "lite" else "⭐" if plan_key == "standard" else "💎"
-            keyboard.append([InlineKeyboardButton(
-                f"Купить «{plan_info['title']}»",
-                callback_data=f"buy_plan_{plan_key}"
-            )])
-        
-        keyboard.append([InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")])
-        keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
-        
-        full_text = f"{plans_text}\n\n{costs_text}"
-        
-        # Логируем текст ответа
-        logging.debug(f"Editing message with text: {full_text[:120]}...")
-        
-        await q.message.edit_text(
-            full_text,
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
     
     # Новый обработчик тарифов (вместо старого show_plans)
     if data == "show_tariffs":

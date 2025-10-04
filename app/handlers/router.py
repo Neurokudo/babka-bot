@@ -586,18 +586,45 @@ async def handle_jsonpro_generate(call: types.CallbackQuery, cb):
 @on_action(Actions.PAYMENT_PLANS)
 async def handle_payment_plans(call: types.CallbackQuery, cb):
     """Показать тарифы"""
-    await call.message.edit_text(
-        "📋 Тарифы и планы",
-        reply_markup=build_home_keyboard()
-    )
+    from app.services.pricing import format_plans_list, get_available_tariffs
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    log.info("CALLBACK show_tariffs uid=%s", call.from_user.id)
+
+    plans_text = format_plans_list()  # ВСЯ верстка отсюда
+
+    # Добавляем диагностический маяк
+    from main import VERSION, PRICING_HASH
+    plans_text += f"\n\n🧩 version: {VERSION} • pricing: {PRICING_HASH}"
+    kb = []
+    tariffs = get_available_tariffs()
+    for key, info in tariffs.items():
+        title = info["title"] if isinstance(info, dict) else getattr(info, "title", key.title())
+        price = info["price"] if isinstance(info, dict) else getattr(info, "price", 0)
+        kb.append([InlineKeyboardButton(f"{title} — {price:,} ₽", callback_data=f"buy_plan_{key}")])
+    kb.append([InlineKeyboardButton("➕ Пополнить монеты", callback_data="show_topup")])
+    kb.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
+
+    await call.message.edit_text(plans_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
 
 @on_action(Actions.PAYMENT_TOPUP)
 async def handle_payment_topup(call: types.CallbackQuery, cb):
     """Пополнение баланса"""
-    await call.message.edit_text(
-        "💰 Пополнение баланса",
-        reply_markup=build_home_keyboard()
-    )
+    from app.services.pricing import format_topup_packs, get_available_topup_packs
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    log.info("CALLBACK show_topup uid=%s", call.from_user.id)
+
+    topup_text = "💰 Пополнить монетки\n\n"
+    topup_text += format_topup_packs()
+
+    kb = []
+    topup_packs = get_available_topup_packs()
+    for pack in topup_packs:
+        kb.append([InlineKeyboardButton(f"{pack['coins']} монет — {pack['price_rub']} ₽", callback_data=f"buy_topup_{pack['coins']}")])
+    kb.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
+
+    await call.message.edit_text(topup_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
 
 @on_action(Actions.PAYMENT_TERMS)
 async def handle_payment_terms(call: types.CallbackQuery, cb):

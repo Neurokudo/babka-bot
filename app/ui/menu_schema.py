@@ -7,8 +7,16 @@ MENU = {
     "root": {
         "text_key": "menu.title",
         "buttons": [
-            {"text_key": "btn.guides", "to": "root", "cb": (Actions.MENU_GUIDES,)},
+            {"text_key": "btn.guides", "to": "guides", "cb": (Actions.MENU_GUIDES,)},
             {"text_key": "btn.profile", "to": "profile", "cb": (Actions.MENU_PROFILE,)},
+        ],
+    },
+
+    "guides": {
+        "text_key": "menu.guides",
+        "buttons": [
+            {"text_key": "payment.plans", "to": "guides", "cb": (Actions.PAYMENT_PLANS,)},
+            {"text_key": "btn.back", "to": "root", "cb": (Actions.NAV, "root")},
         ],
     },
     
