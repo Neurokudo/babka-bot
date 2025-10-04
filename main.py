@@ -92,6 +92,11 @@ SMTP_PASS = os.getenv("SMTP_PASS", "")
 FROM_EMAIL = os.getenv("FROM_EMAIL") or SMTP_USER
 SUPPORT_TO_EMAIL = "antonkudo.ai@gmail.com"
 
+# Группа поддержки для отправки проблем пользователей
+# Чтобы получить ID группы: добавьте бота в группу, отправьте любое сообщение в группу,
+# затем найдите сообщение в логах бота - там будет chat_id группы
+SUPPORT_GROUP_ID = -1002345678901  # Замените на реальный ID группы @https://t.me/+uih2LROTM7FkZjhi
+
 # (опционально) дублирование репортов в TG-чат(ы)
 ADMIN_CHAT_RAW = os.getenv("ADMIN_CHAT_ID", "").strip()
 ADMIN_CHAT_IDS = []
@@ -376,6 +381,15 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str):
             await context.bot.send_message(chat_id=cid, text=text)
         except Exception as e:
             logging.error("Failed to send report to %s: %s", cid, e)
+
+async def send_to_support_group(context: ContextTypes.DEFAULT_TYPE, text: str):
+    """Отправить сообщение в группу поддержки"""
+    try:
+        await context.bot.send_message(chat_id=SUPPORT_GROUP_ID, text=text)
+        return True
+    except Exception as e:
+        logging.error("Failed to send message to support group: %s", e)
+        return False
 
 async def schedule_subscription_checks():
     """
@@ -1953,7 +1967,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ); return
     if text == "🆘 Возникли проблемы":
         st["awaiting_support"] = True
-        await update.message.reply_text("Опиши проблему одним сообщением — перешлю её разработчику на почту."); 
+        await update.message.reply_text("Опиши проблему одним сообщением — я перешлю её в службу поддержки."); 
         return
     if text == "🌓 Не видно кнопки":
         await update.message.reply_text(
@@ -1968,12 +1982,19 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Приём репорта
     if st.get("awaiting_support"):
         st["awaiting_support"] = False
-        body = f"Репорт от @{update.effective_user.username or uid} (ID {uid}):\n\n{text}"
-        ok = _send_support_email("🆘 Репорт из Babka Bot", body)
+        username = update.effective_user.username or "Без username"
+        support_message = f"🆘 Проблема от @{username} (ID: {uid}):\n\n{text}"
+        
+        # Отправляем в группу поддержки
+        success = await send_to_support_group(context, support_message)
+        
+        # Дублируем в админские чаты (если настроены)
         if ADMIN_CHAT_IDS:
             await notify_admins(context, f"🆘 Репорт от {uid}:\n\n{text}")
+        
+        # Отправляем подтверждение пользователю
         await update.message.reply_text(
-            "✅ Репорт отправлен на почту." if ok else "⚠️ Не удалось отправить на почту. Проверь SMTP.",
+            "Спасибо! Мы обязательно попытаемся это исправить 🐱✨",
             reply_markup=reply_main_kb()
         )
         return
