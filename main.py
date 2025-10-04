@@ -1348,6 +1348,43 @@ def addons_keyboard(order=None) -> InlineKeyboardMarkup:
 # -----------------------------------------------------------------------------
 # ДОСТУП
 # -----------------------------------------------------------------------------
+
+async def check_gpt_access(update: Update) -> bool:
+    """
+    Проверяет доступ к GPT функциям (только подписка)
+    Возвращает True если доступ разрешен, False если нет
+    При отсутствии доступа отправляет сообщение с кнопками
+    """
+    uid = update.effective_user.id
+    
+    # Проверяем только подписку
+    subscription_data = check_subscription(uid)
+    is_active = subscription_data.get("is_active", False)
+    
+    # Проверяем подписку
+    if not is_active:
+        message = (
+            "Извини, я помогу тебе с радостью, когда у тебя будут подписка и монетки! 😞\n\n"
+            "🧠 Умный помощник доступен только с активной подпиской."
+        )
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💰 Перейти к оплате", callback_data="show_tariffs")],
+            [InlineKeyboardButton("🔄 Сбросить", callback_data="reset_session")]
+        ])
+        
+        try:
+            if update.message:
+                await update.message.reply_text(message, reply_markup=keyboard)
+            elif update.callback_query:
+                await update.callback_query.message.reply_text(message, reply_markup=keyboard)
+        except Exception as e:
+            log.error(f"Failed to send GPT access denied message: {e}")
+        
+        return False
+    
+    return True
+
 async def check_access(update: Update) -> bool:
     uid = update.effective_user.id
     log.info("ACCESS CHECK: uid=%s, allowed=%s", uid, ALLOWED_USERS)
@@ -3730,8 +3767,35 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_text("Главное меню:", reply_markup=kb_home_inline())
         return
 
+    if data == "reset_session":
+        # Сбрасываем состояние пользователя
+        st.update({
+            "mode": None,
+            "scene": None,
+            "style": None,
+            "replica": None,
+            "awaiting_scene": False,
+            "awaiting_style": False,
+            "awaiting_replica": False,
+            "awaiting_source": False,
+            "source_text": None,
+            "nkudo_scene1": None,
+            "nkudo_scene2": None,
+            "scene_backup": None,
+            "scene1_backup": None,
+            "scene2_backup": None,
+            "tryon": None,
+            "jsonpro": None
+        })
+        await q.message.edit_text("🔄 Сессия сброшена. Возвращаемся в главное меню:", reply_markup=kb_home_inline())
+        return
+
     # Режимы
     if data == "mode_helper":
+        # Проверяем доступ к GPT функциям
+        if not await check_gpt_access(q):
+            return
+        
         st.update({"mode": "helper", "scene": None, "style": None, "replica": None})
         st["awaiting_scene"] = True
         await q.message.edit_text("🧠✨ Режим умного помощника активирован!")
@@ -3754,6 +3818,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_text(f"🎭 Новая сцена:\n\n{scene}", reply_markup=kb_meme()); return
 
     if data == "meme_to_helper":
+        # Проверяем доступ к GPT функциям
+        if not await check_gpt_access(q):
+            return
+        
         st["mode"] = "helper"; st["source_text"] = st.get("scene"); st["scene"] = improve_scene(st["scene"], "normal")
         await q.message.edit_text(f"🧠✨ Улучшено помощником:\n\n{st['scene']}", reply_markup=kb_variants()); return
 
@@ -3795,6 +3863,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt = "🔮 Новая сцена сгенерирована\n\n🎬 Сцена (8 сек):\n" + st["scene"] + "\n\nЧто делаем дальше?"
         await q.message.edit_text(txt, reply_markup=kb_nkudo_single()); return
     if data == "nkudo_improve_single":
+        # Проверяем доступ к GPT функциям
+        if not await check_gpt_access(q):
+            return
+        
         if st.get("scene"):
             st["scene_backup"] = st["scene"]
             # Показываем загрузочное сообщение
@@ -3983,6 +4055,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_text(txt, reply_markup=kb_nkudo_reportage_edit()); return
 
     if data == "nkudo_improve_report":
+        # Проверяем доступ к GPT функциям
+        if not await check_gpt_access(q):
+            return
+        
         if st.get("nkudo_scene1") and st.get("nkudo_scene2"):
             st["scene1_backup"] = st["nkudo_scene1"]; st["scene2_backup"] = st["nkudo_scene2"]
             # Показываем загрузочное сообщение
@@ -4043,6 +4119,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_text(txt, reply_markup=kb_lego_single()); return
 
     if data == "lego_improve_single":
+        # Проверяем доступ к GPT функциям
+        if not await check_gpt_access(q):
+            return
+        
         if st.get("scene"):
             st["scene_backup"] = st["scene"]
             # Показываем загрузочное сообщение
@@ -4496,37 +4576,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "tryon_prompt":
-        # Проверяем доступ для описания задачи (стоимость 2 монетки)
-        access_check = can_use_feature(uid, "virtual_tryon", custom_cost=2)
-        if not access_check["can_use"]:
-            log.warning("CALLBACK tryon_prompt uid=%s - ACCESS DENIED: %s", uid, access_check["reason"])
-            
-            if access_check["reason"] == "no_subscription":
-                buttons = [
-                    [InlineKeyboardButton("💳 Купить подписку", callback_data="show_tariffs")],
-                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
-                ]
-            elif access_check["reason"] == "insufficient_coins":
-                buttons = [
-                    [InlineKeyboardButton("💰 Докупить монетки", callback_data="show_topup")],
-                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
-                ]
-            else:
-                buttons = [
-                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
-                ]
-            
-            await q.message.edit_text(
-                access_check["message"],
-                reply_markup=InlineKeyboardMarkup(buttons)
-            )
-            return
-
-        # Списываем монетки
-        cost = 2  # Фиксированная стоимость для описания задачи
-        if not db.charge_feature(uid, "tryon_prompt", cost, "Virtual try-on custom prompt"):
-            log.error("CALLBACK tryon_prompt uid=%s - CHARGE FAILED", uid)
-            await q.message.reply_text("❌ Ошибка списания монет. Попробуйте позже.")
+        # Проверяем доступ к GPT функциям
+        if not await check_gpt_access(q):
             return
 
         stt = st["tryon"]
@@ -4543,12 +4594,21 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Варианты улучшения
     if data == "var_complex" and st.get("source_text") and gpt:
+        # Проверяем доступ к GPT функциям
+        if not await check_gpt_access(q):
+            return
         st["scene"] = improve_scene(st["source_text"], "complex")
         await q.message.edit_text(f"🔍 Усложнено:\n\n{st['scene']}", reply_markup=kb_variants()); return
     if data == "var_simple" and st.get("source_text") and gpt:
+        # Проверяем доступ к GPT функциям
+        if not await check_gpt_access(q):
+            return
         st["scene"] = improve_scene(st["source_text"], "simple")
         await q.message.edit_text(f"✂️ Упрощено:\n\n{st['scene']}", reply_markup=kb_variants()); return
     if data == "var_again" and st.get("source_text") and gpt:
+        # Проверяем доступ к GPT функциям
+        if not await check_gpt_access(q):
+            return
         st["scene"] = improve_scene(st["source_text"], "normal")
         await q.message.edit_text(f"🔄 Переделано:\n\n{st['scene']}", reply_markup=kb_variants()); return
 
