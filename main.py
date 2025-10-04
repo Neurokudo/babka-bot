@@ -1489,6 +1489,51 @@ async def cmd_whereami(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"title: {getattr(chat, 'title', '')}"
     )
 
+async def cmd_refresh_tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /refresh_tariffs - принудительное обновление тарифов"""
+    if not await check_access(update): return
+    uid = update.effective_user.id
+    _ensure(uid)
+    
+    # Очищаем кэш пользователя
+    if uid in users:
+        del users[uid]
+        log.info(f"Cleared user {uid} from cache")
+    
+    # Перезагружаем модули тарифов
+    try:
+        import importlib
+        import app.config.pricing
+        import app.services.pricing
+        
+        importlib.reload(app.config.pricing)
+        importlib.reload(app.services.pricing)
+        
+        # Проверяем актуальные тарифы
+        from app.services.pricing import get_available_tariffs, format_plans_list
+        
+        tariffs = get_available_tariffs()
+        plans_text = format_plans_list()
+        
+        await update.message.reply_text(
+            f"🔄 <b>Тарифы обновлены!</b>\n\n"
+            f"📋 Актуальные тарифы:\n{plans_text}\n\n"
+            f"✅ Кэш очищен, модули перезагружены",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 Показать тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+            ])
+        )
+        
+    except Exception as e:
+        log.error(f"Error refreshing tariffs: {e}")
+        await update.message.reply_text(
+            f"❌ Ошибка обновления тарифов: {e}\n\n"
+            f"Попробуйте перезапустить бота"
+        )
+
 async def cmd_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать пользовательское соглашение"""
     terms_text = """📋 ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ
@@ -4375,6 +4420,7 @@ def create_app():
     app.add_handler(CommandHandler("start", cmd_start))
     # Все остальные команды убраны - используем только инлайн кнопки
     app.add_handler(CommandHandler("whereami", cmd_whereami))  # утилита
+    app.add_handler(CommandHandler("refresh_tariffs", cmd_refresh_tariffs))  # обновление тарифов
     app.add_handler(CommandHandler("terms", cmd_terms))  # пользовательское соглашение
     app.add_handler(CommandHandler("sync_pricing", lambda u, c: u.message.reply_text(pricing_text(), parse_mode="HTML")))
     app.add_handler(CommandHandler("test_payment", cmd_test_payment))  # тестовая команда
