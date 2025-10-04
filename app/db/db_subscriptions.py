@@ -747,6 +747,82 @@ def activate_user_plan(user_id: int, plan_name: str, coins: int) -> bool:
         log.error(f"Failed to activate plan {plan_name} for user {user_id}: {e}")
         return False
 
+def sync_subscriptions():
+    """
+    Синхронизирует все существующие подписки в базе данных.
+    Исправляет формат дат и активирует действующие подписки.
+    """
+    try:
+        with db_conn() as conn:
+            cur = conn.cursor()
+            
+            # Определяем тип базы данных
+            is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
+            
+            if is_postgres:
+                # PostgreSQL синтаксис
+                cur.execute("""
+                    UPDATE subscriptions
+                    SET end_date = end_date::timestamp,
+                        is_active = TRUE
+                    WHERE end_date > CURRENT_TIMESTAMP
+                """)
+            else:
+                # SQLite синтаксис
+                cur.execute("""
+                    UPDATE subscriptions
+                    SET end_date = datetime(end_date),
+                        is_active = 1
+                    WHERE end_date > datetime('now')
+                """)
+            
+            # Обновляем соответствующие записи в таблице users
+            if is_postgres:
+                cur.execute("""
+                    UPDATE users
+                    SET plan_expiry = subscriptions.end_date,
+                        auto_renew = TRUE
+                    FROM subscriptions
+                    WHERE users.user_id = subscriptions.user_id
+                    AND subscriptions.end_date > CURRENT_TIMESTAMP
+                    AND subscriptions.is_active = TRUE
+                """)
+            else:
+                cur.execute("""
+                    UPDATE users
+                    SET plan_expiry = (
+                        SELECT end_date FROM subscriptions 
+                        WHERE subscriptions.user_id = users.user_id 
+                        AND subscriptions.end_date > datetime('now')
+                        AND subscriptions.is_active = 1
+                        ORDER BY subscriptions.created_at DESC 
+                        LIMIT 1
+                    ),
+                    auto_renew = 1
+                    WHERE user_id IN (
+                        SELECT user_id FROM subscriptions 
+                        WHERE end_date > datetime('now') 
+                        AND is_active = 1
+                    )
+                """)
+            
+            conn.commit()
+            
+            # Подсчитываем количество обновленных подписок
+            if is_postgres:
+                cur.execute("SELECT COUNT(*) FROM subscriptions WHERE end_date > CURRENT_TIMESTAMP AND is_active = TRUE")
+            else:
+                cur.execute("SELECT COUNT(*) FROM subscriptions WHERE end_date > datetime('now') AND is_active = 1")
+            
+            count = cur.fetchone()[0]
+            log.info(f"✅ Subscriptions synchronized successfully. Updated {count} active subscriptions.")
+            print(f"✅ Subscriptions synchronized successfully. Updated {count} active subscriptions.")
+            
+    except Exception as e:
+        log.error(f"Failed to sync subscriptions: {e}")
+        print(f"❌ Failed to sync subscriptions: {e}")
+        raise
+
 # Инициализируем таблицы при импорте модуля
 try:
     init_tables()
