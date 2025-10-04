@@ -1987,12 +1987,32 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         prompt = text
         await update.message.reply_text("⏳ Делаю перестановку по описанию…")
+        
         try:
+            # Проверяем доступность Google credentials
+            google_creds = os.getenv("GOOGLE_CREDENTIALS_JSON") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            if not google_creds:
+                raise RuntimeError("Google credentials not configured")
+            
+            from app.services.clients.nano_client import repose_or_relocate
             out = await asyncio.to_thread(repose_or_relocate, stt["dressed"], prompt, None)
             stt["dressed"] = out
             await update.message.reply_photo(photo=out, caption="✅ Готово (эксперимент).", reply_markup=kb_tryon_after())
+            
         except Exception as e:
-            await update.message.reply_text(f"⚠️ Не удалось переставить позу/локацию: {e}")
+            log.exception("Custom prompt failed for user %s: %s", uid, str(e))
+            
+            # Возвращаем монетки, если генерация не удалась
+            try:
+                from app.services.wallet import add_coins
+                add_coins(uid, 2, "Refund for failed custom prompt")
+                log.info("Custom prompt refund for user %s: 2 coins", uid)
+            except Exception as refund_error:
+                log.error("Custom prompt refund failed for user %s: %s", uid, refund_error)
+            
+            await update.message.reply_text(
+                f"⚠️ Описание задачи временно недоступно.\n💰 Возвращено: 2 монетки\n\nПопробуйте другие функции или обратитесь в поддержку."
+            )
         return
 
     # Редактирование сцен (репортаж)
@@ -2574,12 +2594,32 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Сначала выполните примерку, затем меняйте локацию.")
             return
         await update.message.reply_text("⏳ Пересобираю с новым фоном…")
+        
         try:
+            # Проверяем доступность Google credentials
+            google_creds = os.getenv("GOOGLE_CREDENTIALS_JSON") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            if not google_creds:
+                raise RuntimeError("Google credentials not configured")
+            
+            from app.services.clients.nano_client import repose_or_relocate
             out = await asyncio.to_thread(repose_or_relocate, stt["dressed"], "", bg_bytes)
             stt["dressed"] = out
             await update.message.reply_photo(photo=out, caption="✅ Новая локация готова.", reply_markup=kb_tryon_after())
+            
         except Exception as e:
-            await update.message.reply_text(f"⚠️ Ошибка при смене локации: {e}")
+            log.exception("Background change failed for user %s: %s", uid, str(e))
+            
+            # Возвращаем монетки, если генерация не удалась
+            try:
+                from app.services.wallet import add_coins
+                add_coins(uid, 3, "Refund for failed background change")
+                log.info("Background change refund for user %s: 3 coins", uid)
+            except Exception as refund_error:
+                log.error("Background change refund failed for user %s: %s", uid, refund_error)
+            
+            await update.message.reply_text(
+                f"⚠️ Смена фона временно недоступна.\n💰 Возвращено: 3 монетки\n\nПопробуйте другие функции или обратитесь в поддержку."
+            )
         return
 
     # обычный флоу: человек/одежда
@@ -2592,11 +2632,56 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if stt["stage"] == "await_garment":
         stt["garment"] = b
-        stt["stage"] = "confirm"
-        await update.message.reply_text(
-            "Фото получены. Готовы примерять?",
-            reply_markup=kb_tryon_confirm()
-        )
+        
+        # Проверяем, это новая одежда для смены или первая одежда
+        if stt.get("dressed"):  # Если уже есть результат примерки, значит это смена одежды
+            await update.message.reply_text("⏳ Переодеваю с новой одеждой…")
+            
+            try:
+                # Проверяем доступность Google credentials
+                google_creds = os.getenv("GOOGLE_CREDENTIALS_JSON") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                if not google_creds:
+                    raise RuntimeError("Google credentials not configured")
+                
+                from app.services.clients.tryon_client import virtual_tryon
+                loop = asyncio.get_event_loop()
+                result_bytes = await loop.run_in_executor(
+                    None, 
+                    virtual_tryon, 
+                    stt["person"], 
+                    b  # новая одежда
+                )
+                
+                stt["dressed"] = result_bytes
+                stt["stage"] = "after"
+                
+                await update.message.reply_photo(
+                    photo=result_bytes, 
+                    caption="✅ Готово! Одежда изменена.\n💰 Списано: 3 монетки", 
+                    reply_markup=kb_tryon_after()
+                )
+                
+            except Exception as e:
+                log.exception("Garment change failed for user %s: %s", uid, str(e))
+                
+                # Возвращаем монетки, если генерация не удалась
+                try:
+                    from app.services.wallet import add_coins
+                    add_coins(uid, 3, "Refund for failed garment change")
+                    log.info("Garment change refund for user %s: 3 coins", uid)
+                except Exception as refund_error:
+                    log.error("Garment change refund failed for user %s: %s", uid, refund_error)
+                
+                await update.message.reply_text(
+                    f"⚠️ Смена одежды временно недоступна.\n💰 Возвращено: 3 монетки\n\nПопробуйте другие функции или обратитесь в поддержку."
+                )
+        else:
+            # Первая одежда - переводим в режим подтверждения
+            stt["stage"] = "confirm"
+            await update.message.reply_text(
+                "Фото получены. Готовы примерять?",
+                reply_markup=kb_tryon_confirm()
+            )
         return
 
     if stt["stage"] == "confirm":
