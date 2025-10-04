@@ -187,8 +187,8 @@ def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
                 
                 # SQLite синтаксис
                 cur.execute("""
-                    INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, payment_id)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, datetime('now', '+? days'), ?)
+                    INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, is_active, payment_id)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, datetime('now', '+? days'), 1, ?)
                 """, (user_id, plan, coins, price_rub, duration_days, payment_id))
                 
                 cur.execute("""
