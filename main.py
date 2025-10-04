@@ -4369,6 +4369,11 @@ def create_app():
 def main():
     """Основная функция для запуска бота в webhook режиме"""
     try:
+        # Загружаем переменные окружения из .env файла
+        from dotenv import load_dotenv
+        load_dotenv()
+        print("Environment variables loaded from .env file")
+        
         # Инициализация базы данных
         try:
             from app.db import db_subscriptions as db

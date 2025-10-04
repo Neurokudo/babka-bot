@@ -9,26 +9,44 @@ from yookassa import Configuration, Payment
 
 log = logging.getLogger("yookassa_service")
 
+# Глобальная переменная для отслеживания состояния YooKassa
+YOOKASSA_ENABLED = False
+
 # Инициализация YooKassa
 def init_yookassa():
     """Инициализация YooKassa с боевыми ключами"""
+    global YOOKASSA_ENABLED
+    
+    # Детальная диагностика переменных окружения
+    print("ENV KEYS:", [k for k in os.environ.keys() if "YOO" in k])
+    print("All env keys:", sorted(os.environ.keys()))
+    
     SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
     SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
     
-    # Отладочная информация о переменных окружения
-    print("DEBUG YOOKASSA ENV:", SHOP_ID, SECRET_KEY[:6] + "..." if SECRET_KEY else None)
-    print("Available env keys:", [k for k in os.environ.keys() if 'YOOKASSA' in k or 'SHOP' in k])
+    # Улучшенное форматирование логов
+    print(f"DEBUG YOOKASSA ENV → SHOP_ID={SHOP_ID}, SECRET_KEY={'***' if SECRET_KEY else None}")
     
+    # Проверяем переменные окружения
     if not SHOP_ID or not SECRET_KEY:
+        print("⚠️ YooKassa credentials missing, fallback to sandbox mode")
         log.warning("YooKassa credentials not found in environment variables")
         log.warning(f"SHOP_ID: {SHOP_ID}, SECRET_KEY: {'present' if SECRET_KEY else 'missing'}")
+        YOOKASSA_ENABLED = False
         return False
     
-    Configuration.account_id = SHOP_ID
-    Configuration.secret_key = SECRET_KEY
-    
-    log.info(f"YooKassa initialized with shop_id: {SHOP_ID}")
-    return True
+    # Инициализируем YooKassa
+    try:
+        Configuration.account_id = SHOP_ID
+        Configuration.secret_key = SECRET_KEY
+        
+        log.info(f"YooKassa initialized with shop_id: {SHOP_ID}")
+        YOOKASSA_ENABLED = True
+        return True
+    except Exception as e:
+        log.error(f"Failed to initialize YooKassa: {e}")
+        YOOKASSA_ENABLED = False
+        return False
 
 def create_payment(user_id: int, plan: str, price_rub: int, coins: int, username: str = None) -> Tuple[str, str]:
     """
@@ -45,6 +63,10 @@ def create_payment(user_id: int, plan: str, price_rub: int, coins: int, username
         Tuple[str, str]: (payment_url, payment_id)
     """
     try:
+        # Проверяем, включен ли YooKassa
+        if not YOOKASSA_ENABLED:
+            raise RuntimeError("YooKassa is not enabled - credentials not found")
+        
         # Инициализируем YooKassa если еще не инициализирован
         init_yookassa()
         
