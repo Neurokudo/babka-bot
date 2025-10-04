@@ -41,7 +41,7 @@ from telegram.ext import (
 
 # Импорты для работы с базой данных и биллингом
 from app.db.queries import db_manager
-from app.db import db_subscriptions as db
+from app.db.queries import db_manager as db
 
 # Диагностический маяк
 import hashlib, json
@@ -4525,7 +4525,7 @@ def initialize_bot():
     
     # Инициализация базы данных
     try:
-        from app.db import db_subscriptions as db
+        from app.db.queries import db_manager as db
         db.init_tables()
         log.info("Database initialized successfully")
         
