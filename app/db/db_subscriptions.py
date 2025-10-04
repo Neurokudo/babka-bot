@@ -51,7 +51,7 @@ def init_tables():
         # Создаем таблицу подписок
         cur.execute("""
             CREATE TABLE IF NOT EXISTS subscriptions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 user_id BIGINT NOT NULL,
                 plan TEXT NOT NULL,
                 coins INTEGER DEFAULT 0,
@@ -67,7 +67,7 @@ def init_tables():
         # Создаем таблицу транзакций
         cur.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 user_id BIGINT,
                 feature TEXT,
                 coins_spent INTEGER,
