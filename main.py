@@ -1081,7 +1081,7 @@ def kb_home_inline():
         [InlineKeyboardButton("🧱 LEGO мультики", callback_data="lego_single")],
         [InlineKeyboardButton("👗 Примерить одежду", callback_data="tryon_start")],
         [InlineKeyboardButton("📸 Изменить фото", callback_data="transform_remove_bg")],
-        [InlineKeyboardButton("📚 Гайды / Оплата", callback_data="menu_guides")],
+        [InlineKeyboardButton("📚 Гайды / Инструкции", callback_data="menu_guides")],
         [InlineKeyboardButton("👤 Профиль / Баланс", callback_data="menu_profile")],
     ])
 
@@ -1912,9 +1912,6 @@ async def cmd_reload_profile(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     response_text = "🔄 ПРОФИЛЬ ПЕРЕЗАГРУЖЕН ИЗ БАЗЫ ДАННЫХ!\n\n📊 Текущее состояние:\n\n"
     
-    # Админская графа - только для админа
-    if uid == ADMIN_ID:
-        response_text += f"⭐️ БАЛАНС АДМИНА: {st.get('admin_coins', 0)} монеток\n\n"
     
     response_text += f"💎 Монеток: {st.get('coins', 0)}\n\n"
     response_text += "✅ Данные загружены напрямую из PostgreSQL!"
@@ -1954,8 +1951,7 @@ async def cmd_reset_my_profile(update: Update, context: ContextTypes.DEFAULT_TYP
         "♻️ ВАШ ПРОФИЛЬ ПОЛНОСТЬЮ СБРОШЕН!\n\n"
         "📊 Установлены админские значения:\n\n"
         "🪙 БАЛАНС: 0 монеток\n"
-        f"📋 ТАРИФ: {tariff_name}\n"
-        "⭐️ БАЛАНС АДМИНА: 500 монеток\n\n"
+        f"📋 ТАРИФ: {tariff_name}\n\n"
         "✅ Профиль сохранен в БД!",
         reply_markup=kb_home_inline()
     )
@@ -2975,8 +2971,6 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         profile_text = "👤 <b>Профиль / Баланс 💰</b>\n\n"
 
-        if uid == 5015100177:
-            profile_text += f"⭐️ БАЛАНС АДМИНА: {admin_coins} монеток\n\n"
 
         profile_text += f"💎 Монеток: {coins}\n"
         profile_text += f"📊 Тариф: {tariff_title}\n"
@@ -2990,7 +2984,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
         # Используем актуальные данные из конфигурации
-        profile_text += ("\n💡 <b>Стоимость генераций:</b>\n" + 
+        profile_text += ("\n💡 <b>Стоимость операций:</b>\n" + 
                          format_feature_costs().replace("🎬", "•").replace("🔇", "•").replace("📸", "•").replace("👗", "•"))
 
         # Логируем текст ответа
