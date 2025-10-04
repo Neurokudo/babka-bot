@@ -1240,6 +1240,13 @@ def addons_keyboard(order=None) -> InlineKeyboardMarkup:
 async def check_access(update: Update) -> bool:
     uid = update.effective_user.id
     log.info("ACCESS CHECK: uid=%s, allowed=%s", uid, ALLOWED_USERS)
+    
+    # Если список разрешенных пользователей пустой - доступ для всех
+    if not ALLOWED_USERS:
+        log.info("ACCESS CHECK: uid=%s - OPEN ACCESS (no restrictions)", uid)
+        return True
+    
+    # Если список не пустой - проверяем принадлежность
     if uid not in ALLOWED_USERS:
         try:
             if update.message:
