@@ -393,6 +393,34 @@ async def send_to_support_group(context: ContextTypes.DEFAULT_TYPE, text: str):
             logging.error("SUPPORT_GROUP_ID appears to be incorrect. Please check the group ID.")
         return False
 
+async def send_coin_notification(update: Update, context: ContextTypes.DEFAULT_TYPE, 
+                                action: str, amount: int, reason: str = None):
+    """Отправить уведомление о списании/возврате монеток"""
+    try:
+        uid = update.effective_user.id
+        from app.services.billing import check_subscription
+        subscription_data = check_subscription(uid)
+        current_balance = subscription_data.get("coins", 0)
+        
+        if action == "charge":
+            message = f"💰 Списано {amount} монеток\n💎 Баланс: {current_balance} монеток"
+        elif action == "refund":
+            message = f"💰 Возвращено {amount} монеток\n💎 Баланс: {current_balance} монеток"
+        else:
+            message = f"💰 {action}: {amount} монеток\n💎 Баланс: {current_balance} монеток"
+        
+        if reason:
+            message += f"\n📝 {reason}"
+        
+        # Отправляем уведомление
+        if update.message:
+            await update.message.reply_text(message)
+        elif update.callback_query:
+            await update.callback_query.message.reply_text(message)
+            
+    except Exception as e:
+        log.error(f"Failed to send coin notification: {e}")
+
 async def schedule_subscription_checks():
     """
     Автоматическая ежедневная проверка истёкших подписок в фоне
@@ -2092,6 +2120,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 from app.services.wallet import add_coins
                 add_coins(uid, 2, "Refund for failed custom prompt")
+                await send_coin_notification(update, context, "refund", 2, "Ошибка описания задачи")
                 log.info("Custom prompt refund for user %s: 2 coins", uid)
             except Exception as refund_error:
                 log.error("Custom prompt refund failed for user %s: %s", uid, refund_error)
@@ -2702,6 +2731,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 from app.services.wallet import add_coins
                 add_coins(uid, 3, "Refund for failed background change")
+                await send_coin_notification(update, context, "refund", 3, "Ошибка смены фона")
                 log.info("Background change refund for user %s: 3 coins", uid)
             except Exception as refund_error:
                 log.error("Background change refund failed for user %s: %s", uid, refund_error)
@@ -2757,6 +2787,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     from app.services.wallet import add_coins
                     add_coins(uid, 3, "Refund for failed garment change")
+                    await send_coin_notification(update, context, "refund", 3, "Ошибка смены одежды")
                     log.info("Garment change refund for user %s: 3 coins", uid)
                 except Exception as refund_error:
                     log.error("Garment change refund failed for user %s: %s", uid, refund_error)
@@ -4353,6 +4384,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text("❌ Ошибка списания монет. Попробуйте позже.")
             return
 
+        # Отправляем уведомление о списании
+        await send_coin_notification(q, context, "charge", cost, "Виртуальная примерка")
         log.info("CALLBACK tryon_confirm uid=%s - BALANCE CHARGED, STARTING PROCESSING", uid)
         await q.message.edit_text("⏳ Делаю примерку…")
         try:
@@ -4416,6 +4449,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text("❌ Ошибка списания монет. Попробуйте позже.")
             return
 
+        # Отправляем уведомление о списании
+        await send_coin_notification(q, context, "charge", cost, "Смена позы")
+
         stt = st["tryon"]
         
         # Генерируем новую позу автоматически
@@ -4472,6 +4508,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 from app.services.wallet import add_coins
                 add_coins(uid, cost, "Refund for failed pose generation")
+                await send_coin_notification(q, context, "refund", cost, "Ошибка генерации позы")
                 log.info("CALLBACK tryon_new_pose uid=%s - REFUNDED %s COINS", uid, cost)
             except Exception as refund_error:
                 log.error("CALLBACK tryon_new_pose uid=%s - REFUND FAILED: %s", uid, refund_error)
@@ -4519,6 +4556,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text("❌ Ошибка списания монет. Попробуйте позже.")
             return
 
+        # Отправляем уведомление о списании
+        await send_coin_notification(q, context, "charge", cost, "Смена одежды")
+
         stt = st["tryon"]
         stt["stage"] = "await_garment"
         await q.message.edit_media(
@@ -4563,6 +4603,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.error("CALLBACK tryon_new_bg uid=%s - CHARGE FAILED", uid)
             await q.message.reply_text("❌ Ошибка списания монет. Попробуйте позже.")
             return
+
+        # Отправляем уведомление о списании
+        await send_coin_notification(q, context, "charge", cost, "Смена фона")
 
         stt = st["tryon"]
         stt["await_bg"] = True
