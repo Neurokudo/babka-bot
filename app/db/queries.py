@@ -330,3 +330,7 @@ def check_expired_subscriptions():
 def save_user(user_id: int, user_data: dict) -> bool:
     """Сохранить данные пользователя"""
     return db_manager.save_user(user_id, user_data)
+
+def charge_feature(user_id: int, feature: str, cost: int, note: str = None) -> bool:
+    """Списать монеты за использование функции"""
+    return db_manager.charge_feature(user_id, feature, cost, note)
