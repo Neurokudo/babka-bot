@@ -39,13 +39,29 @@ def get_user_state(user_id: int) -> Dict[str, Any]:
 def can_spend(user_id: int, feature_key: str) -> bool:
     """Проверить, может ли пользователь потратить монеты на функцию"""
     try:
+        # Сначала проверяем активную подписку
+        subscription_data = check_subscription(user_id)
+        
+        # Проверяем, активна ли подписка
+        if not subscription_data.get("is_active", False):
+            log.warning(f"[CanSpend] user_id={user_id} subscription inactive")
+            return False
+        
+        # Проверяем, не истекла ли подписка
+        expires_at = subscription_data.get("expires_at")
+        if expires_at:
+            from datetime import datetime
+            if datetime.now() > expires_at:
+                log.warning(f"[CanSpend] user_id={user_id} subscription expired")
+                return False
+        
         # Получаем актуальный баланс из базы данных
         from app.services.wallet import get_balance
         current_balance = get_balance(user_id)
         cost = feature_cost_coins(feature_key)
         
         # Логируем проверку
-        log.info(f"[CanSpend] user_id={user_id} balance={current_balance} cost={cost} feature={feature_key} source=db")
+        log.info(f"[CanSpend] user_id={user_id} balance={current_balance} cost={cost} feature={feature_key} active={subscription_data.get('is_active')} source=db")
         
         return current_balance >= cost
     except Exception as e:
@@ -290,6 +306,26 @@ def can_generate_photo(user_id: int) -> bool:
 def can_generate_tryon(user_id: int) -> bool:
     """Проверить, может ли пользователь генерировать виртуальную примерочную"""
     return can_spend(user_id, "tryon")
+
+def has_active_subscription(user_id: int) -> bool:
+    """Проверить, есть ли у пользователя активная подписка"""
+    try:
+        subscription_data = check_subscription(user_id)
+        is_active = subscription_data.get("is_active", False)
+        
+        # Дополнительно проверяем срок действия
+        expires_at = subscription_data.get("expires_at")
+        if expires_at:
+            from datetime import datetime
+            if datetime.now() > expires_at:
+                log.warning(f"[HasActiveSubscription] user_id={user_id} subscription expired")
+                return False
+        
+        log.info(f"[HasActiveSubscription] user_id={user_id} active={is_active} expires={expires_at}")
+        return is_active
+    except Exception as e:
+        log.warning(f"Failed to check active subscription for user {user_id}: {e}")
+        return False
 
 def can_generate_json(user_id: int) -> bool:
     """Проверить, может ли пользователь генерировать JSON"""
