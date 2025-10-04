@@ -66,6 +66,9 @@ logging.getLogger("telegram.ext").setLevel(logging.INFO)
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# Режим работы бота: polling или webhook
+TELEGRAM_MODE = os.getenv("TELEGRAM_MODE", "polling")
+
 # Проверка переменных окружения YooKassa
 print("DEBUG YOOKASSA ENV:", os.getenv("YOOKASSA_SHOP_ID"), os.getenv("YOOKASSA_SECRET_KEY"))
 
@@ -2484,9 +2487,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = q.from_user.id; _ensure(uid); st = users[uid]; data = q.data
     
     # Детальное логирование всех callback'ов
-    logging.warning(f"CALLBACK: {data} | from_user={uid}")
-    logging.warning(f"Handler fired: {inspect.currentframe().f_code.co_name}")
-    log.info("Button: %s", data)
+    log.info("CALLBACK %s uid=%s", data, uid)
 
     # РУБИЛЬНИК: блокируем старые callback'и тарифов
     LEGACY_TARIFF_CB = {"show_plans","buy_lite","buy_standard","buy_pro","menu_coins","fast_topup"}
@@ -3033,7 +3034,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Новый обработчик тарифов (вместо старого show_plans)
     if data == "show_tariffs":
-        logging.warning(f"Handler fired: show_tariffs")
+        log.info("CALLBACK show_tariffs uid=%s", update.effective_user.id)
         plans_text = format_plans_list()
         costs_text = format_feature_costs()
         
@@ -4498,12 +4499,20 @@ def create_app():
     return app
 
 def main():
-    """Основная функция для запуска бота в webhook режиме"""
+    """Основная функция для запуска бота"""
     try:
         # Загружаем переменные окружения из .env файла
         from dotenv import load_dotenv
         load_dotenv()
         print("Environment variables loaded from .env file")
+        
+        # Логируем режим работы и информацию о токене
+        log.info("Bot started in %s mode", TELEGRAM_MODE)
+        if BOT_TOKEN:
+            log.info("Bot token suffix: %s", BOT_TOKEN[-6:])
+        else:
+            log.error("BOT_TOKEN not found!")
+            raise RuntimeError("BOT_TOKEN not found in environment variables")
         
         # Инициализация базы данных
         try:
@@ -4533,10 +4542,15 @@ def main():
         _acquire_singleton_lock()
         app = create_app()
         
-        log.info("Bot is running in webhook mode…")
-        # Webhook режим - бот будет получать обновления через webhook_server.py
-        # Не запускаем polling, чтобы избежать конфликтов
-        pass
+        if TELEGRAM_MODE == "polling":
+            log.info("Starting bot in polling mode")
+            # Polling режим - запускаем polling
+            app.run_polling(allowed_updates=["message", "callback_query"])
+        else:
+            log.info("Bot is running in webhook mode…")
+            # Webhook режим - запускаем webhook сервер
+            from webhook_server import run_webhook_server
+            run_webhook_server()
         
     except Exception as e:
         log.error(f"Failed to start bot: {e}")
