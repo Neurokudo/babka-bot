@@ -4498,49 +4498,59 @@ def create_app():
     
     return app
 
+def initialize_bot():
+    """Инициализация бота (синхронная часть)"""
+    # Загружаем переменные окружения из .env файла
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("Environment variables loaded from .env file")
+    
+    # Логируем режим работы и информацию о токене
+    log.info("Bot started in %s mode", TELEGRAM_MODE)
+    if BOT_TOKEN:
+        log.info("Bot token suffix: %s", BOT_TOKEN[-6:])
+    else:
+        log.error("BOT_TOKEN not found!")
+        raise RuntimeError("BOT_TOKEN not found in environment variables")
+    
+    # Инициализация базы данных
+    try:
+        from app.db import db_subscriptions as db
+        db.init_tables()
+        log.info("Database initialized successfully")
+        
+        # Проверяем и сбрасываем истёкшие подписки при старте
+        check_and_reset_expired_plans()
+        log.info("Expired subscriptions checked on startup")
+        
+    except Exception as e:
+        log.error(f"Database initialization failed: {e}")
+        # Продолжаем работу без БД в режиме заглушки
+    
+    # Инициализация YooKassa
+    try:
+        from app.services.yookassa_service import init_yookassa
+        if init_yookassa():
+            log.info("YooKassa initialized successfully")
+        else:
+            log.warning("YooKassa initialization skipped - credentials not found")
+    except Exception as e:
+        log.error(f"YooKassa initialization failed: {e}")
+        # Продолжаем работу без платежей
+    
+    _acquire_singleton_lock()
+    return create_app()
+
+async def run_background_tasks():
+    """Запуск фоновых задач"""
+    # Запускаем фоновую задачу проверки подписок
+    asyncio.create_task(schedule_subscription_checks())
+    log.info("Автоматическая проверка подписок запущена в фоне")
+
 def main():
     """Основная функция для запуска бота"""
     try:
-        # Загружаем переменные окружения из .env файла
-        from dotenv import load_dotenv
-        load_dotenv()
-        print("Environment variables loaded from .env file")
-        
-        # Логируем режим работы и информацию о токене
-        log.info("Bot started in %s mode", TELEGRAM_MODE)
-        if BOT_TOKEN:
-            log.info("Bot token suffix: %s", BOT_TOKEN[-6:])
-        else:
-            log.error("BOT_TOKEN not found!")
-            raise RuntimeError("BOT_TOKEN not found in environment variables")
-        
-        # Инициализация базы данных
-        try:
-            from app.db import db_subscriptions as db
-            db.init_tables()
-            log.info("Database initialized successfully")
-            
-            # Проверяем и сбрасываем истёкшие подписки при старте
-            check_and_reset_expired_plans()
-            log.info("Expired subscriptions checked on startup")
-            
-        except Exception as e:
-            log.error(f"Database initialization failed: {e}")
-            # Продолжаем работу без БД в режиме заглушки
-        
-        # Инициализация YooKassa
-        try:
-            from app.services.yookassa_service import init_yookassa
-            if init_yookassa():
-                log.info("YooKassa initialized successfully")
-            else:
-                log.warning("YooKassa initialization skipped - credentials not found")
-        except Exception as e:
-            log.error(f"YooKassa initialization failed: {e}")
-            # Продолжаем работу без платежей
-        
-        _acquire_singleton_lock()
-        app = create_app()
+        app = initialize_bot()
         
         if TELEGRAM_MODE == "polling":
             log.info("Starting bot in polling mode")
@@ -4556,14 +4566,16 @@ def main():
         log.error(f"Failed to start bot: {e}")
         raise
 
-async def run_bot_with_background_tasks():
-    """Запуск бота с фоновыми задачами"""
-    # Запускаем фоновую задачу проверки подписок
-    asyncio.create_task(schedule_subscription_checks())
-    log.info("Автоматическая проверка подписок запущена в фоне")
-    
-    # Запускаем основную функцию
-    main()
-
 if __name__ == "__main__":
-    asyncio.run(run_bot_with_background_tasks())
+    # Запускаем фоновые задачи в отдельном event loop
+    import threading
+    
+    def run_background():
+        asyncio.run(run_background_tasks())
+    
+    # Запускаем фоновые задачи в отдельном потоке
+    background_thread = threading.Thread(target=run_background, daemon=True)
+    background_thread.start()
+    
+    # Запускаем основной бот
+    main()
