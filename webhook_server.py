@@ -24,17 +24,48 @@ def create_combined_webhook_app():
     if not bot_token:
         raise RuntimeError("BOT_TOKEN not found in environment variables")
     
-    # Создаем Telegram Application (нужно импортировать из main.py)
-    from main import create_app
-    telegram_app = create_app()
-    
-    # Создаем Telegram webhook приложение
-    telegram_web_app = create_telegram_web_app(bot_token, telegram_app)
-    
-    # Регистрируем маршруты Telegram webhook
+    # Регистрируем маршруты Telegram webhook напрямую
     @app.route(f'/webhook/{bot_token}', methods=['POST'])
     def telegram_webhook():
-        return telegram_web_app.view_functions['telegram_webhook']()
+        """
+        Обработчик webhook'ов от Telegram
+        """
+        try:
+            # Получаем данные webhook
+            webhook_data = request.get_json()
+            
+            if not webhook_data:
+                log.warning("Empty webhook data received from Telegram")
+                return jsonify({"status": "error", "message": "Empty data"}), 400
+            
+            log.info("WEBHOOK HIT: method=%s path=%s", request.method, request.url.path)
+            
+            # Создаем объект Update из данных webhook
+            from telegram import Update
+            from telegram.ext import Application
+            
+            # Создаем Application для обработки update
+            telegram_app = Application.builder().token(bot_token).build()
+            
+            # Создаем объект Update
+            update = Update.de_json(webhook_data, telegram_app.bot)
+            
+            if update is None:
+                log.warning("Failed to parse Telegram update")
+                return jsonify({"status": "error", "message": "Invalid update"}), 400
+            
+            # Обрабатываем update через диспетчер
+            telegram_app.process_update(update)
+            
+            log.info("Telegram update processed successfully")
+            return jsonify({"ok": True}), 200
+            
+        except Exception as e:
+            log.error(f"Error processing Telegram webhook: {e}")
+            return jsonify({
+                "status": "error",
+                "message": str(e)
+            }), 500
     
     @app.route('/health', methods=['GET'])
     def health_check():
