@@ -338,6 +338,9 @@ def can_use_feature(user_id: int, feature_key: str) -> Dict[str, Any]:
         is_active = subscription_data.get("is_active", False)
         expires_at = subscription_data.get("expires_at")
         
+        # Логируем для отладки
+        print(f"[BILLING] can_use_feature user_id={user_id} is_active={is_active} expires_at={expires_at} subscription_data={subscription_data}")
+        
         # Проверяем срок действия
         if expires_at:
             from datetime import datetime

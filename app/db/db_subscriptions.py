@@ -325,17 +325,27 @@ def get_user_plan(user_id: int) -> Dict[str, Any]:
             if result:
                 plan, expiry, coins = result
                 is_active = False
-                if expiry is not None:
-                    try:
-                        # Пытаемся преобразовать expiry в datetime если это строка
-                        if isinstance(expiry, str):
-                            from datetime import datetime
-                            expiry_dt = datetime.fromisoformat(expiry.replace('Z', '+00:00'))
-                            is_active = expiry_dt > datetime.now()
-                        else:
-                            is_active = expiry > datetime.now()
-                    except:
-                        is_active = False
+                
+                # Если есть план (не None и не пустой), считаем подписку активной
+                if plan and plan.strip():
+                    is_active = True
+                    
+                    # Если есть expiry, проверяем срок действия
+                    if expiry is not None:
+                        try:
+                            # Пытаемся преобразовать expiry в datetime если это строка
+                            if isinstance(expiry, str):
+                                from datetime import datetime
+                                expiry_dt = datetime.fromisoformat(expiry.replace('Z', '+00:00'))
+                                is_active = expiry_dt > datetime.now()
+                            else:
+                                is_active = expiry > datetime.now()
+                        except:
+                            # При ошибке парсинга expiry, считаем подписку активной если есть план
+                            is_active = True
+                
+                # Логируем результат для отладки
+                print(f"[DB] get_user_plan user_id={user_id} plan={plan} expiry={expiry} coins={coins} is_active={is_active}")
                 
                 return {
                     "plan": plan,
