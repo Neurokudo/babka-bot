@@ -103,8 +103,8 @@ def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
                 # SQLite синтаксис
                 conn.execute("""
                     INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, payment_id)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, datetime('now', ?))
-                """, (user_id, plan, coins, price_rub, f'+{duration_days} days'))
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, datetime('now', ?), ?)
+                """, (user_id, plan, coins, price_rub, f'+{duration_days} days', payment_id))
                 
                 conn.execute("""
                     UPDATE users
@@ -233,11 +233,24 @@ def get_user_plan(user_id: int) -> Dict[str, Any]:
             
             if result:
                 plan, expiry, coins = result
+                is_active = False
+                if expiry is not None:
+                    try:
+                        # Пытаемся преобразовать expiry в datetime если это строка
+                        if isinstance(expiry, str):
+                            from datetime import datetime
+                            expiry_dt = datetime.fromisoformat(expiry.replace('Z', '+00:00'))
+                            is_active = expiry_dt > datetime.now()
+                        else:
+                            is_active = expiry > datetime.now()
+                    except:
+                        is_active = False
+                
                 return {
                     "plan": plan,
                     "expiry": expiry,
                     "coins": coins,
-                    "is_active": expiry is None or expiry > datetime.now()
+                    "is_active": is_active
                 }
             return {"plan": "lite", "expiry": None, "coins": 0, "is_active": False}
             
