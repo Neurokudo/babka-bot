@@ -13,6 +13,13 @@ import random
 import asyncio
 import logging
 import smtplib
+import inspect
+
+# Расширенное логирование для отладки
+logging.basicConfig(
+    level=logging.DEBUG,  # или INFO, если слишком много шума
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 import time
 from datetime import datetime
 from email.mime.text import MIMEText
@@ -2464,6 +2471,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_access(update): return
     q = update.callback_query; await q.answer()
     uid = q.from_user.id; _ensure(uid); st = users[uid]; data = q.data
+    
+    # Детальное логирование всех callback'ов
+    logging.warning(f"CALLBACK: {data} | from_user={uid}")
+    logging.warning(f"Handler fired: {inspect.currentframe().f_code.co_name}")
     log.info("Button: %s", data)
 
     # РУБИЛЬНИК: блокируем старые callback'и тарифов
@@ -2628,14 +2639,19 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=kb_jsonpro_start()
         ); return
     if data == "menu_guides":
+        guides_text = ("📚 <b>Гайды и инструкции</b>\n\n"
+                      "Здесь будут размещены подробные инструкции по использованию бота:\n\n"
+                      "• Как создавать качественные видео\n"
+                      "• Секреты эффективных промтов\n"
+                      "• Советы по работе с фото\n"
+                      "• FAQ и решение проблем\n\n"
+                      "Раздел в разработке...")
+        
+        # Логируем текст ответа
+        logging.debug(f"Editing message with text: {guides_text[:120]}...")
+        
         await q.message.edit_text(
-            "📚 <b>Гайды и инструкции</b>\n\n"
-            "Здесь будут размещены подробные инструкции по использованию бота:\n\n"
-            "• Как создавать качественные видео\n"
-            "• Секреты эффективных промтов\n"
-            "• Советы по работе с фото\n"
-            "• FAQ и решение проблем\n\n"
-            "Раздел в разработке...",
+            guides_text,
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
@@ -2680,6 +2696,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         profile_text += ("\n💡 <b>Стоимость генераций:</b>\n" + 
                          format_feature_costs().replace("🎬", "•").replace("🔇", "•").replace("📸", "•").replace("👗", "•"))
 
+        # Логируем текст ответа
+        logging.debug(f"Editing message with text: {profile_text[:120]}...")
+        
         await q.message.edit_text(
             profile_text,
             parse_mode="HTML",
@@ -3001,6 +3020,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if data == "show_plans":
+        logging.warning(f"Handler fired: show_plans")
         plans_text = format_plans_list()
         costs_text = format_feature_costs()
         
@@ -3018,6 +3038,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
         
         full_text = f"{plans_text}\n\n{costs_text}"
+        
+        # Логируем текст ответа
+        logging.debug(f"Editing message with text: {full_text[:120]}...")
         
         await q.message.edit_text(
             full_text,
