@@ -3820,15 +3820,12 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                        reply_markup=kb_tryon_need_garment())
             return
         
-        cost = feature_cost_coins("virtual_tryon")
-        log.info("CALLBACK tryon_confirm uid=%s - COST: %d", uid, cost)
-        if not db.charge_feature(uid, "tryon", cost, "Virtual try-on"):
-            coins = db.get_user_balance(uid)
-            log.warning("CALLBACK tryon_confirm uid=%s - INSUFFICIENT BALANCE: %d (need %d)", uid, coins, cost)
+        # Используем новую систему проверки доступа
+        access_check = can_use_feature(uid, "virtual_tryon")
+        if not access_check["can_use"]:
+            log.warning("CALLBACK tryon_confirm uid=%s - ACCESS DENIED: %s", uid, access_check["reason"])
             await q.message.reply_text(
-                "❌ Не хватает монет для примерочной.\n\n"
-                f"💰 Монеток: {coins} (нужно: {cost})\n\n"
-                "💳 Пополнить баланс?",
+                access_check["message"],
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
                     [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
@@ -3837,8 +3834,15 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # Списываем монеты
+        cost = access_check["cost"]
+        if not db.charge_feature(uid, "tryon", cost, "Virtual try-on"):
+            log.error("CALLBACK tryon_confirm uid=%s - CHARGE FAILED", uid)
+            await q.message.reply_text("❌ Ошибка списания монет. Попробуйте позже.")
+            return
+
         log.info("CALLBACK tryon_confirm uid=%s - BALANCE CHARGED, STARTING PROCESSING", uid)
-        await q.message.edit_text("⏳ Делаю примерку…")
+        await q.message.edit_text("⏳ Делаю примерку через Gemini…")
         try:
             # Используем loop.run_in_executor для совместимости
             loop = asyncio.get_event_loop()
@@ -3848,7 +3852,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=result_bytes,
-                    caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {cost} монеток",
+                    caption=f"✅ Готово! Одежда перенесена на человека через Gemini.\n💰 Списано: {cost} монеток",
                 ),
                 reply_markup=kb_tryon_after(),
             )
