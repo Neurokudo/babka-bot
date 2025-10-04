@@ -98,8 +98,8 @@ if ADMIN_CHAT_RAW:
             except:
                 pass
 
-# Доступ только владельцу до релиза
-# Можно настроить через переменную окружения ALLOWED_USERS (через запятую)
+# Система доступа: открыт для всех, функции через подписку
+# Можно ограничить доступ через переменную окружения ALLOWED_USERS (через запятую)
 ALLOWED_USERS_RAW = os.getenv("ALLOWED_USERS", "").strip()
 ALLOWED_USERS = []
 if ALLOWED_USERS_RAW:
@@ -110,9 +110,7 @@ if ALLOWED_USERS_RAW:
                 ALLOWED_USERS.append(int(piece))
             except:
                 pass
-# Если переменная не задана, доступ для всех
-if not ALLOWED_USERS:
-    ALLOWED_USERS = []  # Пустой список = доступ для всех
+# По умолчанию доступ открыт для всех
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 if "gemini" in (OPENAI_MODEL or "").lower():
@@ -151,6 +149,7 @@ from app.services.billing import (
     apply_top_up,
     check_subscription,
     check_and_reset_expired_plans,
+    can_use_feature,
 )
 
 

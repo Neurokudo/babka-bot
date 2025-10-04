@@ -1,23 +1,2 @@
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-.env
-.DS_Store
-.git/
-.gitignore
-README.md
-*.md
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
+# Отключаем авто-деплой Railway
+# Для ручного деплоя удалите этот файл или переименуйте в .railwayignore.disabled

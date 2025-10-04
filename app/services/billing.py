@@ -327,6 +327,70 @@ def has_active_subscription(user_id: int) -> bool:
         log.warning(f"Failed to check active subscription for user {user_id}: {e}")
         return False
 
+def can_use_feature(user_id: int, feature_key: str) -> Dict[str, Any]:
+    """
+    Единая функция проверки доступа к функциям
+    Возвращает подробную информацию о статусе доступа
+    """
+    try:
+        # Проверяем активную подписку
+        subscription_data = check_subscription(user_id)
+        is_active = subscription_data.get("is_active", False)
+        expires_at = subscription_data.get("expires_at")
+        
+        # Проверяем срок действия
+        if expires_at:
+            from datetime import datetime
+            if datetime.now() > expires_at:
+                return {
+                    "can_use": False,
+                    "reason": "subscription_expired",
+                    "message": "❌ Подписка истекла. Продлите подписку для продолжения работы.",
+                    "subscription_data": subscription_data
+                }
+        
+        if not is_active:
+            return {
+                "can_use": False,
+                "reason": "no_subscription",
+                "message": "❌ У вас нет активной подписки. Оформите подписку для использования функций.",
+                "subscription_data": subscription_data
+            }
+        
+        # Проверяем баланс монет
+        from app.services.wallet import get_balance
+        current_balance = get_balance(user_id)
+        cost = feature_cost_coins(feature_key)
+        
+        if current_balance < cost:
+            return {
+                "can_use": False,
+                "reason": "insufficient_coins",
+                "message": f"❌ Недостаточно монеток. Нужно: {cost}, у вас: {current_balance}",
+                "subscription_data": subscription_data,
+                "balance": current_balance,
+                "cost": cost
+            }
+        
+        # Все проверки пройдены
+        return {
+            "can_use": True,
+            "reason": "success",
+            "message": "✅ Доступ разрешен",
+            "subscription_data": subscription_data,
+            "balance": current_balance,
+            "cost": cost
+        }
+        
+    except Exception as e:
+        log.error(f"Failed to check feature access for user {user_id}: {e}")
+        return {
+            "can_use": False,
+            "reason": "error",
+            "message": "❌ Ошибка проверки доступа. Попробуйте позже.",
+            "error": str(e)
+        }
+
 def can_generate_json(user_id: int) -> bool:
     """Проверить, может ли пользователь генерировать JSON"""
     return can_spend(user_id, "json")
