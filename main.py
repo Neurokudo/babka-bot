@@ -3786,15 +3786,19 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "tryon_confirm":
+        log.info("CALLBACK tryon_confirm uid=%s - STARTING", uid)
         stt = st["tryon"]
         if not stt.get("person") or not stt.get("garment"):
+            log.warning("CALLBACK tryon_confirm uid=%s - MISSING IMAGES", uid)
             await q.message.reply_text("Нужно два изображения: человек и одежда. Пришлите недостающее.",
                                        reply_markup=kb_tryon_need_garment())
             return
         
         cost = feature_cost_coins("virtual_tryon")
+        log.info("CALLBACK tryon_confirm uid=%s - COST: %d", uid, cost)
         if not db.charge_feature(uid, "tryon", cost, "Virtual try-on"):
             coins = db.get_user_balance(uid)
+            log.warning("CALLBACK tryon_confirm uid=%s - INSUFFICIENT BALANCE: %d (need %d)", uid, coins, cost)
             await q.message.reply_text(
                 "❌ Не хватает монет для примерочной.\n\n"
                 f"💰 Монеток: {coins} (нужно: {cost})\n\n"
@@ -3807,10 +3811,14 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        log.info("CALLBACK tryon_confirm uid=%s - BALANCE CHARGED, STARTING PROCESSING", uid)
         await q.message.edit_text("⏳ Делаю примерку…")
         try:
-            result_bytes = await asyncio.to_thread(virtual_tryon, stt["person"], stt["garment"], 1)
+            # Используем loop.run_in_executor для совместимости
+            loop = asyncio.get_event_loop()
+            result_bytes = await loop.run_in_executor(None, virtual_tryon, stt["person"], stt["garment"], 1)
             stt["dressed"] = result_bytes
+            log.info("CALLBACK tryon_confirm uid=%s - VTO SUCCESS", uid)
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=result_bytes,
