@@ -35,6 +35,12 @@ def init_yookassa():
         YOOKASSA_ENABLED = False
         return False
     
+    # Проверяем, что ключ начинается с правильного префикса
+    if not SECRET_KEY.startswith(("test_", "live_")):
+        log.warning(f"SECRET_KEY doesn't start with test_ or live_: {SECRET_KEY[:10]}...")
+        YOOKASSA_ENABLED = False
+        return False
+    
     # Инициализируем YooKassa
     try:
         Configuration.account_id = SHOP_ID

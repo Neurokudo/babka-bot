@@ -76,7 +76,13 @@ SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
 SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
 
 if not SHOP_ID or not SECRET_KEY:
-    raise RuntimeError("YooKassa credentials not found in environment")
+    log.warning("YooKassa credentials not found in environment - payments will be disabled")
+    # Не поднимаем исключение, просто логируем предупреждение
+else:
+    log.info(f"YooKassa credentials found: SHOP_ID={SHOP_ID}, SECRET_KEY={'***' if SECRET_KEY else None}")
+    # Проверяем, что ключ начинается с правильного префикса
+    if not SECRET_KEY.startswith(("test_", "live_")):
+        log.warning(f"SECRET_KEY doesn't start with test_ or live_: {SECRET_KEY[:10]}...")
 
 # SMTP для репортов (нижняя кнопка SOS)
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -3135,23 +3141,32 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             coins = int(coins_str)
             topup_packs = get_available_topup_packs()
             
-            if coins not in topup_packs:
+            # Ищем пакет в списке
+            pack_info = None
+            for pack in topup_packs:
+                if pack["coins"] == coins:
+                    pack_info = pack
+                    break
+            
+            if not pack_info:
                 await q.message.edit_text("❌ Неизвестный пакет пополнения")
                 return
             
-            price = topup_packs[coins]
+            price = pack_info["price_rub"]
             
             try:
                 # Используем новый YooKassa сервис
                 from app.services.yookassa_service import create_topup_payment
                 
                 username = q.from_user.username
+                log.info("CALLBACK buy_topup uid=%s - CREATING PAYMENT: %s coins, %s rub", uid, coins, price)
                 payment_url, payment_id = create_topup_payment(
                     user_id=uid,
                     coins=coins,
                     price_rub=price,
                     username=username
                 )
+                log.info("CALLBACK buy_topup uid=%s - PAYMENT CREATED: %s", uid, payment_id)
                 
                 await q.message.edit_text(
                     f"💳 <b>Пополнение {coins} монет</b>\n\n"
@@ -3171,11 +3186,12 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as e:
                 log.error(f"Error creating topup payment: {e}")
+                log.error(f"Full error details: {type(e).__name__}: {e}")
                 error_msg = str(e)
                 if "credentials not found" in error_msg.lower():
                     await q.message.edit_text(
                         f"🔧 <b>Платежи временно недоступны</b>\n\n"
-                        f"Выбрано: {coins} монет — {price:,} ₽\n\n"
+                        f"Выбрано: {coins} монеток — {price:,} ₽\n\n"
                         f"🔧 Для активации реальных платежей необходимо:\n"
                         f"1. Зарегистрироваться в ЮKassa\n"
                         f"2. Получить реальные ключи API\n"
@@ -3202,30 +3218,41 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if data.startswith("buy_plan_"):
         plan_name = data.replace("buy_plan_", "")
+        log.info("CALLBACK buy_plan uid=%s plan=%s", uid, plan_name)
         tariffs = get_available_tariffs()
         
-        if plan_name not in tariffs:
+        # Ищем тариф в списке
+        plan_info = None
+        for tariff in tariffs:
+            if tariff["name"] == plan_name:
+                plan_info = tariff
+                break
+        
+        if not plan_info:
+            log.warning("CALLBACK buy_plan uid=%s - UNKNOWN PLAN: %s", uid, plan_name)
             await q.message.edit_text("❌ Неизвестный тариф")
             return
-        
-        plan_info = tariffs[plan_name]
+        log.info("CALLBACK buy_plan uid=%s - PLAN INFO: %s", uid, plan_info)
         
         try:
             # Используем новый YooKassa сервис
             from app.services.yookassa_service import create_payment
             
             username = q.from_user.username
+            log.info("CALLBACK buy_plan uid=%s - CREATING PAYMENT", uid)
+            log.info("CALLBACK buy_plan uid=%s - PLAN INFO: %s", uid, plan_info)
             payment_url, payment_id = create_payment(
                 user_id=uid,
                 plan=plan_name,
-                price_rub=plan_info['price'],
+                price_rub=plan_info['price_rub'],
                 coins=plan_info['coins'],
                 username=username
             )
+            log.info("CALLBACK buy_plan uid=%s - PAYMENT CREATED: %s", uid, payment_id)
             
             await q.message.edit_text(
-                f"💳 <b>Оплата тарифа {plan_name.title()}</b>\n\n"
-                f"💰 Сумма: {plan_info['price']:,} ₽\n"
+                f"💳 <b>Оплата тарифа {plan_info['title']}</b>\n\n"
+                f"💰 Сумма: {plan_info['price_rub']:,} ₽\n"
                 f"💎 {plan_info['coins']} монеток\n\n"
                 f"⏰ Тариф действует 30 дней\n"
                 f"💡 Подписки выгоднее разовых покупок!\n\n"
@@ -3244,12 +3271,13 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             log.error(f"Error creating payment for user {uid}: {e}")
             error_msg = str(e)
+            log.error(f"Full error details: {type(e).__name__}: {e}")
             if "credentials not found" in error_msg.lower():
                 await q.message.edit_text(
                     f"🔧 <b>Платежи временно недоступны</b>\n\n"
-                    f"Выбрано: {plan_info['name']} — {plan_info['price']:,} ₽\n\n"
+                    f"Выбрано: {plan_info['title']} — {plan_info['price_rub']:,} ₽\n\n"
                     f"📋 Что включено:\n"
-                    f"• {plan_info['coins']} монет\n\n"
+                    f"• {plan_info['coins']} монеток\n\n"
                     f"🔧 Для активации реальных платежей необходимо:\n"
                     f"1. Зарегистрироваться в ЮKassa\n"
                     f"2. Получить реальные ключи API\n"
