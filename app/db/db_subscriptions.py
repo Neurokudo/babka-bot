@@ -46,9 +46,10 @@ def init_tables():
                     username TEXT,
                     first_name TEXT,
                     last_name TEXT,
-                    plan TEXT DEFAULT 'lite',
+                    plan TEXT DEFAULT NULL,
                     plan_expiry TIMESTAMP,
                     coins INTEGER DEFAULT 0,
+                    auto_renew BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -86,9 +87,10 @@ def init_tables():
                     username TEXT,
                     first_name TEXT,
                     last_name TEXT,
-                    plan TEXT DEFAULT 'lite',
+                    plan TEXT DEFAULT NULL,
                     plan_expiry TIMESTAMP,
                     coins INTEGER DEFAULT 0,
+                    auto_renew BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -313,40 +315,36 @@ def get_user_plan(user_id: int) -> Dict[str, Any]:
             
             if is_postgres:
                 cur.execute("""
-                    SELECT plan, plan_expiry, coins FROM users WHERE user_id = %s
+                    SELECT plan, plan_expiry, coins, auto_renew FROM users WHERE user_id = %s
                 """, (user_id,))
                 result = cur.fetchone()
             else:
                 cur.execute("""
-                    SELECT plan, plan_expiry, coins FROM users WHERE user_id = ?
+                    SELECT plan, plan_expiry, coins, auto_renew FROM users WHERE user_id = ?
                 """, (user_id,))
                 result = cur.fetchone()
             
             if result:
-                plan, expiry, coins = result
+                plan, expiry, coins, auto_renew = result
                 is_active = False
                 
                 # Если есть план (не None и не пустой), считаем подписку активной
                 if plan and plan.strip():
-                    # План "lite" без expiry - это дефолтный план (без подписки)
-                    if plan == "lite" and expiry is None:
-                        is_active = False
-                    else:
-                        is_active = True
-                        
-                        # Если есть expiry, проверяем срок действия
-                        if expiry is not None:
-                            try:
-                                # Пытаемся преобразовать expiry в datetime если это строка
-                                if isinstance(expiry, str):
-                                    from datetime import datetime
-                                    expiry_dt = datetime.fromisoformat(expiry.replace('Z', '+00:00'))
-                                    is_active = expiry_dt > datetime.now()
-                                else:
-                                    is_active = expiry > datetime.now()
-                            except:
-                                # При ошибке парсинга expiry, считаем подписку активной если есть план
-                                is_active = True
+                    is_active = True
+                    
+                    # Если есть expiry, проверяем срок действия
+                    if expiry is not None:
+                        try:
+                            # Пытаемся преобразовать expiry в datetime если это строка
+                            if isinstance(expiry, str):
+                                from datetime import datetime
+                                expiry_dt = datetime.fromisoformat(expiry.replace('Z', '+00:00'))
+                                is_active = expiry_dt > datetime.now()
+                            else:
+                                is_active = expiry > datetime.now()
+                        except:
+                            # При ошибке парсинга expiry, считаем подписку активной если есть план
+                            is_active = True
                 
                 # Логируем результат для отладки
                 print(f"[DB] get_user_plan user_id={user_id} plan={plan} expiry={expiry} coins={coins} is_active={is_active}")
@@ -355,13 +353,36 @@ def get_user_plan(user_id: int) -> Dict[str, Any]:
                     "plan": plan,
                     "expiry": expiry,
                     "coins": coins,
-                    "is_active": is_active
+                    "is_active": is_active,
+                    "auto_renew": auto_renew
                 }
-            return {"plan": "lite", "expiry": None, "coins": 0, "is_active": False}
+            return {"plan": None, "expiry": None, "coins": 0, "is_active": False, "auto_renew": True}
             
     except Exception as e:
         log.error(f"Failed to get plan for user {user_id}: {e}")
         return {"plan": "lite", "expiry": None, "coins": 0, "is_active": False}
+
+def cancel_subscription(user_id: int) -> bool:
+    """Отменить автопродление подписки"""
+    try:
+        with db_conn() as conn:
+            cur = conn.cursor()
+            
+            # Определяем тип базы данных
+            is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
+            
+            if is_postgres:
+                cur.execute("UPDATE users SET auto_renew = FALSE WHERE user_id = %s", (user_id,))
+            else:
+                cur.execute("UPDATE users SET auto_renew = 0 WHERE user_id = ?", (user_id,))
+            
+            conn.commit()
+            log.info(f"Subscription auto-renewal cancelled for user {user_id}")
+            return True
+            
+    except Exception as e:
+        log.error(f"Failed to cancel subscription for user {user_id}: {e}")
+        return False
 
 def create_or_update_user(user_id: int, username: str = None, first_name: str = None, last_name: str = None):
     """Создать или обновить пользователя"""

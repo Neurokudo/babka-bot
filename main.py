@@ -178,14 +178,29 @@ def format_user_status(user: Dict[str, Any]) -> str:
     
     # Используем данные из базы данных
     coins = subscription_data.get("coins", 0)
-    plan_key = subscription_data.get("plan", "lite")
-    tariffs = get_available_tariffs()
-    plan_info = tariffs.get(plan_key, {})
-    plan_name = plan_info.name if hasattr(plan_info, 'name') else plan_key.title()
+    plan_key = subscription_data.get("plan")
+    auto_renew = subscription_data.get("auto_renew", True)
+    is_active = subscription_data.get("is_active", False)
+    
+    # Определяем название тарифа
+    if plan_key:
+        tariffs = get_available_tariffs()
+        plan_info = next((t for t in tariffs if t["name"] == plan_key), {})
+        plan_name = plan_info.get("title", plan_key.title())
+    else:
+        plan_name = "Нет подписки"
 
     text = "👤 <b>Профиль</b>\n\n"
     text += f"💰 Осталось: {coins} монеток\n"
     text += f"📊 Тариф: {plan_name}\n"
+    
+    # Показываем статус автопродления
+    if is_active:
+        if auto_renew:
+            text += f"🔄 Автопродление: Включено\n"
+        else:
+            text += f"🚫 Автопродление: Отключено\n"
+    
     text += f"🎬 Видео: 0\n"
     text += f"📸 Фотографий: 0\n"
     
@@ -193,7 +208,7 @@ def format_user_status(user: Dict[str, Any]) -> str:
     from app.services.pricing import format_feature_costs
     text += format_feature_costs() + "\n"
 
-    expiry_text = _format_plan_expiry(user.get("plan_expiry"))
+    expiry_text = _format_plan_expiry(subscription_data.get("expires_at"))
     if expiry_text:
         text += f"⏰ Действует до: {expiry_text}\n"
 
@@ -900,8 +915,8 @@ def _ensure(uid: int):
                 # монеты и биллинг
                 "coins": coins,
                 "admin_coins": admin_coins,
-                "plan": "lite",
-                "plan_expiry": None,  # У новых пользователей нет подписки
+                "plan": None,  # У новых пользователей НЕТ подписки
+                "plan_expiry": None,
                 "jobs": {},  # история задач
                 "daily": {"date": "", "videos": 0},  # дневная статистика
                 # трансформации изображений
@@ -3037,15 +3052,75 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Новые callback'ы для системы тарифов ---
     if data == "show_profile" or data == "menu_profile":
         status_text = format_user_status(st)
+        
+        # Получаем данные о подписке
+        subscription_data = check_subscription(uid)
+        is_active = subscription_data.get("is_active", False)
+        auto_renew = subscription_data.get("auto_renew", True)
+        
+        # Создаем кнопки
+        buttons = [
+            [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")],
+            [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
+        ]
+        
+        # Добавляем кнопку отмены подписки, если есть активная подписка
+        if is_active and auto_renew:
+            buttons.append([InlineKeyboardButton("🚫 Отменить подписку", callback_data="cancel_subscription")])
+        
+        buttons.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_home")])
+        
         await q.message.edit_text(
             status_text,
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")],
-                [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
-                [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
-            ])
+            reply_markup=InlineKeyboardMarkup(buttons)
         )
+        return
+    
+    if data == "cancel_subscription":
+        # Получаем данные о подписке
+        subscription_data = check_subscription(uid)
+        plan_name = subscription_data.get("plan", "unknown")
+        expires_at = subscription_data.get("expires_at")
+        
+        # Отменяем автопродление
+        from app.db.db_subscriptions import cancel_subscription
+        success = cancel_subscription(uid)
+        
+        if success:
+            # Форматируем дату окончания
+            expiry_text = "неизвестно"
+            if expires_at:
+                try:
+                    from datetime import datetime
+                    if isinstance(expires_at, str):
+                        expiry_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                    else:
+                        expiry_dt = expires_at
+                    expiry_text = expiry_dt.strftime('%d.%m.%Y %H:%M')
+                except:
+                    expiry_text = "неизвестно"
+            
+            await q.message.edit_text(
+                f"✅ <b>Подписка отменена</b>\n\n"
+                f"📋 Тариф: {plan_name.title()}\n"
+                f"⏰ Действует до: {expiry_text}\n"
+                f"💰 Монетки остаются до окончания срока\n\n"
+                f"💡 Автопродление отключено. Подписка не будет продлена автоматически.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ])
+            )
+        else:
+            await q.message.edit_text(
+                "❌ Ошибка при отмене подписки. Попробуйте позже.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ])
+            )
         return
     
     if data == "show_payment_options":
