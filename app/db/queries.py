@@ -182,6 +182,26 @@ class DatabaseManager:
             log.warning(f"Failed to spend coins for user {user_id}: {e}")
             return False
     
+    def charge_feature(self, user_id: int, feature: str, cost: int, note: str = None) -> bool:
+        """Списать монеты за использование функции (алиас для spend_coins)"""
+        return self.spend_coins(user_id, cost, feature)
+    
+    def get_user_balance(self, user_id: int) -> int:
+        """Получить баланс пользователя"""
+        try:
+            if not self._initialized:
+                self._init_db()
+            
+            if not self._initialized:
+                return 0
+                
+            with self.get_session() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                return user.balance if user else 0
+        except Exception as e:
+            log.warning(f"Failed to get balance for user {user_id}: {e}")
+            return 0
+    
     def add_coins(self, user_id: int, amount: int) -> bool:
         """Добавить монеты пользователю"""
         try:

@@ -1116,7 +1116,7 @@ def kb_tryon_need_garment():
 
 def kb_tryon_confirm():
     cost = feature_cost_coins("virtual_tryon")
-    button_text = f"✨ Примерить (−{cost} монет)"
+    button_text = f"✨ Примерить (−{cost} монеток)"
 
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(button_text, callback_data="tryon_confirm")],
@@ -1346,7 +1346,7 @@ async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextT
                                 message = (
                                     f"✅ <b>Тариф активирован!</b>\n\n"
                                     f"📋 Тариф: {plan_info['title']}\n"
-                                    f"💎 Получено: {plan_info['coins']} монет\n\n"
+                                    f"💎 Получено: {plan_info['coins']} монеток\n\n"
                                     f"⏰ Тариф действует 30 дней\n"
                                     f"💡 Подписки выгоднее разовых покупок!\n\n"
                                     f"Приятного использования! 🎉"
@@ -1358,7 +1358,7 @@ async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextT
                             coins_amount = metadata.get("coins", 0)
                             message = (
                                 f"✅ <b>Монеты начислены!</b>\n\n"
-                                f"💎 Получено: {coins_amount} монет\n"
+                                f"💎 Получено: {coins_amount} монеток\n"
                                 f"💳 Сумма: {payment_data.get('amount', 0):.2f} ₽\n\n"
                                 "💡 Монеты списываются во время генераций"
                             )
@@ -1788,7 +1788,7 @@ async def cmd_reset_my_profile(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(
         "♻️ ВАШ ПРОФИЛЬ ПОЛНОСТЬЮ СБРОШЕН!\n\n"
         "📊 Установлены админские значения:\n\n"
-        "🪙 БАЛАНС: 0 монет\n"
+        "🪙 БАЛАНС: 0 монеток\n"
         f"📋 ТАРИФ: {tariff_name}\n"
         "⭐️ БАЛАНС АДМИНА: 500 монеток\n\n"
         "✅ Профиль сохранен в БД!",
@@ -3811,19 +3811,16 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             result_bytes = await asyncio.to_thread(virtual_tryon, stt["person"], stt["garment"], 1)
             stt["dressed"] = result_bytes
-            cost = st["jobs"][job_id]["coin_cost"]
-            on_success(st, job_id)
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=result_bytes,
-                    caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {cost} монет",
+                    caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {cost} монеток",
                 ),
                 reply_markup=kb_tryon_after(),
             )
             stt["stage"] = "after"
         except Exception as e:
             log.exception("VTO failed")
-            on_error(st, job_id, reason="tryon_error")
             await q.message.reply_text(f"⚠️ Ошибка примерочной: {e}")
             await q.message.reply_text("Возврат в меню:", reply_markup=kb_home_inline())
         return
