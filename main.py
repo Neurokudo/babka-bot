@@ -3054,8 +3054,6 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 plan_coins = tariff["coins"]
                 
                 label = f"{plan_title} — {plan_price:,} ₽ → {plan_coins} монет"
-                if plan_id == "standard":
-                    label += " (Рекомендуем)"
                 keyboard.append([InlineKeyboardButton(label, callback_data=f"plan_{plan_id}")])
             
             keyboard.append([InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")])
@@ -3082,6 +3080,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     
     if data == "show_topup":
+        from app.services.pricing import format_topup_packs, get_available_topup_packs
         topup_text = "💰 Пополнить монетки\n\n"
         topup_text += format_topup_packs()
         
