@@ -34,6 +34,7 @@ from telegram.ext import (
 
 # Импорты для работы с базой данных и биллингом
 from app.db.queries import db_manager
+from app.db import db_subscriptions as db
 
 # -----------------------------------------------------------------------------
 # ОКРУЖЕНИЕ / ЛОГИ
@@ -88,7 +89,7 @@ from app.services.pricing import (
     format_plans_list, format_feature_costs, pricing_text
 )
 from app.services.wallet import (
-    get_balance, charge_feature, buy_tariff, buy_topup, get_user_tariff_info
+    get_balance, get_user_tariff_info
 )
 from payment_yookassa import create_payment_link, process_payment_webhook
 from app.services.billing import (
@@ -1246,24 +1247,27 @@ async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextT
                             refreshed.setdefault("jobs", users.get(user_id_int, {}).get("jobs", {}))
                             refreshed.setdefault("last_job", users.get(user_id_int, {}).get("last_job"))
                             users[user_id_int] = refreshed
-                        plan = payment_data.get("metadata", {}).get("plan")
+                        metadata = payment_data.get("metadata", {})
                         
-                        if plan:
-                            tariffs = get_available_tariffs()
-                            plan_info = tariffs.get(plan)
-                            plan_name = plan_info.name if plan_info else plan.title()
+                        if metadata.get("type") == "plan":
+                            plan = metadata.get("plan", "lite")
+                            from app.services.pricing import get_tariff_by_name
+                            plan_info = get_tariff_by_name(plan)
                             
-                            message = (
-                                f"✅ <b>Тариф активирован!</b>\n\n"
-                                f"📋 Тариф: {plan_name}\n"
-                                f"{plan_info.get('description', '')}\n"
-                                f"💎 Получено: {plan_info.get('coins', 0)} монет\n\n"
-                                f"⏰ Тариф действует 30 дней\n"
-                                f"💡 Подписки выгоднее разовых покупок!\n\n"
-                                f"Приятного использования! 🎉"
-                            )
-                        elif payment_data.get("metadata", {}).get("type") == "coins":
-                            coins_amount = payment_data.get("metadata", {}).get("coins", 0)
+                            if plan_info:
+                                message = (
+                                    f"✅ <b>Тариф активирован!</b>\n\n"
+                                    f"📋 Тариф: {plan_info['title']}\n"
+                                    f"💎 Получено: {plan_info['coins']} монет\n\n"
+                                    f"⏰ Тариф действует 30 дней\n"
+                                    f"💡 Подписки выгоднее разовых покупок!\n\n"
+                                    f"Приятного использования! 🎉"
+                                )
+                            else:
+                                message = f"✅ Тариф {plan} активирован!"
+                                
+                        elif metadata.get("type") == "topup":
+                            coins_amount = metadata.get("coins", 0)
                             message = (
                                 f"✅ <b>Монеты начислены!</b>\n\n"
                                 f"💎 Получено: {coins_amount} монет\n"
@@ -2177,11 +2181,9 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            try:
-                job_id = hold_and_start(st, "transform", quality)
-                st["current_job_id"] = job_id
-            except ValueError:
-                coins = st.get("coins", 0)
+            # Проверяем и списываем монеты
+            if not db.charge_feature(uid, "transform", cost, f"Photo transform: {quality}"):
+                coins = db.get_user_balance(uid)
                 await update.message.reply_text(
                     f"❌ Не хватает монет для обработки фото.\n\n"
                     f"💰 Монеток: {coins} (нужно: {cost})\n\n"
@@ -2193,10 +2195,9 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            charge = st["jobs"][job_id]["coin_cost"]
             await update.message.reply_text(
                 "🔄 Обрабатываю фото...\n"
-                f"💰 Списано: {charge} монет\n"
+                f"💰 Списано: {cost} монет\n"
                 "⏱️ Это может занять 1-2 минуты."
             )
             
@@ -3574,11 +3575,9 @@ Telegram бот "Babka Bot"
                                        reply_markup=kb_tryon_need_garment())
             return
         
-        try:
-            job_id = hold_and_start(st, "tryon")
-        except ValueError:
-            coins = get_balance(uid)
-            cost = feature_cost_coins("virtual_tryon")
+        cost = feature_cost_coins("virtual_tryon")
+        if not db.charge_feature(uid, "tryon", cost, "Virtual try-on"):
+            coins = db.get_user_balance(uid)
             await q.message.reply_text(
                 "❌ Не хватает монет для примерочной.\n\n"
                 f"💰 Монеток: {coins} (нужно: {cost})\n\n"
@@ -4022,12 +4021,9 @@ Telegram бот "Babka Bot"
             )
             return
 
-        try:
-            job_id = hold_and_start(st, "video")
-            st["current_job_id"] = job_id
-        except ValueError:
-            coins = get_balance(uid)
-            cost = feature_cost_coins("video_8s_audio")
+        cost = feature_cost_coins("video_8s_audio")
+        if not db.charge_feature(uid, "video_8s_audio", cost, "Video generation"):
+            coins = db.get_user_balance(uid)
             await q.message.reply_text(
                 f"❌ Не хватает монет для генерации видео.\n\n"
                 f"💰 Монеток: {coins} (нужно: {cost})\n\n"
@@ -4040,7 +4036,7 @@ Telegram бот "Babka Bot"
             )
             return
 
-        cost_text = st["jobs"][job_id]["coin_cost"]
+        cost_text = cost
         msg = await q.message.reply_text(
             "⏳ Генерирую видео… Это может занять несколько минут.\n"
             f"💰 Списано: {cost_text} монет"
@@ -4161,12 +4157,9 @@ Telegram бот "Babka Bot"
             )
             return
 
-        try:
-            job_id = hold_and_start(st, "json")
-            st["current_job_id"] = job_id
-        except ValueError:
-            coins = get_balance(uid)
-            cost = feature_cost_coins("video_8s_audio")
+        cost = feature_cost_coins("json")
+        if not db.charge_feature(uid, "json", cost, "JSON video generation"):
+            coins = db.get_user_balance(uid)
             await q.message.reply_text(
                 f"❌ Не хватает монет для JSON-генерации.\n\n"
                 f"💰 Монеток: {coins} (нужно: {cost})\n\n"
@@ -4179,7 +4172,7 @@ Telegram бот "Babka Bot"
             )
             return
 
-        cost_text = st["jobs"][job_id]["coin_cost"]
+        cost_text = cost
         msg = await q.message.reply_text(
             "⏳ Генерирую видео по JSON…\n"
             f"💰 Списано: {cost_text} монет"
@@ -4290,6 +4283,13 @@ def create_app():
     """Создание Telegram Application для использования в webhook режиме"""
     if not BOT_TOKEN:
         raise RuntimeError("Не найден TELEGRAM_TOKEN / BOT_TOKEN")
+    
+    # Проверяем просроченные подписки при старте
+    try:
+        db.check_expired_subscriptions()
+        log.info("Expired subscriptions checked on startup")
+    except Exception as e:
+        log.warning(f"Failed to check expired subscriptions on startup: {e}")
     
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))

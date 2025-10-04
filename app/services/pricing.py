@@ -49,6 +49,14 @@ def get_available_tariffs() -> List[Dict[str, Any]]:
         }
     ]
 
+def get_tariff_by_name(tariff_name: str) -> Dict[str, Any]:
+    """Получить тариф по имени"""
+    tariffs_list = get_available_tariffs()
+    for tariff in tariffs_list:
+        if tariff["name"] == tariff_name:
+            return tariff
+    return None
+
 def get_available_topup_packs() -> List[Dict[str, Any]]:
     """Получить список доступных пакетов пополнения"""
     return [
