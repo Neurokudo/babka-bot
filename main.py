@@ -1279,22 +1279,27 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "transform_images": [], "transform_text": None, "current_job_id": None,
         })
     
-    # Проверяем низкий баланс монет (только для существующих пользователей)
-    if st.get("coins", 0) > 0 and check_low_coins(st):
-        coins = st.get("coins", 0)
-        await update.message.reply_text(
-            f"⚠️ У вас осталось мало монет: {coins}\n\n"
-            f"💡 Рекомендуем пополнить баланс для продолжения работы",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
-                [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
-                [InlineKeyboardButton("⬅️ Пропустить", callback_data="skip_low_coins")],
-            ])
-        )
-        return
+    # Проверяем низкий баланс монет (только для существующих пользователей с балансом)
+    try:
+        from app.services.wallet import get_balance
+        coins = get_balance(uid)
+        if coins > 0 and coins < 20:  # Только если есть монеты, но их мало
+            await update.message.reply_text(
+                f"⚠️ У вас осталось мало монет: {coins}\n\n"
+                f"💡 Рекомендуем пополнить баланс для продолжения работы",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
+                    [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
+                    [InlineKeyboardButton("⬅️ Пропустить", callback_data="skip_low_coins")],
+                ])
+            )
+            return
+    except Exception as e:
+        log.warning(f"Failed to check balance for user {uid}: {e}")
+        # При ошибке просто продолжаем к главному меню
     
     # Для существующих пользователей - просто главное меню
-    welcome_text = f"🏠 Главное меню:\n\n🧩 version: {VERSION} • pricing: {PRICING_HASH}"
+    welcome_text = "🏠 Главное меню:"
     await update.message.reply_text(welcome_text, reply_markup=kb_home_inline())
 
 async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextTypes.DEFAULT_TYPE):
