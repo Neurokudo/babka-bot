@@ -2039,7 +2039,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         try:
             # Проверяем доступность Google credentials
-            google_creds = os.getenv("GOOGLE_CREDENTIALS_JSON") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            google_creds = (os.getenv("GOOGLE_CREDENTIALS_JSON") or 
+                          os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or
+                          os.getenv("GCP_KEY_JSON") or
+                          os.getenv("GCP_KEY_JSON_B64"))
             if not google_creds:
                 raise RuntimeError("Google credentials not configured")
             
@@ -2646,7 +2649,10 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         try:
             # Проверяем доступность Google credentials
-            google_creds = os.getenv("GOOGLE_CREDENTIALS_JSON") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            google_creds = (os.getenv("GOOGLE_CREDENTIALS_JSON") or 
+                          os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or
+                          os.getenv("GCP_KEY_JSON") or
+                          os.getenv("GCP_KEY_JSON_B64"))
             if not google_creds:
                 raise RuntimeError("Google credentials not configured")
             
@@ -4350,7 +4356,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         try:
             # Проверяем доступность Google credentials
-            google_creds = os.getenv("GOOGLE_CREDENTIALS_JSON") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            google_creds = (os.getenv("GOOGLE_CREDENTIALS_JSON") or 
+                          os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or
+                          os.getenv("GCP_KEY_JSON") or
+                          os.getenv("GCP_KEY_JSON_B64"))
             if not google_creds:
                 raise RuntimeError("Google credentials not configured")
             
