@@ -3842,7 +3842,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         log.info("CALLBACK tryon_confirm uid=%s - BALANCE CHARGED, STARTING PROCESSING", uid)
-        await q.message.edit_text("⏳ Делаю примерку через Gemini…")
+        await q.message.edit_text("⏳ Делаю примерку…")
         try:
             # Используем loop.run_in_executor для совместимости
             loop = asyncio.get_event_loop()
@@ -3852,7 +3852,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=result_bytes,
-                    caption=f"✅ Готово! Одежда перенесена на человека через Gemini.\n💰 Списано: {cost} монеток",
+                    caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {cost} монеток",
                 ),
                 reply_markup=kb_tryon_after(),
             )
