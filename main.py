@@ -930,11 +930,27 @@ def _ensure(uid: int):
             log.info(
                 "Loaded user %s from DB: coins=%s, plan=%s",
                 uid,
-                user_data.get("coins", 0),
-                user_data.get("plan", "lite"),
+                user_data.coins,
+                user_data.plan,
             )
-            user_data["user_id"] = uid  # Добавляем user_id
-            users[uid] = user_data
+            # Конвертируем User объект в словарь для совместимости
+            users[uid] = {
+                "user_id": uid,
+                "coins": user_data.coins,
+                "plan": user_data.plan,
+                "plan_expiry": user_data.plan_expiry,
+                "auto_renew": getattr(user_data, 'auto_renew', True),
+                "mode": None,
+                "source_text": None,
+                "scene": None,
+                "style": None,
+                "replica": None,
+                "awaiting_scene": False,
+                "awaiting_style": False,
+                "awaiting_replica": False,
+                "awaiting_source": False,
+                "admin_coins": 0,
+            }
         else:
             # Новый пользователь - создаем структуру по умолчанию
             ADMIN_ID = 5015100177  # ID администратора

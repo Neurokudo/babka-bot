@@ -219,10 +219,11 @@ def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
             
             conn.commit()
             log.info(f"Subscription created for user {user_id}: {plan} plan, {coins} coins")
+            return True
             
     except Exception as e:
         log.error(f"Failed to create subscription for user {user_id}: {e}")
-        raise
+        return False
 
 def charge_feature(user_id: int, feature: str, cost: int, note: str | None = None) -> bool:
     """
