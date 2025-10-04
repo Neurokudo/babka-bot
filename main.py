@@ -1220,7 +1220,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextTypes.DEFAULT_TYPE):
     """Обработка webhook'ов от YooKassa"""
     try:
-        from payment_yookassa import process_payment_webhook, process_successful_payment
+        from app.services.yookassa_service import process_payment_webhook, process_successful_payment
         
         # Обрабатываем webhook
         payment_data = process_payment_webhook(webhook_data)
@@ -2905,12 +2905,15 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             price = topup_packs[coins]
             
             try:
-                from payment_yookassa import create_payment_link
-                payment_url = create_payment_link(
+                # Используем новый YooKassa сервис
+                from app.services.yookassa_service import create_topup_payment
+                
+                username = q.from_user.username
+                payment_url, payment_id = create_topup_payment(
                     user_id=uid,
-                    amount=price,
-                    description=f"Пополнение {coins} монет",
-                    metadata={"coins": coins, "type": "topup"}
+                    coins=coins,
+                    price_rub=price,
+                    username=username
                 )
                 
                 await q.message.edit_text(
@@ -2918,23 +2921,44 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"💰 Сумма: {price:,} ₽\n"
                     f"🎟 Монеты: {coins}\n\n"
                     f"💡 Докупка монет не продлевает подписку.\n\n"
+                    f"📋 Соглашаясь на оплату, вы принимаете условия оферты:\n"
+                    f"/terms — Пользовательское соглашение\n\n"
                     f"Нажмите кнопку ниже для оплаты:",
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
-                    [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
-                    [InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")],
+                        [InlineKeyboardButton("📋 Оферта", callback_data="show_terms")],
+                        [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                        [InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")],
                     ])
                 )
             except Exception as e:
                 log.error(f"Error creating topup payment: {e}")
-                await q.message.edit_text(
-                    "❌ Ошибка создания платежа. Попробуйте позже.",
-                    reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
-                    [InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")],
-                    ])
-                )
+                error_msg = str(e)
+                if "credentials not found" in error_msg.lower():
+                    await q.message.edit_text(
+                        f"🔧 <b>Платежи временно недоступны</b>\n\n"
+                        f"Выбрано: {coins} монет — {price:,} ₽\n\n"
+                        f"🔧 Для активации реальных платежей необходимо:\n"
+                        f"1. Зарегистрироваться в ЮKassa\n"
+                        f"2. Получить реальные ключи API\n"
+                        f"3. Настроить переменные окружения\n\n"
+                        f"📞 Обратитесь к администратору для настройки платежей.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
+                            [InlineKeyboardButton("← Назад к тарифам", callback_data="show_plans")],
+                        ])
+                    )
+                else:
+                    await q.message.edit_text(
+                        f"❌ Ошибка создания платежа: {error_msg}\n\n"
+                        f"Попробуйте позже или обратитесь в поддержку.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("📞 Поддержка", callback_data="support")],
+                            [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                            [InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")],
+                        ])
+                    )
         except ValueError:
             await q.message.edit_text("❌ Неверный формат пакета")
         return
@@ -2950,12 +2974,16 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         plan_info = tariffs[plan_name]
         
         try:
-            from payment_yookassa import create_payment_link
-            payment_url = create_payment_link(
+            # Используем новый YooKassa сервис
+            from app.services.yookassa_service import create_payment
+            
+            username = q.from_user.username
+            payment_url, payment_id = create_payment(
                 user_id=uid,
-                amount=plan_info['price'],
-                description=f"Тариф {plan_name.title()}",
-                plan=plan_name
+                plan=plan_name,
+                price_rub=plan_info['price'],
+                coins=plan_info['coins'],
+                username=username
             )
             
             await q.message.edit_text(
@@ -2964,10 +2992,13 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💎 {plan_info['coins']} монеток\n\n"
                 f"⏰ Тариф действует 30 дней\n"
                 f"💡 Подписки выгоднее разовых покупок!\n\n"
+                f"📋 Соглашаясь на оплату, вы принимаете условия оферты:\n"
+                f"/terms — Пользовательское соглашение\n\n"
                 f"Нажмите кнопку ниже для оплаты:",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
+                    [InlineKeyboardButton("📋 Оферта", callback_data="show_terms")],
                     [InlineKeyboardButton("📋 Все тарифы", callback_data="show_plans")],
                     [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
                 ])
@@ -2975,13 +3006,32 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         except Exception as e:
             log.error(f"Error creating payment for user {uid}: {e}")
-            await q.message.edit_text(
-                "❌ Ошибка при создании платежа. Попробуйте позже или обратитесь в поддержку.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📞 Поддержка", callback_data="support")],
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
-                ])
-            )
+            error_msg = str(e)
+            if "credentials not found" in error_msg.lower():
+                await q.message.edit_text(
+                    f"🔧 <b>Платежи временно недоступны</b>\n\n"
+                    f"Выбрано: {plan_info['name']} — {plan_info['price']:,} ₽\n\n"
+                    f"📋 Что включено:\n"
+                    f"• {plan_info['coins']} монет\n\n"
+                    f"🔧 Для активации реальных платежей необходимо:\n"
+                    f"1. Зарегистрироваться в ЮKassa\n"
+                    f"2. Получить реальные ключи API\n"
+                    f"3. Настроить переменные окружения\n\n"
+                    f"📞 Обратитесь к администратору для настройки платежей.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
+                        [InlineKeyboardButton("← Назад к тарифам", callback_data="show_plans")],
+                    ])
+                )
+            else:
+                await q.message.edit_text(
+                    f"❌ Ошибка создания платежа: {error_msg}\n\n"
+                    f"Попробуйте позже или обратитесь в поддержку.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📞 Поддержка", callback_data="support")],
+                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                    ])
+                )
         return
     
     # --- Обработка покупки монеток (удалено - используем новую систему) ---

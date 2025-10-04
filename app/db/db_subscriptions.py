@@ -326,6 +326,201 @@ def create_or_update_user(user_id: int, username: str = None, first_name: str = 
     except Exception as e:
         log.error(f"Failed to create/update user {user_id}: {e}")
 
+def update_user_balance(user_id: int, coins_delta: int, note: str = None) -> bool:
+    """
+    Обновить баланс пользователя (добавить или отнять монеты)
+    
+    Args:
+        user_id: ID пользователя
+        coins_delta: Изменение баланса (положительное для пополнения, отрицательное для списания)
+        note: Примечание к операции
+    
+    Returns:
+        bool: True если операция успешна
+    """
+    try:
+        with db_conn() as conn:
+            # Определяем тип базы данных
+            is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
+            
+            # Проверяем текущий баланс
+            if is_postgres:
+                result = conn.execute("SELECT coins FROM users WHERE user_id = %s", (user_id,)).fetchone()
+            else:
+                result = conn.execute("SELECT coins FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            
+            if not result:
+                log.warning(f"User {user_id} not found")
+                return False
+            
+            current_balance = result[0]
+            new_balance = current_balance + coins_delta
+            
+            if new_balance < 0:
+                log.warning(f"Insufficient balance for user {user_id}: {current_balance} + {coins_delta} = {new_balance}")
+                return False
+            
+            # Обновляем баланс
+            if is_postgres:
+                conn.execute("UPDATE users SET coins = %s WHERE user_id = %s", (new_balance, user_id))
+            else:
+                conn.execute("UPDATE users SET coins = ? WHERE user_id = ?", (new_balance, user_id))
+            
+            # Записываем транзакцию
+            if is_postgres:
+                conn.execute("""
+                    INSERT INTO transactions (user_id, feature, coins_spent, note)
+                    VALUES (%s, %s, %s, %s)
+                """, (user_id, "balance_update", abs(coins_delta), note or f"Balance update: {coins_delta:+d}"))
+            else:
+                conn.execute("""
+                    INSERT INTO transactions (user_id, feature, coins_spent, note)
+                    VALUES (?, ?, ?, ?)
+                """, (user_id, "balance_update", abs(coins_delta), note or f"Balance update: {coins_delta:+d}"))
+            
+            conn.commit()
+            log.info(f"Balance updated for user {user_id}: {current_balance} -> {new_balance} ({coins_delta:+d})")
+            return True
+            
+    except Exception as e:
+        log.error(f"Failed to update balance for user {user_id}: {e}")
+        return False
+
+def get_payment_by_id(payment_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Получить информацию о платеже по ID
+    
+    Args:
+        payment_id: ID платежа в YooKassa
+    
+    Returns:
+        Dict с информацией о подписке или None если не найдена
+    """
+    try:
+        with db_conn() as conn:
+            # Определяем тип базы данных
+            is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
+            
+            if is_postgres:
+                result = conn.execute("""
+                    SELECT * FROM subscriptions WHERE payment_id = %s
+                """, (payment_id,)).fetchone()
+            else:
+                result = conn.execute("""
+                    SELECT * FROM subscriptions WHERE payment_id = ?
+                """, (payment_id,)).fetchone()
+            
+            if result:
+                columns = [desc[0] for desc in conn.description] if hasattr(conn, 'description') else None
+                if columns:
+                    return dict(zip(columns, result))
+                else:
+                    # Для SQLite возвращаем как есть
+                    return {
+                        "id": result[0],
+                        "user_id": result[1],
+                        "plan": result[2],
+                        "coins": result[3],
+                        "price_rub": result[4],
+                        "start_date": result[5],
+                        "end_date": result[6],
+                        "is_active": result[7],
+                        "payment_id": result[8],
+                        "created_at": result[9]
+                    }
+            return None
+            
+    except Exception as e:
+        log.error(f"Failed to get payment by ID {payment_id}: {e}")
+        return None
+
+def get_user_subscription_history(user_id: int) -> List[Dict[str, Any]]:
+    """
+    Получить историю подписок пользователя
+    
+    Args:
+        user_id: ID пользователя
+    
+    Returns:
+        List[Dict] с историей подписок
+    """
+    try:
+        with db_conn() as conn:
+            # Определяем тип базы данных
+            is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
+            
+            if is_postgres:
+                results = conn.execute("""
+                    SELECT * FROM subscriptions WHERE user_id = %s ORDER BY created_at DESC
+                """, (user_id,)).fetchall()
+            else:
+                results = conn.execute("""
+                    SELECT * FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC
+                """, (user_id,)).fetchall()
+            
+            subscriptions = []
+            for result in results:
+                subscriptions.append({
+                    "id": result[0],
+                    "user_id": result[1],
+                    "plan": result[2],
+                    "coins": result[3],
+                    "price_rub": result[4],
+                    "start_date": result[5],
+                    "end_date": result[6],
+                    "is_active": result[7],
+                    "payment_id": result[8],
+                    "created_at": result[9]
+                })
+            
+            return subscriptions
+            
+    except Exception as e:
+        log.error(f"Failed to get subscription history for user {user_id}: {e}")
+        return []
+
+def get_user_transaction_history(user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Получить историю транзакций пользователя
+    
+    Args:
+        user_id: ID пользователя
+        limit: Максимальное количество записей
+    
+    Returns:
+        List[Dict] с историей транзакций
+    """
+    try:
+        with db_conn() as conn:
+            # Определяем тип базы данных
+            is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
+            
+            if is_postgres:
+                results = conn.execute("""
+                    SELECT * FROM transactions WHERE user_id = %s ORDER BY timestamp DESC LIMIT %s
+                """, (user_id, limit)).fetchall()
+            else:
+                results = conn.execute("""
+                    SELECT * FROM transactions WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?
+                """, (user_id, limit)).fetchall()
+            
+            transactions = []
+            for result in results:
+                transactions.append({
+                    "id": result[0],
+                    "user_id": result[1],
+                    "feature": result[2],
+                    "coins_spent": result[3],
+                    "timestamp": result[4],
+                    "note": result[5]
+                })
+            
+            return transactions
+            
+    except Exception as e:
+        log.error(f"Failed to get transaction history for user {user_id}: {e}")
+        return []
+
 # Инициализируем таблицы при импорте модуля
 try:
     init_tables()
