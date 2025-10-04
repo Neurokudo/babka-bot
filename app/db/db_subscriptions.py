@@ -180,9 +180,9 @@ def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
                 
                 # PostgreSQL синтаксис
                 cur.execute("""
-                    INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, is_active, payment_id, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s)
-                """, (user_id, plan, coins, price_rub, created_at, expires_at, payment_id, created_at, created_at))
+                    INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, is_active, payment_id, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, TRUE, %s, %s)
+                """, (user_id, plan, coins, price_rub, created_at, expires_at, payment_id, created_at))
                 
                 cur.execute("""
                     UPDATE users
@@ -195,9 +195,9 @@ def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
                 
                 # SQLite синтаксис - все даты вычисляются в Python
                 cur.execute("""
-                    INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, is_active, payment_id, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-                """, (user_id, plan, coins, price_rub, created_at, expires_at, payment_id, created_at, created_at))
+                    INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, is_active, payment_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+                """, (user_id, plan, coins, price_rub, created_at, expires_at, payment_id, created_at))
                 
                 # Проверяем, существует ли пользователь
                 cur.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
@@ -213,9 +213,9 @@ def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
                 else:
                     # Создаем нового пользователя
                     cur.execute("""
-                        INSERT INTO users (user_id, plan, plan_expiry, coins, auto_renew, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, 1, ?, ?)
-                    """, (user_id, plan, expires_at, coins, created_at, created_at))
+                        INSERT INTO users (user_id, plan, plan_expiry, coins, auto_renew, created_at)
+                        VALUES (?, ?, ?, ?, 1, ?)
+                    """, (user_id, plan, expires_at, coins, created_at))
             
             conn.commit()
             log.info(f"Subscription created for user {user_id}: {plan} plan, {coins} coins")

@@ -20,8 +20,10 @@ class User(Base):
     username = Column(String(255), nullable=True)
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)
-    balance = Column(Integer, default=0)  # Баланс в монетах
-    tariff = Column(String(50), default="lite")
+    coins = Column(Integer, default=0)  # Баланс в монетах
+    plan = Column(String(50), default=None)  # План подписки
+    plan_expiry = Column(DateTime, nullable=True)  # Дата окончания подписки
+    auto_renew = Column(Boolean, default=True)  # Автопродление
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
@@ -105,7 +107,7 @@ class DatabaseManager:
                     username=username,
                     first_name=first_name,
                     last_name=last_name,
-                    balance=0
+                    coins=0
                 )
                 return user
                 
@@ -115,7 +117,7 @@ class DatabaseManager:
                     username=username,
                     first_name=first_name,
                     last_name=last_name,
-                    balance=0
+                    coins=0
                 )
                 session.add(user)
                 session.commit()
@@ -129,7 +131,7 @@ class DatabaseManager:
                 username=username,
                 first_name=first_name,
                 last_name=last_name,
-                balance=0
+                coins=0
             )
     
     def update_user_balance(self, user_id: int, amount: int) -> bool:
@@ -144,7 +146,7 @@ class DatabaseManager:
             with self.get_session() as session:
                 user = session.query(User).filter(User.user_id == user_id).first()
                 if user:
-                    user.balance += amount
+                    user.coins += amount
                     session.commit()
                     return True
                 return False
@@ -163,8 +165,8 @@ class DatabaseManager:
                 
             with self.get_session() as session:
                 user = session.query(User).filter(User.user_id == user_id).first()
-                if user and user.balance >= amount:
-                    user.balance -= amount
+                if user and user.coins >= amount:
+                    user.coins -= amount
                     session.commit()
                     
                     # Записываем транзакцию
@@ -197,7 +199,7 @@ class DatabaseManager:
                 
             with self.get_session() as session:
                 user = session.query(User).filter(User.user_id == user_id).first()
-                return user.balance if user else 0
+                return user.coins if user else 0
         except Exception as e:
             log.warning(f"Failed to get balance for user {user_id}: {e}")
             return 0
@@ -214,7 +216,7 @@ class DatabaseManager:
             with self.get_session() as session:
                 user = session.query(User).filter(User.user_id == user_id).first()
                 if user:
-                    user.balance += amount
+                    user.coins += amount
                     session.commit()
                     
                     # Записываем транзакцию
@@ -255,6 +257,48 @@ class DatabaseManager:
         except Exception as e:
             log.warning(f"Failed to add transaction for user {user_id}: {e}")
 
+    def save_user(self, user_id: int, user_data: dict) -> bool:
+        """Сохранить данные пользователя"""
+        try:
+            if not self._initialized:
+                self._init_db()
+            
+            if not self._initialized:
+                return False
+                
+            with self.get_session() as session:
+                user = session.query(User).filter(User.user_id == user_id).first()
+                if user:
+                    # Обновляем существующего пользователя
+                    user.username = user_data.get("username")
+                    user.first_name = user_data.get("first_name")
+                    user.last_name = user_data.get("last_name")
+                    user.coins = user_data.get("coins", 0)
+                    user.plan = user_data.get("plan")
+                    user.plan_expiry = user_data.get("plan_expiry")
+                    user.auto_renew = user_data.get("auto_renew", True)
+                    user.is_active = user_data.get("is_active", True)
+                else:
+                    # Создаем нового пользователя
+                    user = User(
+                        user_id=user_id,
+                        username=user_data.get("username"),
+                        first_name=user_data.get("first_name"),
+                        last_name=user_data.get("last_name"),
+                        coins=user_data.get("coins", 0),
+                        plan=user_data.get("plan"),
+                        plan_expiry=user_data.get("plan_expiry"),
+                        auto_renew=user_data.get("auto_renew", True),
+                        is_active=user_data.get("is_active", True)
+                    )
+                    session.add(user)
+                
+                session.commit()
+                return True
+        except Exception as e:
+            log.warning(f"Failed to save user {user_id}: {e}")
+            return False
+
 # Глобальный экземпляр менеджера базы данных
 db_manager = DatabaseManager()
 # Не инициализируем БД сразу - это будет сделано при первом обращении
@@ -282,3 +326,7 @@ def check_expired_subscriptions():
     except Exception as e:
         log.warning(f"Failed to check expired subscriptions: {e}")
         return False
+
+def save_user(user_id: int, user_data: dict) -> bool:
+    """Сохранить данные пользователя"""
+    return db_manager.save_user(user_id, user_data)
