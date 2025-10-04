@@ -388,7 +388,10 @@ async def send_to_support_group(context: ContextTypes.DEFAULT_TYPE, text: str):
         await context.bot.send_message(chat_id=SUPPORT_GROUP_ID, text=text)
         return True
     except Exception as e:
-        logging.error("Failed to send message to support group: %s", e)
+        logging.error("Failed to send message to support group (ID: %s): %s", SUPPORT_GROUP_ID, e)
+        # Если группа не найдена, логируем это для получения правильного ID
+        if "chat not found" in str(e).lower() or "bad request" in str(e).lower():
+            logging.error("SUPPORT_GROUP_ID appears to be incorrect. Please check the group ID.")
         return False
 
 async def schedule_subscription_checks():
@@ -1692,6 +1695,32 @@ async def cmd_whereami(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"title: {getattr(chat, 'title', '')}"
     )
 
+async def cmd_get_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для получения chat_id текущего чата (для настройки группы поддержки)"""
+    if not await check_access(update): return
+    chat = update.effective_chat
+    user = update.effective_user
+    
+    message = f"""
+📋 Информация о чате:
+• Chat ID: {chat.id}
+• Тип чата: {chat.type}
+• Название: {chat.title or 'N/A'}
+• Username: @{chat.username or 'N/A'}
+
+👤 Информация о пользователе:
+• User ID: {user.id}
+• Username: @{user.username or 'N/A'}
+• Имя: {user.first_name or 'N/A'}
+
+💡 Для настройки группы поддержки:
+1. Добавьте бота в группу поддержки
+2. Отправьте любое сообщение в группу
+3. Используйте полученный Chat ID для SUPPORT_GROUP_ID
+"""
+    
+    await update.message.reply_text(message)
+
 async def cmd_refresh_tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /refresh_tariffs - принудительное обновление тарифов"""
     if not await check_access(update): return
@@ -2000,7 +2029,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # try-on: текстовый промт для позы/локации (экспериментальная ветка)
-    if users[uid]["tryon"].get("await_prompt"):
+    if users[uid].get("tryon", {}).get("await_prompt"):
         users[uid]["tryon"]["await_prompt"] = False
         stt = users[uid]["tryon"]
         if not stt.get("dressed"):
@@ -5157,6 +5186,7 @@ def create_app():
     app.add_handler(CommandHandler("start", cmd_start))
     # Все остальные команды убраны - используем только инлайн кнопки
     app.add_handler(CommandHandler("whereami", cmd_whereami))  # утилита
+    app.add_handler(CommandHandler("get_chat_id", cmd_get_chat_id))  # получение chat_id для настройки группы поддержки
     app.add_handler(CommandHandler("refresh_tariffs", cmd_refresh_tariffs))  # обновление тарифов
     app.add_handler(CommandHandler("terms", cmd_terms))  # пользовательское соглашение
     app.add_handler(CommandHandler("sync_pricing", lambda u, c: u.message.reply_text(pricing_text(), parse_mode="HTML")))
