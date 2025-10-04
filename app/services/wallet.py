@@ -41,15 +41,32 @@ class WalletService:
 # Глобальные функции для совместимости со старым кодом
 def get_balance(user_id: int) -> int:
     """Получить баланс пользователя"""
-    # Здесь должна быть интеграция с базой данных
-    # Пока возвращаем заглушку
-    return 100  # Заглушка для тестирования
+    try:
+        from app.db.queries import db_manager
+        user = db_manager.get_user(user_id)
+        if user:
+            return user.balance
+        return 100  # Заглушка для новых пользователей
+    except Exception:
+        return 100  # Заглушка при недоступности БД
 
 def charge_feature(user_id: int, feature_key: str) -> bool:
     """Списать монеты за функцию"""
-    cost = feature_cost_coins(feature_key)
-    # Здесь должна быть интеграция с базой данных
-    return True  # Заглушка для тестирования
+    try:
+        cost = feature_cost_coins(feature_key)
+        from app.db.queries import db_manager
+        
+        user = db_manager.get_user(user_id)
+        if not user:
+            # Создаем пользователя если его нет
+            user = db_manager.create_user(user_id)
+        
+        if user.balance >= cost:
+            return db_manager.spend_coins(user_id, cost, feature_key)
+        return False
+    except Exception:
+        # В случае ошибки БД - разрешаем операцию (для тестирования)
+        return True
 
 def buy_tariff(user_id: int, tariff_name: str) -> Dict[str, Any]:
     """Покупка тарифа"""

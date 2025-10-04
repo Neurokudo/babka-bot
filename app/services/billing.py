@@ -19,8 +19,16 @@ user_jobs = {}
 def get_user_state(user_id: int) -> Dict[str, Any]:
     """Получить состояние пользователя"""
     if user_id not in user_states:
+        # Пытаемся получить баланс из БД, если доступна
+        try:
+            from app.db.queries import db_manager
+            user = db_manager.get_user(user_id)
+            initial_coins = user.balance if user else 100
+        except Exception:
+            initial_coins = 100  # Заглушка при недоступности БД
+            
         user_states[user_id] = {
-            "coins": 100,  # Заглушка для тестирования
+            "coins": initial_coins,
             "current_job_id": None,
             "jobs": {},
             "tariff": None,

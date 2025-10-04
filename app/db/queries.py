@@ -41,90 +41,170 @@ class DatabaseManager:
     def __init__(self):
         self.engine = None
         self.SessionLocal = None
-        self._init_db()
+        self._initialized = False
     
     def _init_db(self):
         """Инициализация подключения к базе данных"""
-        database_url = os.getenv("DATABASE_URL")
-        if not database_url:
-            # Fallback для локальной разработки
-            database_url = "sqlite:///./babka_bot.db"
-        
-        self.engine = create_engine(database_url)
-        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
-        
-        # Создаем таблицы
-        Base.metadata.create_all(bind=self.engine)
-        log.info("Database initialized")
+        if self._initialized:
+            return
+            
+        try:
+            database_url = os.getenv("DATABASE_URL")
+            if not database_url:
+                # Fallback для локальной разработки
+                database_url = "sqlite:///./babka_bot.db"
+            
+            self.engine = create_engine(database_url)
+            self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+            
+            # Создаем таблицы
+            Base.metadata.create_all(bind=self.engine)
+            self._initialized = True
+            log.info("Database initialized successfully")
+        except Exception as e:
+            log.warning(f"Database initialization failed: {e}")
+            # Создаем заглушку для работы без БД
+            self._initialized = False
     
     def get_session(self) -> Session:
         """Получить сессию базы данных"""
+        if not self._initialized:
+            self._init_db()
+        
+        if not self._initialized or not self.SessionLocal:
+            raise RuntimeError("Database not available")
+            
         return self.SessionLocal()
     
     def get_user(self, user_id: int) -> Optional[User]:
         """Получить пользователя по ID"""
-        with self.get_session() as session:
-            return session.query(User).filter(User.id == user_id).first()
+        try:
+            if not self._initialized:
+                self._init_db()
+            
+            if not self._initialized:
+                return None
+                
+            with self.get_session() as session:
+                return session.query(User).filter(User.id == user_id).first()
+        except Exception as e:
+            log.warning(f"Failed to get user {user_id}: {e}")
+            return None
     
     def create_user(self, user_id: int, username: str = None, first_name: str = None, 
                    last_name: str = None) -> User:
         """Создать нового пользователя"""
-        with self.get_session() as session:
-            user = User(
+        try:
+            if not self._initialized:
+                self._init_db()
+            
+            if not self._initialized:
+                # Возвращаем заглушку
+                user = User(
+                    id=user_id,
+                    username=username,
+                    first_name=first_name,
+                    last_name=last_name,
+                    balance=0
+                )
+                return user
+                
+            with self.get_session() as session:
+                user = User(
+                    id=user_id,
+                    username=username,
+                    first_name=first_name,
+                    last_name=last_name,
+                    balance=0
+                )
+                session.add(user)
+                session.commit()
+                session.refresh(user)
+                return user
+        except Exception as e:
+            log.warning(f"Failed to create user {user_id}: {e}")
+            # Возвращаем заглушку
+            return User(
                 id=user_id,
                 username=username,
                 first_name=first_name,
                 last_name=last_name,
                 balance=0
             )
-            session.add(user)
-            session.commit()
-            session.refresh(user)
-            return user
     
     def update_user_balance(self, user_id: int, amount: int) -> bool:
         """Обновить баланс пользователя"""
-        with self.get_session() as session:
-            user = session.query(User).filter(User.id == user_id).first()
-            if user:
-                user.balance += amount
-                session.commit()
-                return True
+        try:
+            if not self._initialized:
+                self._init_db()
+            
+            if not self._initialized:
+                return False
+                
+            with self.get_session() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    user.balance += amount
+                    session.commit()
+                    return True
+                return False
+        except Exception as e:
+            log.warning(f"Failed to update balance for user {user_id}: {e}")
             return False
     
     def spend_coins(self, user_id: int, amount: int, feature: str = None) -> bool:
         """Потратить монеты пользователя"""
-        with self.get_session() as session:
-            user = session.query(User).filter(User.id == user_id).first()
-            if user and user.balance >= amount:
-                user.balance -= amount
-                session.commit()
+        try:
+            if not self._initialized:
+                self._init_db()
+            
+            if not self._initialized:
+                return False
                 
-                # Записываем транзакцию
-                transaction = Transaction(
-                    user_id=user_id,
-                    type='spend',
-                    amount=amount,
-                    feature=feature
-                )
-                session.add(transaction)
-                session.commit()
-                return True
+            with self.get_session() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user and user.balance >= amount:
+                    user.balance -= amount
+                    session.commit()
+                    
+                    # Записываем транзакцию
+                    transaction = Transaction(
+                        user_id=user_id,
+                        type='spend',
+                        amount=amount,
+                        feature=feature
+                    )
+                    session.add(transaction)
+                    session.commit()
+                    return True
+                return False
+        except Exception as e:
+            log.warning(f"Failed to spend coins for user {user_id}: {e}")
             return False
     
     def add_transaction(self, user_id: int, transaction_type: str, amount: int, 
                        feature: str = None, description: str = None):
         """Добавить запись о транзакции"""
-        with self.get_session() as session:
-            transaction = Transaction(
-                user_id=user_id,
-                type=transaction_type,
-                amount=amount,
-                feature=feature,
-                description=description
-            )
-            session.add(transaction)
-            session.commit()
+        try:
+            if not self._initialized:
+                self._init_db()
+            
+            if not self._initialized:
+                return
+                
+            with self.get_session() as session:
+                transaction = Transaction(
+                    user_id=user_id,
+                    type=transaction_type,
+                    amount=amount,
+                    feature=feature,
+                    description=description
+                )
+                session.add(transaction)
+                session.commit()
+        except Exception as e:
+            log.warning(f"Failed to add transaction for user {user_id}: {e}")
 
 # Глобальный экземпляр менеджера базы данных
 db_manager = DatabaseManager()
+# Не инициализируем БД сразу - это будет сделано при первом обращении
