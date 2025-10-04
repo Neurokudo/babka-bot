@@ -4137,11 +4137,17 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.info("CALLBACK tryon_confirm uid=%s - BALANCE CHARGED, STARTING PROCESSING", uid)
         await q.message.edit_text("⏳ Делаю примерку…")
         try:
+            # Проверяем наличие изображений
+            log.info("CALLBACK tryon_confirm uid=%s - PERSON SIZE: %s, GARMENT SIZE: %s", 
+                    uid, len(stt["person"]) if stt["person"] else 0, 
+                    len(stt["garment"]) if stt["garment"] else 0)
+            
             # Используем loop.run_in_executor для совместимости
             loop = asyncio.get_event_loop()
+            log.info("CALLBACK tryon_confirm uid=%s - CALLING VTO", uid)
             result_bytes = await loop.run_in_executor(None, virtual_tryon, stt["person"], stt["garment"], 1)
             stt["dressed"] = result_bytes
-            log.info("CALLBACK tryon_confirm uid=%s - VTO SUCCESS", uid)
+            log.info("CALLBACK tryon_confirm uid=%s - VTO SUCCESS, RESULT SIZE: %s", uid, len(result_bytes))
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=result_bytes,
@@ -4151,7 +4157,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             stt["stage"] = "after"
         except Exception as e:
-            log.exception("VTO failed")
+            log.exception("CALLBACK tryon_confirm uid=%s - VTO FAILED: %s", uid, str(e))
             await q.message.reply_text(f"⚠️ Ошибка примерочной: {e}")
             await q.message.reply_text("Возврат в меню:", reply_markup=kb_home_inline())
         return

@@ -308,25 +308,31 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
                         f"💡 Подписка будет продлена автоматически, пока вы её не отмените."
                     )
                     
-                    # Создаем новую задачу для отправки сообщения
-                    async def send_notification():
-                        try:
-                            await bot.send_message(
-                                chat_id=user_id,
-                                text=success_message,
-                                parse_mode="HTML"
-                            )
-                            log.info(f"Success notification sent to user {user_id}")
-                        except Exception as e:
-                            log.error(f"Failed to send success notification to user {user_id}: {e}")
-                    
-                    # Запускаем асинхронную задачу
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
+                    # Отправляем уведомление синхронно через requests
                     try:
-                        loop.run_until_complete(send_notification())
-                    finally:
-                        loop.close()
+                        import requests
+                        import json
+                        
+                        # Получаем токен бота из переменных окружения
+                        bot_token = os.getenv("BOT_TOKEN")
+                        if not bot_token:
+                            log.error("BOT_TOKEN not found in environment variables")
+                        else:
+                            # Отправляем сообщение через Telegram Bot API
+                            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                            data = {
+                                "chat_id": user_id,
+                                "text": success_message,
+                                "parse_mode": "HTML"
+                            }
+                            
+                            response = requests.post(url, json=data, timeout=10)
+                            if response.status_code == 200:
+                                log.info(f"Success notification sent to user {user_id}")
+                            else:
+                                log.error(f"Failed to send notification: {response.status_code} - {response.text}")
+                    except Exception as e:
+                        log.error(f"Failed to send success notification to user {user_id}: {e}")
                     
                 except Exception as e:
                     log.error(f"Failed to send success notification to user {user_id}: {e}")
