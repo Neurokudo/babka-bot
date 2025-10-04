@@ -188,12 +188,12 @@ def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
                 # SQLite синтаксис
                 cur.execute("""
                     INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, payment_id)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, datetime('now', '+%s days'), ?)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, datetime('now', '+? days'), ?)
                 """, (user_id, plan, coins, price_rub, duration_days, payment_id))
                 
                 cur.execute("""
                     UPDATE users
-                    SET plan = ?, plan_expiry = datetime('now', '+%s days'), coins = coins + ?
+                    SET plan = ?, plan_expiry = datetime('now', '+? days'), coins = coins + ?
                     WHERE user_id = ?
                 """, (plan, duration_days, coins, user_id))
             
