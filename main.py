@@ -3039,6 +3039,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "show_tariffs":
         log.info("CALLBACK show_tariffs uid=%s - STARTING", update.effective_user.id)
         try:
+            from app.services.pricing import format_plans_list, format_feature_costs, get_available_tariffs
             plans_text = format_plans_list()
             costs_text = format_feature_costs()
             log.info("CALLBACK show_tariffs uid=%s - GOT TEXTS", update.effective_user.id)
