@@ -235,3 +235,9 @@ def activate_plan(user_id: int, plan_name: str) -> bool:
 def apply_top_up(user_id: int, coins: int) -> bool:
     """Применить пополнение монет"""
     return add_coins(user_id, coins)
+
+def check_subscription(user_id: int):
+    """Проверка активной подписки"""
+    from app.db import db_subscriptions as db
+    plan = db.get_user_plan(user_id)
+    return bool(plan and plan.get("is_active"))

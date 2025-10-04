@@ -49,6 +49,15 @@ log = logging.getLogger("babka-bot")
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# Проверка переменных окружения YooKassa
+print("DEBUG YOOKASSA ENV:", os.getenv("YOOKASSA_SHOP_ID"), os.getenv("YOOKASSA_SECRET_KEY"))
+
+SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
+SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
+
+if not SHOP_ID or not SECRET_KEY:
+    raise RuntimeError("YooKassa credentials not found in environment")
+
 # SMTP для репортов (нижняя кнопка SOS)
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
