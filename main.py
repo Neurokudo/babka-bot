@@ -953,9 +953,9 @@ def reply_main_kb():
 def kb_home_inline():
     # Временно используем простое меню для отладки
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎬 Генерировать видео", callback_data="show_modes")],
+        [InlineKeyboardButton("🎬 Создать видео в VEO 3", callback_data="show_modes")],
         [InlineKeyboardButton("🧱 LEGO мультики", callback_data="lego_single")],
-        [InlineKeyboardButton("👗 Примерочная", callback_data="tryon_start")],
+        [InlineKeyboardButton("👗 Примерить одежду", callback_data="tryon_start")],
         [InlineKeyboardButton("📸 Изменить фото", callback_data="transform_remove_bg")],
         [InlineKeyboardButton("📚 Гайды / Оплата", callback_data="menu_guides")],
         [InlineKeyboardButton("👤 Профиль / Баланс", callback_data="menu_profile")],
@@ -3278,6 +3278,16 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "show_modes":
         await q.message.edit_text("🎬 Выберите режим генерации:", reply_markup=kb_modes())
+        return
+
+    if data == "tryon_start":
+        st["tryon"] = {"stage": "await_person", "person": None, "garment": None, "dressed": None, "await_bg": False, "await_prompt": False}
+        await q.message.edit_text(
+            "👗 Виртуальная примерочная\n\n"
+            "1) Пришлите фото человека, которого будем одевать\n"
+            "2) Затем пришлите фото одежды (можно даже на другом человеке)",
+            reply_markup=kb_tryon_start()
+        )
         return
 
     if data == "back_home":
