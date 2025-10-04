@@ -1414,11 +1414,9 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "💳 <b>Покупка тарифа</b>\n\n"
             "Использование: /buy <название_тарифа>\n\n"
-            "Доступные тарифы:\n"
-            "• lite — Лайт\n"
-            "• standard — Стандарт\n"
-            "• pro — Про\n\n"
-            "Пример: /buy standard",
+            "Доступные тарифы:\n" + 
+            "\n".join([f"• {tariff['name']} — {tariff['title']}" for tariff in get_available_tariffs()]) + 
+            "\n\nПример: /buy standard",
             parse_mode="HTML"
         )
         return
@@ -1757,11 +1755,16 @@ async def cmd_reset_my_profile(update: Update, context: ContextTypes.DEFAULT_TYP
     db.save_user(uid, st)
     log.info(f"ADMIN {uid} profile RESET to default coins=0, admin_coins=500")
     
+    # Получаем название тарифа из конфигурации
+    tariffs = get_available_tariffs()
+    lite_tariff = next((t for t in tariffs if t["name"] == "lite"), {})
+    tariff_name = lite_tariff.get("title", "Лайт")
+    
     await update.message.reply_text(
         "♻️ ВАШ ПРОФИЛЬ ПОЛНОСТЬЮ СБРОШЕН!\n\n"
         "📊 Установлены админские значения:\n\n"
         "🪙 БАЛАНС: 0 монет\n"
-        "📋 ТАРИФ: Лайт\n"
+        f"📋 ТАРИФ: {tariff_name}\n"
         "⭐️ БАЛАНС АДМИНА: 500 монеток\n\n"
         "✅ Профиль сохранен в БД!",
         reply_markup=kb_home_inline()
@@ -2622,6 +2625,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         plan = st.get("plan", "lite")
         tariffs = get_available_tariffs()
         plan_info = tariffs.get(plan)
+        # Используем динамическое название из конфигурации
         plan_name = plan_info.name if plan_info else "Лайт"
         plan_expiry = st.get("plan_expiry")
 
