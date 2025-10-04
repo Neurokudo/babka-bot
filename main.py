@@ -4379,6 +4379,10 @@ def main():
             from app.db import db_subscriptions as db
             db.init_tables()
             log.info("Database initialized successfully")
+            
+            # Проверяем и сбрасываем истёкшие подписки при старте
+            check_and_reset_expired_plans()
+            
         except Exception as e:
             log.error(f"Database initialization failed: {e}")
             # Продолжаем работу без БД в режиме заглушки

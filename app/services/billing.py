@@ -245,3 +245,94 @@ def check_subscription(user_id: int):
     except Exception as e:
         log.warning(f"Failed to check subscription for user {user_id}: {e}")
         return False
+
+def check_and_reset_expired_plans():
+    """
+    Проверяет истёкшие подписки, сбрасывает их и записывает логи.
+    """
+    print("🔄 Проверка истекших подписок начата...")
+    now = datetime.utcnow()
+
+    try:
+        from app.db import db_subscriptions as db_sub
+        with db_sub.db_conn() as conn:
+            cur = conn.cursor()
+            
+            # Определяем тип базы данных
+            is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
+            
+            # Находим пользователей с истёкшими подписками
+            if is_postgres:
+                cur.execute("""
+                    SELECT user_id, plan, end_date
+                    FROM subscriptions
+                    WHERE end_date IS NOT NULL AND end_date < %s AND is_active = TRUE;
+                """, (now,))
+            else:
+                cur.execute("""
+                    SELECT user_id, plan, end_date
+                    FROM subscriptions
+                    WHERE end_date IS NOT NULL AND end_date < ? AND is_active = 1;
+                """, (now,))
+            
+            expired = cur.fetchall()
+
+            if not expired:
+                print("✅ Нет истекших подписок.")
+                return []
+
+            expired_users = [row[0] for row in expired]
+            
+            # Деактивируем подписки
+            if is_postgres:
+                cur.execute("""
+                    UPDATE subscriptions
+                    SET is_active = FALSE, updated_at = %s
+                    WHERE user_id = ANY(%s);
+                """, (now, expired_users))
+            else:
+                # Для SQLite используем IN вместо ANY
+                placeholders = ','.join(['?' for _ in expired_users])
+                cur.execute(f"""
+                    UPDATE subscriptions
+                    SET is_active = 0, updated_at = ?
+                    WHERE user_id IN ({placeholders});
+                """, [now] + expired_users)
+
+            # Обнуляем баланс монет и переводим на free план
+            if is_postgres:
+                cur.execute("""
+                    UPDATE users
+                    SET coins = 0, plan = 'free', updated_at = %s
+                    WHERE user_id = ANY(%s);
+                """, (now, expired_users))
+            else:
+                placeholders = ','.join(['?' for _ in expired_users])
+                cur.execute(f"""
+                    UPDATE users
+                    SET coins = 0, plan = 'free', updated_at = ?
+                    WHERE user_id IN ({placeholders});
+                """, [now] + expired_users)
+
+            # Логируем транзакции для каждого пользователя
+            for user_id in expired_users:
+                if is_postgres:
+                    cur.execute("""
+                        INSERT INTO transactions (user_id, feature, coins_spent, note, timestamp)
+                        VALUES (%s, 'reset', 0, 'Subscription expired, plan reset to free', %s);
+                    """, (user_id, now))
+                else:
+                    cur.execute("""
+                        INSERT INTO transactions (user_id, feature, coins_spent, note, timestamp)
+                        VALUES (?, 'reset', 0, 'Subscription expired, plan reset to free', ?);
+                    """, (user_id, now))
+
+            conn.commit()
+
+        print(f"⚠️ {len(expired_users)} подписок истекло и сброшено: {expired_users}")
+        return expired_users
+        
+    except Exception as e:
+        log.error(f"Failed to check and reset expired plans: {e}")
+        print(f"❌ Ошибка при проверке истекших подписок: {e}")
+        return []
