@@ -3169,7 +3169,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     label = f"✅ {plan_title} (текущий)"
                 else:
                     # Проверяем, можно ли купить этот тариф
-                    plan_levels = {"lite": 1, "standard": 2, "pro": 3}
+                    plan_levels = {"start": 1, "lite": 2, "standard": 3, "pro": 4}
                     current_level = plan_levels.get(current_plan, 1)
                     target_level = plan_levels.get(plan_id, 1)
                     
@@ -3338,7 +3338,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_plan = subscription_data.get("plan", "lite")
         
         # Определяем уровни тарифов (чем больше монет, тем выше уровень)
-        plan_levels = {"lite": 1, "standard": 2, "pro": 3}
+        plan_levels = {"start": 1, "lite": 2, "standard": 3, "pro": 4}
         current_level = plan_levels.get(current_plan, 1)
         target_level = plan_levels.get(plan_name, 1)
         
@@ -3385,6 +3385,11 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             log.info("CALLBACK buy_plan uid=%s - PAYMENT CREATED: %s", uid, payment_id)
             
+            # Получаем информацию о всех тарифах и стоимости операций
+            from app.services.pricing import format_plans_list, format_feature_costs
+            plans_text = format_plans_list()
+            costs_text = format_feature_costs()
+            
             await q.message.edit_text(
                 f"💳 <b>Оплата тарифа {plan_info['title']}</b>\n\n"
                 f"💰 Сумма: {plan_info['price_rub']:,} ₽\n"
@@ -3393,6 +3398,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💡 Подписки выгоднее разовых покупок!\n\n"
                 f"📋 Соглашаясь на оплату, вы принимаете условия оферты:\n"
                 f"/terms — Пользовательское соглашение\n\n"
+                f"{plans_text}\n\n{costs_text}\n\n"
+                f"🔄 Подписка будет продлена автоматически, пока вы ее не отмените.\n\n"
                 f"Нажмите кнопку ниже для оплаты:",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([

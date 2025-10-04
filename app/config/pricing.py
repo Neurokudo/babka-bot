@@ -13,6 +13,7 @@ class TopupPack:
     price_rub: int
 
 TARIFFS: Dict[str, Tariff] = {
+    "start": Tariff(price_rub=700, coins=70, duration_days=30),
     "lite": Tariff(price_rub=1990, coins=120, duration_days=30),
     "standard": Tariff(price_rub=2490, coins=210, duration_days=30),
     "pro": Tariff(price_rub=4990, coins=440, duration_days=30),

@@ -24,6 +24,14 @@ def get_available_tariffs() -> List[Dict[str, Any]]:
     """Получить список доступных тарифов"""
     return [
         {
+            "name": "start",
+            "title": "Старт",
+            "price_rub": TARIFFS["start"].price_rub,
+            "coins": TARIFFS["start"].coins,
+            "duration_days": TARIFFS["start"].duration_days,
+            "icon": "🚀"
+        },
+        {
             "name": "lite",
             "title": "Лайт",
             "price_rub": TARIFFS["lite"].price_rub,
