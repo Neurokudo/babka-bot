@@ -99,7 +99,7 @@ if ADMIN_CHAT_RAW:
                 pass
 
 # Доступ только владельцу до релиза
-ALLOWED_USERS = [5015100177]
+ALLOWED_USERS = [5015100177, 1234567890]  # Добавьте ваш ID сюда
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 if "gemini" in (OPENAI_MODEL or "").lower():
@@ -1226,6 +1226,7 @@ def addons_keyboard(order=None) -> InlineKeyboardMarkup:
 # -----------------------------------------------------------------------------
 async def check_access(update: Update) -> bool:
     uid = update.effective_user.id
+    log.info("ACCESS CHECK: uid=%s, allowed=%s", uid, ALLOWED_USERS)
     if uid not in ALLOWED_USERS:
         try:
             if update.message:
