@@ -3855,8 +3855,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text(
                 access_check["message"],
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
+                    [InlineKeyboardButton("💳 Купить подписку", callback_data="show_tariffs")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
