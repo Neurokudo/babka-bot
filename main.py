@@ -99,7 +99,20 @@ if ADMIN_CHAT_RAW:
                 pass
 
 # Доступ только владельцу до релиза
-ALLOWED_USERS = [5015100177, 1234567890]  # Добавьте ваш ID сюда
+# Можно настроить через переменную окружения ALLOWED_USERS (через запятую)
+ALLOWED_USERS_RAW = os.getenv("ALLOWED_USERS", "").strip()
+ALLOWED_USERS = []
+if ALLOWED_USERS_RAW:
+    for piece in ALLOWED_USERS_RAW.split(","):
+        piece = piece.strip()
+        if piece:
+            try:
+                ALLOWED_USERS.append(int(piece))
+            except:
+                pass
+# Если переменная не задана, доступ для всех
+if not ALLOWED_USERS:
+    ALLOWED_USERS = []  # Пустой список = доступ для всех
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 if "gemini" in (OPENAI_MODEL or "").lower():
