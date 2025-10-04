@@ -7,6 +7,12 @@ MENU = {
     "root": {
         "text_key": "menu.title",
         "buttons": [
+            {"text_key": "btn.generate", "to": "modes", "cb": (Actions.MODE_HELPER,)},
+            {"text_key": "btn.lego", "to": "lego_menu", "cb": (Actions.LEGO_SINGLE,)},
+            {"text_key": "btn.alive", "to": "modes", "cb": (Actions.MODE_HELPER,)},
+            {"text_key": "btn.tryon", "to": "tryon_start", "cb": (Actions.TRYON_START,)},
+            {"text_key": "btn.transforms", "to": "transforms", "cb": (Actions.TRANSFORM_REMOVE_BG,)},
+            {"text_key": "btn.jsonpro", "to": "jsonpro_start", "cb": (Actions.JSONPRO_ENTER,)},
             {"text_key": "btn.guides", "to": "guides", "cb": (Actions.MENU_GUIDES,)},
             {"text_key": "btn.profile", "to": "profile", "cb": (Actions.MENU_PROFILE,)},
         ],
