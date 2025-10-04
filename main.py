@@ -1234,10 +1234,10 @@ def kb_tryon_confirm():
 
 def kb_tryon_after():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Другая поза (новое фото человека)", callback_data="tryon_new_pose")],
-        [InlineKeyboardButton("👗 Другая одежда", callback_data="tryon_new_garment")],
-        [InlineKeyboardButton("🏞 Новая локация (фон фото)", callback_data="tryon_new_bg")],
-        [InlineKeyboardButton("✍️ Описать позу/локацию (эксперимент)", callback_data="tryon_prompt")],
+        [InlineKeyboardButton("🔄 Другая поза (-3 монетки)", callback_data="tryon_new_pose")],
+        [InlineKeyboardButton("👗 Другая одежда (-3 монетки)", callback_data="tryon_new_garment")],
+        [InlineKeyboardButton("🏞 Новый фон (-3 монетки)", callback_data="tryon_new_bg")],
+        [InlineKeyboardButton("✍️ Описать задачу (-2 монетки)", callback_data="tryon_prompt")],
         [InlineKeyboardButton("🏠 В меню", callback_data="back_home")],
     ])
 
@@ -4164,37 +4164,169 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- AFTER RESULT ACTIONS ---
     if data == "tryon_new_pose":
+        # Проверяем доступ и списываем монетки
+        access_check = can_use_feature(uid, "virtual_tryon")
+        if not access_check["can_use"]:
+            log.warning("CALLBACK tryon_new_pose uid=%s - ACCESS DENIED: %s", uid, access_check["reason"])
+            
+            if access_check["reason"] == "no_subscription":
+                buttons = [
+                    [InlineKeyboardButton("💳 Купить подписку", callback_data="show_tariffs")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            elif access_check["reason"] == "insufficient_coins":
+                buttons = [
+                    [InlineKeyboardButton("💰 Докупить монетки", callback_data="show_topup")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            else:
+                buttons = [
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            
+            await q.message.edit_text(
+                access_check["message"],
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+            return
+
+        # Списываем монетки
+        cost = access_check["cost"]
+        if not db.charge_feature(uid, "tryon_pose", cost, "Virtual try-on pose change"):
+            log.error("CALLBACK tryon_new_pose uid=%s - CHARGE FAILED", uid)
+            await q.message.reply_text("❌ Ошибка списания монет. Попробуйте позже.")
+            return
+
         stt = st["tryon"]
         stt["stage"] = "await_person"
         await q.message.edit_text(
-            "🔄 Другая поза.\nПришлите новое фото человека в желаемой позе/ракурсе.",
+            "🔄 Другая поза (-3 монетки).\nПришлите новое фото человека в желаемой позе/ракурсе.",
             reply_markup=kb_tryon_need_garment()
         )
         return
 
     if data == "tryon_new_garment":
+        # Проверяем доступ и списываем монетки
+        access_check = can_use_feature(uid, "virtual_tryon")
+        if not access_check["can_use"]:
+            log.warning("CALLBACK tryon_new_garment uid=%s - ACCESS DENIED: %s", uid, access_check["reason"])
+            
+            if access_check["reason"] == "no_subscription":
+                buttons = [
+                    [InlineKeyboardButton("💳 Купить подписку", callback_data="show_tariffs")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            elif access_check["reason"] == "insufficient_coins":
+                buttons = [
+                    [InlineKeyboardButton("💰 Докупить монетки", callback_data="show_topup")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            else:
+                buttons = [
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            
+            await q.message.edit_text(
+                access_check["message"],
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+            return
+
+        # Списываем монетки
+        cost = access_check["cost"]
+        if not db.charge_feature(uid, "tryon_garment", cost, "Virtual try-on garment change"):
+            log.error("CALLBACK tryon_new_garment uid=%s - CHARGE FAILED", uid)
+            await q.message.reply_text("❌ Ошибка списания монет. Попробуйте позже.")
+            return
+
         stt = st["tryon"]
         stt["stage"] = "await_garment"
         await q.message.edit_text(
-            "👗 Другая одежда.\nПришлите фото новой одежды на нейтральном фоне.",
+            "👗 Другая одежда (-3 монетки).\nПришлите фото новой одежды на нейтральном фоне.",
             reply_markup=kb_tryon_need_garment()
         )
         return
 
     if data == "tryon_new_bg":
+        # Проверяем доступ и списываем монетки
+        access_check = can_use_feature(uid, "virtual_tryon")
+        if not access_check["can_use"]:
+            log.warning("CALLBACK tryon_new_bg uid=%s - ACCESS DENIED: %s", uid, access_check["reason"])
+            
+            if access_check["reason"] == "no_subscription":
+                buttons = [
+                    [InlineKeyboardButton("💳 Купить подписку", callback_data="show_tariffs")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            elif access_check["reason"] == "insufficient_coins":
+                buttons = [
+                    [InlineKeyboardButton("💰 Докупить монетки", callback_data="show_topup")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            else:
+                buttons = [
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            
+            await q.message.edit_text(
+                access_check["message"],
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+            return
+
+        # Списываем монетки
+        cost = access_check["cost"]
+        if not db.charge_feature(uid, "tryon_background", cost, "Virtual try-on background change"):
+            log.error("CALLBACK tryon_new_bg uid=%s - CHARGE FAILED", uid)
+            await q.message.reply_text("❌ Ошибка списания монет. Попробуйте позже.")
+            return
+
         stt = st["tryon"]
         stt["await_bg"] = True
         await q.message.edit_text(
-            "🏞 Новая локация.\nПришлите фон-картинку (фото места), куда поместить одетую модель.",
+            "🏞 Новый фон (-3 монетки).\nПришлите фон-картинку (фото места), куда поместить одетую модель.",
             reply_markup=kb_tryon_after()
         )
         return
 
     if data == "tryon_prompt":
+        # Проверяем доступ для описания задачи (стоимость 2 монетки)
+        access_check = can_use_feature(uid, "virtual_tryon", custom_cost=2)
+        if not access_check["can_use"]:
+            log.warning("CALLBACK tryon_prompt uid=%s - ACCESS DENIED: %s", uid, access_check["reason"])
+            
+            if access_check["reason"] == "no_subscription":
+                buttons = [
+                    [InlineKeyboardButton("💳 Купить подписку", callback_data="show_tariffs")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            elif access_check["reason"] == "insufficient_coins":
+                buttons = [
+                    [InlineKeyboardButton("💰 Докупить монетки", callback_data="show_topup")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            else:
+                buttons = [
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            
+            await q.message.edit_text(
+                access_check["message"],
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+            return
+
+        # Списываем монетки
+        cost = 2  # Фиксированная стоимость для описания задачи
+        if not db.charge_feature(uid, "tryon_prompt", cost, "Virtual try-on custom prompt"):
+            log.error("CALLBACK tryon_prompt uid=%s - CHARGE FAILED", uid)
+            await q.message.reply_text("❌ Ошибка списания монет. Попробуйте позже.")
+            return
+
         stt = st["tryon"]
         stt["await_prompt"] = True
         await q.message.edit_text(
-            "✍️ Опишите кратко позу/локацию (например: «сидит на лавочке, двор в деревне, закат»).\n"
+            "✍️ Описать задачу (-2 монетки).\nОпишите кратко позу/локацию (например: «сидит на лавочке, двор в деревне, закат»).\n"
             "Это экспериментальная функция — возможны лёгкие изменения лица.",
             reply_markup=kb_tryon_after()
         )

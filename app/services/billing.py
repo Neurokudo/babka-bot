@@ -327,10 +327,15 @@ def has_active_subscription(user_id: int) -> bool:
         log.warning(f"Failed to check active subscription for user {user_id}: {e}")
         return False
 
-def can_use_feature(user_id: int, feature_key: str) -> Dict[str, Any]:
+def can_use_feature(user_id: int, feature_key: str, custom_cost: int = None) -> Dict[str, Any]:
     """
     Единая функция проверки доступа к функциям
     Возвращает подробную информацию о статусе доступа
+    
+    Args:
+        user_id: ID пользователя
+        feature_key: Ключ функции
+        custom_cost: Пользовательская стоимость (если None, берется из конфига)
     """
     try:
         # Проверяем активную подписку
@@ -370,7 +375,7 @@ def can_use_feature(user_id: int, feature_key: str) -> Dict[str, Any]:
         # Проверяем баланс монет
         from app.services.wallet import get_balance
         current_balance = get_balance(user_id)
-        cost = feature_cost_coins(feature_key)
+        cost = custom_cost if custom_cost is not None else feature_cost_coins(feature_key)
         
         if current_balance < cost:
             return {
