@@ -54,6 +54,14 @@ def init_tables():
                 )
             """)
             
+            # Добавляем колонку auto_renew если её нет (миграция)
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN auto_renew BOOLEAN DEFAULT TRUE")
+                log.info("Added auto_renew column to users table")
+            except Exception as e:
+                # Колонка уже существует или другая ошибка
+                log.debug(f"auto_renew column already exists or error: {e}")
+            
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS subscriptions (
                     id SERIAL PRIMARY KEY,
@@ -94,6 +102,14 @@ def init_tables():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # Добавляем колонку auto_renew если её нет (миграция)
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN auto_renew BOOLEAN DEFAULT 1")
+                log.info("Added auto_renew column to users table")
+            except Exception as e:
+                # Колонка уже существует или другая ошибка
+                log.debug(f"auto_renew column already exists or error: {e}")
             
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS subscriptions (

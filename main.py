@@ -3317,6 +3317,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if data.startswith("buy_plan_"):
+        from app.services.pricing import get_available_tariffs
+        
         plan_name = data.replace("buy_plan_", "")
         log.info("CALLBACK buy_plan uid=%s plan=%s", uid, plan_name)
         log.info("CALLBACK buy_plan uid=%s - AVAILABLE TARIFFS: %s", uid, [t["name"] for t in get_available_tariffs()])
