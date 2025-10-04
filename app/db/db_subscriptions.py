@@ -32,8 +32,10 @@ def db_conn():
 def init_tables():
     """Инициализация таблиц базы данных"""
     with db_conn() as conn:
+        cur = conn.cursor()
+        
         # Создаем таблицу пользователей
-        conn.execute("""
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id BIGINT PRIMARY KEY,
                 username TEXT,
@@ -47,7 +49,7 @@ def init_tables():
         """)
         
         # Создаем таблицу подписок
-        conn.execute("""
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS subscriptions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id BIGINT NOT NULL,
@@ -63,7 +65,7 @@ def init_tables():
         """)
         
         # Создаем таблицу транзакций
-        conn.execute("""
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id BIGINT,
@@ -84,35 +86,37 @@ def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
     """
     try:
         with db_conn() as conn:
+            cur = conn.cursor()
+            
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             if is_postgres:
                 # Деактивируем предыдущие подписки
-                conn.execute("UPDATE subscriptions SET is_active = FALSE WHERE user_id = %s", (user_id,))
+                cur.execute("UPDATE subscriptions SET is_active = FALSE WHERE user_id = %s", (user_id,))
                 
                 # PostgreSQL синтаксис
-                conn.execute("""
+                cur.execute("""
                     INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, payment_id)
                     VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + (%s || ' days')::interval, %s)
                 """, (user_id, plan, coins, price_rub, duration_days, payment_id))
                 
-                conn.execute("""
+                cur.execute("""
                     UPDATE users
                     SET plan = %s, plan_expiry = CURRENT_TIMESTAMP + (%s || ' days')::interval, coins = coins + %s
                     WHERE user_id = %s
                 """, (plan, duration_days, coins, user_id))
             else:
                 # Деактивируем предыдущие подписки
-                conn.execute("UPDATE subscriptions SET is_active = 0 WHERE user_id = ?", (user_id,))
+                cur.execute("UPDATE subscriptions SET is_active = 0 WHERE user_id = ?", (user_id,))
                 
                 # SQLite синтаксис
-                conn.execute("""
+                cur.execute("""
                     INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, payment_id)
                     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, datetime('now', '+%s days'), ?)
                 """, (user_id, plan, coins, price_rub, duration_days, payment_id))
                 
-                conn.execute("""
+                cur.execute("""
                     UPDATE users
                     SET plan = ?, plan_expiry = datetime('now', '+%s days'), coins = coins + ?
                     WHERE user_id = ?
@@ -132,14 +136,18 @@ def charge_feature(user_id: int, feature: str, cost: int, note: str | None = Non
     """
     try:
         with db_conn() as conn:
+            cur = conn.cursor()
+            
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             # Проверяем баланс пользователя
             if is_postgres:
-                bal = conn.execute("SELECT coins FROM users WHERE user_id = %s", (user_id,)).fetchone()
+                cur.execute("SELECT coins FROM users WHERE user_id = %s", (user_id,))
+                bal = cur.fetchone()
             else:
-                bal = conn.execute("SELECT coins FROM users WHERE user_id = ?", (user_id,)).fetchone()
+                cur.execute("SELECT coins FROM users WHERE user_id = ?", (user_id,))
+                bal = cur.fetchone()
                 
             if not bal or bal[0] < cost:
                 log.warning(f"Insufficient balance for user {user_id}: {bal[0] if bal else 0} < {cost}")
@@ -147,14 +155,14 @@ def charge_feature(user_id: int, feature: str, cost: int, note: str | None = Non
             
             # Списываем монеты
             if is_postgres:
-                conn.execute("UPDATE users SET coins = coins - %s WHERE user_id = %s", (cost, user_id))
-                conn.execute("""
+                cur.execute("UPDATE users SET coins = coins - %s WHERE user_id = %s", (cost, user_id))
+                cur.execute("""
                     INSERT INTO transactions (user_id, feature, coins_spent, note)
                     VALUES (%s, %s, %s, %s)
                 """, (user_id, feature, cost, note))
             else:
-                conn.execute("UPDATE users SET coins = coins - ? WHERE user_id = ?", (cost, user_id))
-                conn.execute("""
+                cur.execute("UPDATE users SET coins = coins - ? WHERE user_id = ?", (cost, user_id))
+                cur.execute("""
                     INSERT INTO transactions (user_id, feature, coins_spent, note)
                     VALUES (?, ?, ?, ?)
                 """, (user_id, feature, cost, note))
@@ -173,29 +181,33 @@ def check_expired_subscriptions():
     """
     try:
         with db_conn() as conn:
+            cur = conn.cursor()
+            
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             # Находим просроченные подписки
             if is_postgres:
-                expired = conn.execute("""
+                cur.execute("""
                     SELECT user_id FROM subscriptions
                     WHERE is_active = TRUE AND end_date < CURRENT_TIMESTAMP
-                """).fetchall()
+                """)
+                expired = cur.fetchall()
             else:
-                expired = conn.execute("""
+                cur.execute("""
                     SELECT user_id FROM subscriptions
                     WHERE is_active = 1 AND end_date < CURRENT_TIMESTAMP
-                """).fetchall()
+                """)
+                expired = cur.fetchall()
             
             for (uid,) in expired:
                 # Сбрасываем план пользователя на lite, обнуляем монеты и plan_expiry
                 if is_postgres:
-                    conn.execute("UPDATE users SET plan='lite', plan_expiry=NULL, coins=0 WHERE user_id=%s", (uid,))
-                    conn.execute("UPDATE subscriptions SET is_active=FALSE WHERE user_id=%s", (uid,))
+                    cur.execute("UPDATE users SET plan='lite', plan_expiry=NULL, coins=0 WHERE user_id=%s", (uid,))
+                    cur.execute("UPDATE subscriptions SET is_active=FALSE WHERE user_id=%s", (uid,))
                 else:
-                    conn.execute("UPDATE users SET plan='lite', plan_expiry=NULL, coins=0 WHERE user_id=?", (uid,))
-                    conn.execute("UPDATE subscriptions SET is_active=0 WHERE user_id=?", (uid,))
+                    cur.execute("UPDATE users SET plan='lite', plan_expiry=NULL, coins=0 WHERE user_id=?", (uid,))
+                    cur.execute("UPDATE subscriptions SET is_active=0 WHERE user_id=?", (uid,))
                 log.info(f"Expired subscription deactivated for user {uid}")
             
             conn.commit()
@@ -211,13 +223,17 @@ def get_active_subscribers():
     """
     try:
         with db_conn() as conn:
+            cur = conn.cursor()
+            
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             if is_postgres:
-                return conn.execute("SELECT * FROM subscriptions WHERE is_active=TRUE").fetchall()
+                cur.execute("SELECT * FROM subscriptions WHERE is_active=TRUE")
+                return cur.fetchall()
             else:
-                return conn.execute("SELECT * FROM subscriptions WHERE is_active=1").fetchall()
+                cur.execute("SELECT * FROM subscriptions WHERE is_active=1")
+                return cur.fetchall()
                 
     except Exception as e:
         log.error(f"Failed to get active subscribers: {e}")
@@ -227,13 +243,17 @@ def get_user_balance(user_id: int) -> int:
     """Получить баланс пользователя"""
     try:
         with db_conn() as conn:
+            cur = conn.cursor()
+            
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             if is_postgres:
-                result = conn.execute("SELECT coins FROM users WHERE user_id = %s", (user_id,)).fetchone()
+                cur.execute("SELECT coins FROM users WHERE user_id = %s", (user_id,))
+                result = cur.fetchone()
             else:
-                result = conn.execute("SELECT coins FROM users WHERE user_id = ?", (user_id,)).fetchone()
+                cur.execute("SELECT coins FROM users WHERE user_id = ?", (user_id,))
+                result = cur.fetchone()
             return result[0] if result else 0
     except Exception as e:
         log.error(f"Failed to get balance for user {user_id}: {e}")
@@ -243,17 +263,21 @@ def get_user_plan(user_id: int) -> Dict[str, Any]:
     """Получить информацию о плане пользователя"""
     try:
         with db_conn() as conn:
+            cur = conn.cursor()
+            
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             if is_postgres:
-                result = conn.execute("""
+                cur.execute("""
                     SELECT plan, plan_expiry, coins FROM users WHERE user_id = %s
-                """, (user_id,)).fetchone()
+                """, (user_id,))
+                result = cur.fetchone()
             else:
-                result = conn.execute("""
+                cur.execute("""
                     SELECT plan, plan_expiry, coins FROM users WHERE user_id = ?
-                """, (user_id,)).fetchone()
+                """, (user_id,))
+                result = cur.fetchone()
             
             if result:
                 plan, expiry, coins = result
@@ -286,36 +310,40 @@ def create_or_update_user(user_id: int, username: str = None, first_name: str = 
     """Создать или обновить пользователя"""
     try:
         with db_conn() as conn:
+            cur = conn.cursor()
+            
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             # Проверяем, существует ли пользователь
             if is_postgres:
-                existing = conn.execute("SELECT user_id FROM users WHERE user_id = %s", (user_id,)).fetchone()
+                cur.execute("SELECT user_id FROM users WHERE user_id = %s", (user_id,))
+                existing = cur.fetchone()
             else:
-                existing = conn.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,)).fetchone()
+                cur.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+                existing = cur.fetchone()
             
             if existing:
                 # Обновляем существующего пользователя
                 if is_postgres:
-                    conn.execute("""
+                    cur.execute("""
                         UPDATE users SET username = %s, first_name = %s, last_name = %s
                         WHERE user_id = %s
                     """, (username, first_name, last_name, user_id))
                 else:
-                    conn.execute("""
+                    cur.execute("""
                         UPDATE users SET username = ?, first_name = ?, last_name = ?
                         WHERE user_id = ?
                     """, (username, first_name, last_name, user_id))
             else:
                 # Создаем нового пользователя
                 if is_postgres:
-                    conn.execute("""
+                    cur.execute("""
                         INSERT INTO users (user_id, username, first_name, last_name, coins)
                         VALUES (%s, %s, %s, %s, 0)
                     """, (user_id, username, first_name, last_name))
                 else:
-                    conn.execute("""
+                    cur.execute("""
                         INSERT INTO users (user_id, username, first_name, last_name, coins)
                         VALUES (?, ?, ?, ?, 0)
                     """, (user_id, username, first_name, last_name))
@@ -340,14 +368,18 @@ def update_user_balance(user_id: int, coins_delta: int, note: str = None) -> boo
     """
     try:
         with db_conn() as conn:
+            cur = conn.cursor()
+            
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             # Проверяем текущий баланс
             if is_postgres:
-                result = conn.execute("SELECT coins FROM users WHERE user_id = %s", (user_id,)).fetchone()
+                cur.execute("SELECT coins FROM users WHERE user_id = %s", (user_id,))
+                result = cur.fetchone()
             else:
-                result = conn.execute("SELECT coins FROM users WHERE user_id = ?", (user_id,)).fetchone()
+                cur.execute("SELECT coins FROM users WHERE user_id = ?", (user_id,))
+                result = cur.fetchone()
             
             if not result:
                 log.warning(f"User {user_id} not found")
@@ -362,18 +394,18 @@ def update_user_balance(user_id: int, coins_delta: int, note: str = None) -> boo
             
             # Обновляем баланс
             if is_postgres:
-                conn.execute("UPDATE users SET coins = %s WHERE user_id = %s", (new_balance, user_id))
+                cur.execute("UPDATE users SET coins = %s WHERE user_id = %s", (new_balance, user_id))
             else:
-                conn.execute("UPDATE users SET coins = ? WHERE user_id = ?", (new_balance, user_id))
+                cur.execute("UPDATE users SET coins = ? WHERE user_id = ?", (new_balance, user_id))
             
             # Записываем транзакцию
             if is_postgres:
-                conn.execute("""
+                cur.execute("""
                     INSERT INTO transactions (user_id, feature, coins_spent, note)
                     VALUES (%s, %s, %s, %s)
                 """, (user_id, "balance_update", abs(coins_delta), note or f"Balance update: {coins_delta:+d}"))
             else:
-                conn.execute("""
+                cur.execute("""
                     INSERT INTO transactions (user_id, feature, coins_spent, note)
                     VALUES (?, ?, ?, ?)
                 """, (user_id, "balance_update", abs(coins_delta), note or f"Balance update: {coins_delta:+d}"))
@@ -398,20 +430,24 @@ def get_payment_by_id(payment_id: str) -> Optional[Dict[str, Any]]:
     """
     try:
         with db_conn() as conn:
+            cur = conn.cursor()
+            
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             if is_postgres:
-                result = conn.execute("""
+                cur.execute("""
                     SELECT * FROM subscriptions WHERE payment_id = %s
-                """, (payment_id,)).fetchone()
+                """, (payment_id,))
+                result = cur.fetchone()
             else:
-                result = conn.execute("""
+                cur.execute("""
                     SELECT * FROM subscriptions WHERE payment_id = ?
-                """, (payment_id,)).fetchone()
+                """, (payment_id,))
+                result = cur.fetchone()
             
             if result:
-                columns = [desc[0] for desc in conn.description] if hasattr(conn, 'description') else None
+                columns = [desc[0] for desc in cur.description] if hasattr(cur, 'description') else None
                 if columns:
                     return dict(zip(columns, result))
                 else:
@@ -446,17 +482,21 @@ def get_user_subscription_history(user_id: int) -> List[Dict[str, Any]]:
     """
     try:
         with db_conn() as conn:
+            cur = conn.cursor()
+            
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             if is_postgres:
-                results = conn.execute("""
+                cur.execute("""
                     SELECT * FROM subscriptions WHERE user_id = %s ORDER BY created_at DESC
-                """, (user_id,)).fetchall()
+                """, (user_id,))
+                results = cur.fetchall()
             else:
-                results = conn.execute("""
+                cur.execute("""
                     SELECT * FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC
-                """, (user_id,)).fetchall()
+                """, (user_id,))
+                results = cur.fetchall()
             
             subscriptions = []
             for result in results:
@@ -492,17 +532,21 @@ def get_user_transaction_history(user_id: int, limit: int = 50) -> List[Dict[str
     """
     try:
         with db_conn() as conn:
+            cur = conn.cursor()
+            
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
             
             if is_postgres:
-                results = conn.execute("""
+                cur.execute("""
                     SELECT * FROM transactions WHERE user_id = %s ORDER BY timestamp DESC LIMIT %s
-                """, (user_id, limit)).fetchall()
+                """, (user_id, limit))
+                results = cur.fetchall()
             else:
-                results = conn.execute("""
+                cur.execute("""
                     SELECT * FROM transactions WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?
-                """, (user_id, limit)).fetchall()
+                """, (user_id, limit))
+                results = cur.fetchall()
             
             transactions = []
             for result in results:
