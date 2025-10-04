@@ -56,8 +56,9 @@ def can_spend(user_id: int, feature_key: str) -> bool:
                 return False
         
         # Получаем актуальный баланс из базы данных
-        from app.services.wallet import get_balance
-        current_balance = get_balance(user_id)
+        from app.services.billing import check_subscription
+        subscription_data = check_subscription(user_id)
+        current_balance = subscription_data.get("coins", 0)
         cost = feature_cost_coins(feature_key)
         
         # Логируем проверку
@@ -72,8 +73,9 @@ def hold_and_start(user_id: int, feature_type: str, quality: str = "basic") -> s
     """Заблокировать монеты и начать задачу"""
     try:
         # Получаем актуальный баланс из базы данных
-        from app.services.wallet import get_balance
-        current_balance = get_balance(user_id)
+        from app.services.billing import check_subscription
+        subscription_data = check_subscription(user_id)
+        current_balance = subscription_data.get("coins", 0)
         
         # Определяем стоимость в зависимости от типа функции
         if feature_type == "video":
@@ -211,8 +213,9 @@ def get_retry_cost(user_id: int, job_id: str) -> int:
 def check_low_coins(user_id: int) -> bool:
     """Проверить, низкий ли баланс монет"""
     try:
-        from app.services.wallet import get_balance
-        coins = get_balance(user_id)
+        from app.services.billing import check_subscription
+        subscription_data = check_subscription(user_id)
+        coins = subscription_data.get("coins", 0)
         is_low = coins < 20  # Считаем низким баланс меньше 20 монет
         log.info(f"[CheckLowCoins] user_id={user_id} coins={coins} is_low={is_low} source=db")
         return is_low
@@ -235,8 +238,9 @@ def can_use_tryon(user_id: int) -> bool:
 def get_user_coins(user_id: int) -> int:
     """Получить количество монет пользователя"""
     try:
-        from app.services.wallet import get_balance
-        coins = get_balance(user_id)
+        from app.services.billing import check_subscription
+        subscription_data = check_subscription(user_id)
+        coins = subscription_data.get("coins", 0)
         log.info(f"[GetUserCoins] user_id={user_id} coins={coins} source=db")
         return coins
     except Exception as e:
@@ -373,8 +377,9 @@ def can_use_feature(user_id: int, feature_key: str, custom_cost: int = None) -> 
             }
         
         # Проверяем баланс монет
-        from app.services.wallet import get_balance
-        current_balance = get_balance(user_id)
+        from app.services.billing import check_subscription
+        subscription_data = check_subscription(user_id)
+        current_balance = subscription_data.get("coins", 0)
         cost = custom_cost if custom_cost is not None else feature_cost_coins(feature_key)
         
         if current_balance < cost:

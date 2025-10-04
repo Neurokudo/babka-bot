@@ -1413,8 +1413,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Проверяем низкий баланс монет (только для существующих пользователей с балансом)
     try:
-        from app.services.wallet import get_balance
-        coins = get_balance(uid)
+        # Получаем актуальные данные из БД
+        subscription_data = check_subscription(uid)
+        coins = subscription_data.get("coins", 0)
         if coins > 0 and coins < 20:  # Только если есть монеты, но их мало
             await update.message.reply_text(
                 f"⚠️ У вас осталось мало монеток: {coins}\n\n"
@@ -2959,15 +2960,13 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_profile":
         # Получаем актуальные данные только из pricing.py и БД
         from app.services.pricing import format_feature_costs, get_available_tariffs
-        from app.services.wallet import get_balance
-        
-        coins = get_balance(uid)
-        admin_coins = st.get("admin_coins", 0)
         
         # Получаем данные о подписке из БД
         subscription_data = check_subscription(uid)
+        coins = subscription_data.get("coins", 0)  # Используем данные из БД
         plan_name = subscription_data.get("plan", "lite")
         plan_expiry = subscription_data.get("expires_at")
+        admin_coins = st.get("admin_coins", 0)
         
         # Получаем название тарифа из конфигурации
         tariffs = get_available_tariffs()
@@ -4906,7 +4905,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not st.get("orientation"): st["orientation"] = DEFAULT_ORIENTATION
 
         if not can_generate_video(st):
-            coins = get_balance(uid)
+            # Получаем актуальные данные из БД
+            subscription_data = check_subscription(uid)
+            coins = subscription_data.get("coins", 0)
             cost = feature_cost_coins("video_8s_audio")
             await q.message.reply_text(
                 f"❌ Не хватает монет для генерации видео.\n\n"
@@ -5042,7 +5043,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                       reply_markup=kb_jsonpro_start()); return
         orr = st["jsonpro"].get("orientation", DEFAULT_ORIENTATION)
         if not can_generate_json(st):
-            coins = get_balance(uid)
+            # Получаем актуальные данные из БД
+            subscription_data = check_subscription(uid)
+            coins = subscription_data.get("coins", 0)
             cost = feature_cost_coins("video_8s_audio")
             await q.message.reply_text(
                 f"❌ Не хватает монет для JSON-генерации.\n\n"
