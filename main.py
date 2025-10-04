@@ -3076,6 +3076,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             costs_text = format_feature_costs()
             log.info("CALLBACK show_tariffs uid=%s - GOT TEXTS", update.effective_user.id)
             
+            # Получаем текущий тариф пользователя
+            subscription_data = check_subscription(uid)
+            current_plan = subscription_data.get("plan", "lite")
+            
             # Создаем кнопки для покупки тарифов
             keyboard = []
             tariffs = get_available_tariffs()
@@ -3085,13 +3089,33 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 plan_price = tariff["price_rub"]
                 plan_coins = tariff["coins"]
                 
-                label = f"{plan_title} - Купить"
-                keyboard.append([InlineKeyboardButton(label, callback_data=f"plan_{plan_id}")])
+                # Определяем статус кнопки
+                if plan_id == current_plan:
+                    label = f"✅ {plan_title} (текущий)"
+                else:
+                    # Проверяем, можно ли купить этот тариф
+                    plan_levels = {"lite": 1, "standard": 2, "pro": 3}
+                    current_level = plan_levels.get(current_plan, 1)
+                    target_level = plan_levels.get(plan_id, 1)
+                    
+                    if current_level >= target_level:
+                        label = f"❌ {plan_title} (недоступно)"
+                    else:
+                        label = f"⬆️ {plan_title} - Повысить"
+                
+                keyboard.append([InlineKeyboardButton(label, callback_data=f"buy_plan_{plan_id}")])
             
             keyboard.append([InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")])
             keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
             
-            full_text = f"{plans_text}\n\n{costs_text}"
+            # Добавляем информацию о текущем тарифе
+            current_tariff_info = ""
+            for tariff in tariffs:
+                if tariff["name"] == current_plan:
+                    current_tariff_info = f"📋 <b>Ваш текущий тариф:</b> {tariff['title']} ({tariff['coins']} монеток)\n\n"
+                    break
+            
+            full_text = f"{current_tariff_info}{plans_text}\n\n{costs_text}"
             
             # Логируем текст ответа
             logging.debug(f"Editing message with text: {full_text[:120]}...")
@@ -3233,6 +3257,42 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.edit_text("❌ Неизвестный тариф")
             return
         log.info("CALLBACK buy_plan uid=%s - PLAN INFO: %s", uid, plan_info)
+        
+        # Проверяем текущий уровень подписки
+        subscription_data = check_subscription(uid)
+        current_plan = subscription_data.get("plan", "lite")
+        
+        # Определяем уровни тарифов (чем больше монет, тем выше уровень)
+        plan_levels = {"lite": 1, "standard": 2, "pro": 3}
+        current_level = plan_levels.get(current_plan, 1)
+        target_level = plan_levels.get(plan_name, 1)
+        
+        # Проверяем, можно ли купить этот тариф
+        if current_level > target_level:
+            await q.message.edit_text(
+                f"❌ Нельзя понизить уровень подписки\n\n"
+                f"Текущий тариф: {current_plan.title()}\n"
+                f"Выбранный тариф: {plan_info['title']}\n\n"
+                f"💡 Можно только повысить уровень подписки",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📋 Все тарифы", callback_data="show_tariffs")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ])
+            )
+            return
+        
+        if current_level == target_level:
+            await q.message.edit_text(
+                f"❌ У вас уже есть этот тариф\n\n"
+                f"Текущий тариф: {plan_info['title']}\n"
+                f"Монеток: {subscription_data.get('coins', 0)}\n\n"
+                f"💡 Выберите другой тариф для повышения уровня",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📋 Все тарифы", callback_data="show_tariffs")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ])
+            )
+            return
         
         try:
             # Используем новый YooKassa сервис
@@ -3852,12 +3912,26 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         access_check = can_use_feature(uid, "virtual_tryon")
         if not access_check["can_use"]:
             log.warning("CALLBACK tryon_confirm uid=%s - ACCESS DENIED: %s", uid, access_check["reason"])
-            await q.message.reply_text(
-                access_check["message"],
-                reply_markup=InlineKeyboardMarkup([
+            
+            # Определяем кнопки в зависимости от причины отказа
+            if access_check["reason"] == "no_subscription":
+                buttons = [
                     [InlineKeyboardButton("💳 Купить подписку", callback_data="show_tariffs")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
-                ])
+                ]
+            elif access_check["reason"] == "insufficient_coins":
+                buttons = [
+                    [InlineKeyboardButton("💰 Докупить монетки", callback_data="show_topup")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            else:
+                buttons = [
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ]
+            
+            await q.message.reply_text(
+                access_check["message"],
+                reply_markup=InlineKeyboardMarkup(buttons)
             )
             return
 
