@@ -56,7 +56,14 @@ def create_combined_webhook_app():
             
             # Обрабатываем update через диспетчер
             import asyncio
-            asyncio.create_task(telegram_app.process_update(update))
+            
+            # Создаем новый event loop для обработки update
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(telegram_app.process_update(update))
+            finally:
+                loop.close()
             
             log.info("Telegram update processed successfully")
             return jsonify({"ok": True}), 200
