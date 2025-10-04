@@ -39,27 +39,13 @@ def get_user_state(user_id: int) -> Dict[str, Any]:
 def can_spend(user_id: int, feature_key: str) -> bool:
     """Проверить, может ли пользователь потратить монеты на функцию"""
     try:
-        # Сначала проверяем активную подписку
-        subscription_data = check_subscription(user_id)
-        
-        # Проверяем, активна ли подписка
-        if not subscription_data.get("is_active", False):
-            log.warning(f"[CanSpend] user_id={user_id} subscription inactive")
-            return False
-        
-        # Проверяем, не истекла ли подписка
-        expires_at = subscription_data.get("expires_at")
-        if expires_at:
-            from datetime import datetime
-            if datetime.now() > expires_at:
-                log.warning(f"[CanSpend] user_id={user_id} subscription expired")
-                return False
-        
-        # Получаем актуальный баланс из базы данных
-        from app.services.billing import check_subscription
+        # Получаем данные о подписке и балансе
         subscription_data = check_subscription(user_id)
         current_balance = subscription_data.get("coins", 0)
         cost = feature_cost_coins(feature_key)
+        
+        # Проверяем только баланс монеток - монетки сохраняются даже при истечении подписки
+        # Пользователь может тратить монетки, пока они есть на счету
         
         # Логируем проверку
         log.info(f"[CanSpend] user_id={user_id} balance={current_balance} cost={cost} feature={feature_key} active={subscription_data.get('is_active')} source=db")
@@ -350,31 +336,8 @@ def can_use_feature(user_id: int, feature_key: str, custom_cost: int = None) -> 
         # Логируем для отладки
         print(f"[BILLING] can_use_feature user_id={user_id} is_active={is_active} expires_at={expires_at} subscription_data={subscription_data}")
         
-        # Проверяем срок действия
-        if expires_at:
-            from datetime import datetime
-            # Преобразуем expires_at в datetime если это строка
-            if isinstance(expires_at, str):
-                try:
-                    expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                except:
-                    expires_at = None
-            
-            if expires_at and datetime.now() > expires_at:
-                return {
-                    "can_use": False,
-                    "reason": "subscription_expired",
-                    "message": "❌ Подписка истекла. Продлите подписку для продолжения работы.",
-                    "subscription_data": subscription_data
-                }
-        
-        if not is_active:
-            return {
-                "can_use": False,
-                "reason": "no_subscription",
-                "message": "❌ У вас нет активной подписки. Оформите подписку для использования функций.",
-                "subscription_data": subscription_data
-            }
+        # Монетки доступны даже при истечении подписки
+        # Проверяем только баланс монеток
         
         # Проверяем баланс монет
         from app.services.billing import check_subscription
@@ -544,18 +507,18 @@ def check_and_reset_expired_plans():
                     WHERE user_id IN ({placeholders});
                 """, [now] + expired_users)
 
-            # Обнуляем баланс монет и переводим на free план
+            # Переводим на free план, но СОХРАНЯЕМ монетки
             if is_postgres:
                 cur.execute("""
                     UPDATE users
-                    SET coins = 0, plan = 'free', updated_at = %s
+                    SET plan = 'free', updated_at = %s
                     WHERE user_id = ANY(%s);
                 """, (now, expired_users))
             else:
                 placeholders = ','.join(['?' for _ in expired_users])
                 cur.execute(f"""
                     UPDATE users
-                    SET coins = 0, plan = 'free', updated_at = ?
+                    SET plan = 'free', updated_at = ?
                     WHERE user_id IN ({placeholders});
                 """, [now] + expired_users)
 
@@ -564,17 +527,17 @@ def check_and_reset_expired_plans():
                 if is_postgres:
                     cur.execute("""
                         INSERT INTO transactions (user_id, feature, coins_spent, note, timestamp)
-                        VALUES (%s, 'reset', 0, 'Subscription expired, plan reset to free', %s);
+                        VALUES (%s, 'subscription_expired', 0, 'Subscription expired, plan reset to free (coins preserved)', %s);
                     """, (user_id, now))
                 else:
                     cur.execute("""
                         INSERT INTO transactions (user_id, feature, coins_spent, note, timestamp)
-                        VALUES (?, 'reset', 0, 'Subscription expired, plan reset to free', ?);
+                        VALUES (?, 'subscription_expired', 0, 'Subscription expired, plan reset to free (coins preserved)', ?);
                     """, (user_id, now))
 
             conn.commit()
 
-        print(f"⚠️ {len(expired_users)} подписок истекло и сброшено: {expired_users}")
+        print(f"⚠️ {len(expired_users)} подписок истекло, план сброшен на free (монетки сохранены): {expired_users}")
         return expired_users
         
     except Exception as e:
