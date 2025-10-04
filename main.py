@@ -4565,7 +4565,15 @@ def main():
         if TELEGRAM_MODE == "polling":
             log.info("Starting bot in polling mode")
             # Polling режим - запускаем polling
-            app.run_polling(allowed_updates=["message", "callback_query"])
+            try:
+                app.run_polling(allowed_updates=["message", "callback_query"])
+            except Exception as e:
+                if "Conflict" in str(e):
+                    log.error("Bot conflict detected - another instance is running. Switching to webhook mode...")
+                    log.info("Please set TELEGRAM_MODE=webhook and configure webhook in Telegram")
+                else:
+                    log.error(f"Polling failed: {e}")
+                raise
         else:
             log.info("Bot is running in webhook mode…")
             # Webhook режим - запускаем webhook сервер
