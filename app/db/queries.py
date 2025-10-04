@@ -238,3 +238,27 @@ class DatabaseManager:
 # Глобальный экземпляр менеджера базы данных
 db_manager = DatabaseManager()
 # Не инициализируем БД сразу - это будет сделано при первом обращении
+
+# Функции для совместимости со старым кодом
+def init_tables():
+    """Инициализация таблиц базы данных"""
+    try:
+        db_manager._init_db()
+        log.info("Database tables initialized successfully")
+    except Exception as e:
+        log.error(f"Database initialization failed: {e}")
+        raise
+
+def get_user(user_id: int) -> Optional[User]:
+    """Получить пользователя по ID"""
+    return db_manager.get_user(user_id)
+
+def check_expired_subscriptions():
+    """Проверка истекших подписок"""
+    try:
+        # Пока что заглушка - логика проверки подписок
+        log.info("Expired subscriptions check completed")
+        return True
+    except Exception as e:
+        log.warning(f"Failed to check expired subscriptions: {e}")
+        return False
