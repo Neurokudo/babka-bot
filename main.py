@@ -17,7 +17,7 @@ import inspect
 
 # Расширенное логирование для отладки
 logging.basicConfig(
-    level=logging.DEBUG,  # или INFO, если слишком много шума
+    level=logging.INFO,  # INFO для production, DEBUG для локальной разработки
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 import time
@@ -1207,7 +1207,7 @@ def addons_keyboard(order=None) -> InlineKeyboardMarkup:
     rows = []
     for coins, price in packs.items():
         rows.append([InlineKeyboardButton(f"{coins} монет — {price:,} ₽", callback_data=f"buy_topup_{coins}")])
-    rows.append([InlineKeyboardButton("← Назад к тарифам", callback_data="show_plans")])
+    rows.append([InlineKeyboardButton("← Назад к тарифам", callback_data="show_tariffs")])
     return InlineKeyboardMarkup(rows)
 
 # -----------------------------------------------------------------------------
@@ -1276,7 +1276,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💡 Рекомендуем пополнить баланс для продолжения работы",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
-                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
                 [InlineKeyboardButton("⬅️ Пропустить", callback_data="skip_low_coins")],
             ])
         )
@@ -1379,7 +1379,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_text,
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+            [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
             [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
             [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
         ])
@@ -1460,7 +1460,7 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
-                [InlineKeyboardButton("📋 Все тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("📋 Все тарифы", callback_data="show_tariffs")],
                 [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
             ])
         )
@@ -1487,7 +1487,7 @@ async def cmd_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Выберите способ пополнения:",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+            [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
             [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
             [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
         ])
@@ -1525,7 +1525,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("💰 Полный профиль", callback_data="show_profile")],
-                    [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                    [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
                     [InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")],
         ])
     )
@@ -1571,7 +1571,7 @@ async def cmd_refresh_tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"✅ Кэш очищен, модули перезагружены",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📋 Показать тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("📋 Показать тарифы", callback_data="show_tariffs")],
                 [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile")],
                 [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
             ])
@@ -2934,7 +2934,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📞 Обратитесь к администратору для настройки платежей.",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
-                        [InlineKeyboardButton("← Назад к тарифам", callback_data="show_plans")],
+                        [InlineKeyboardButton("← Назад к тарифам", callback_data="show_tariffs")],
                     ])
                 )
             else:
@@ -2949,7 +2949,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
                         [InlineKeyboardButton("📋 Оферта", callback_data="show_terms")],
-                        [InlineKeyboardButton("← Назад к тарифам", callback_data="show_plans")],
+                        [InlineKeyboardButton("← Назад к тарифам", callback_data="show_tariffs")],
                     ])
                 )
         except Exception as e:
@@ -2963,7 +2963,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📞 Обратитесь в поддержку для решения вопроса.",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
-                        [InlineKeyboardButton("← Назад", callback_data="show_plans")],
+                        [InlineKeyboardButton("← Назад", callback_data="show_tariffs")],
                     ])
                 )
             else:
@@ -2972,7 +2972,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"Попробуйте позже или обратитесь в поддержку.",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
-                        [InlineKeyboardButton("← Назад", callback_data="show_plans")],
+                        [InlineKeyboardButton("← Назад", callback_data="show_tariffs")],
                     ])
                 )
         return
@@ -2995,7 +2995,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")],
-                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
                 [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
             ])
         )
@@ -3012,7 +3012,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text,
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
                 [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
                 [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
             ])
@@ -3097,7 +3097,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 callback_data=f"buy_topup_{pack['coins']}"
             )])
         
-        keyboard.append([InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")])
+        keyboard.append([InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")])
         keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
         
         await q.message.edit_text(
@@ -3143,7 +3143,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
                         [InlineKeyboardButton("📋 Оферта", callback_data="show_terms")],
-                        [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                        [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
                         [InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")],
                     ])
                 )
@@ -3161,7 +3161,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"📞 Обратитесь к администратору для настройки платежей.",
                         reply_markup=InlineKeyboardMarkup([
                             [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
-                            [InlineKeyboardButton("← Назад к тарифам", callback_data="show_plans")],
+                            [InlineKeyboardButton("← Назад к тарифам", callback_data="show_tariffs")],
                         ])
                     )
                 else:
@@ -3170,7 +3170,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"Попробуйте позже или обратитесь в поддержку.",
                         reply_markup=InlineKeyboardMarkup([
                             [InlineKeyboardButton("📞 Поддержка", callback_data="support")],
-                            [InlineKeyboardButton("📋 Тарифы", callback_data="show_plans")],
+                            [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
                             [InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")],
                         ])
                     )
@@ -3214,7 +3214,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("💳 Оплатить", url=payment_url)],
                     [InlineKeyboardButton("📋 Оферта", callback_data="show_terms")],
-                    [InlineKeyboardButton("📋 Все тарифы", callback_data="show_plans")],
+                    [InlineKeyboardButton("📋 Все тарифы", callback_data="show_tariffs")],
                     [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
                 ])
             )
@@ -3235,7 +3235,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📞 Обратитесь к администратору для настройки платежей.",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("📞 Связаться с поддержкой", callback_data="contact_support")],
-                        [InlineKeyboardButton("← Назад к тарифам", callback_data="show_plans")],
+                        [InlineKeyboardButton("← Назад к тарифам", callback_data="show_tariffs")],
                     ])
                 )
             else:
@@ -3260,7 +3260,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(
             terms_text,
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️ Назад к тарифам", callback_data="show_plans")],
+                [InlineKeyboardButton("⬅️ Назад к тарифам", callback_data="show_tariffs")],
             ])
         )
         return
@@ -3280,7 +3280,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📧 Написать на Email", url="mailto:antonkudo.ai@gmail.com")],
                 [InlineKeyboardButton("💬 Написать в Telegram", url="https://t.me/antonkudo")],
-                [InlineKeyboardButton("⬅️ Назад", callback_data="show_plans")],
+                [InlineKeyboardButton("⬅️ Назад", callback_data="show_tariffs")],
             ])
         )
         return
@@ -3791,7 +3791,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
@@ -4222,7 +4222,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
@@ -4237,7 +4237,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
@@ -4358,7 +4358,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
@@ -4373,7 +4373,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "💳 Пополнить баланс?",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Дополнительные пакеты", callback_data="show_addons")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_plans")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
