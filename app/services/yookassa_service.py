@@ -275,23 +275,51 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
             coins = int(metadata.get("coins", 0))
             price_rub = int(metadata.get("price", 0))
             
-            # Получаем информацию о тарифе
-            from app.services.pricing import get_tariff_by_name
-            plan_info = get_tariff_by_name(plan)
+            # Создаем подписку
+            success = db.create_subscription(
+                user_id=user_id,
+                plan=plan,
+                coins=coins,
+                price_rub=price_rub,
+                duration_days=30,
+                payment_id=payment_id
+            )
             
-            if plan_info:
-                db.create_subscription(
-                    user_id=user_id,
-                    plan=plan,
-                    coins=coins,
-                    price_rub=price_rub,
-                    duration_days=30,
-                    payment_id=payment_id
-                )
+            if success:
                 log.info(f"Subscription created for user {user_id}: {plan} plan, {coins} coins")
+                
+                # Отправляем уведомление пользователю
+                try:
+                    from main import bot
+                    from app.services.pricing import get_available_tariffs
+                    
+                    # Находим информацию о тарифе
+                    tariffs = get_available_tariffs()
+                    plan_info = next((t for t in tariffs if t["name"] == plan), {})
+                    plan_title = plan_info.get("title", plan.title())
+                    
+                    success_message = (
+                        f"🎉 <b>Поздравляем! Ваша подписка активирована!</b>\n\n"
+                        f"📋 Тариф: {plan_title}\n"
+                        f"💰 Получено: {coins} монеток\n"
+                        f"⏰ Действует: 30 дней\n\n"
+                        f"🚀 Теперь вы можете пользоваться всеми функциями бота!\n\n"
+                        f"💡 Подписка будет продлена автоматически, пока вы её не отмените."
+                    )
+                    
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text=success_message,
+                        parse_mode="HTML"
+                    )
+                    log.info(f"Success notification sent to user {user_id}")
+                    
+                except Exception as e:
+                    log.error(f"Failed to send success notification to user {user_id}: {e}")
+                
                 return True
             else:
-                log.error(f"Plan info not found for {plan}")
+                log.error(f"Failed to create subscription for user {user_id}")
                 return False
         
         elif metadata.get("type") == "topup":

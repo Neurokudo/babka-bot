@@ -56,11 +56,19 @@ def init_tables():
             
             # Добавляем колонку auto_renew если её нет (миграция)
             try:
-                cur.execute("ALTER TABLE users ADD COLUMN auto_renew BOOLEAN DEFAULT TRUE")
-                log.info("Added auto_renew column to users table")
+                # Проверяем, существует ли колонка
+                cur.execute("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name = 'users' AND column_name = 'auto_renew'
+                """)
+                if not cur.fetchone():
+                    cur.execute("ALTER TABLE users ADD COLUMN auto_renew BOOLEAN DEFAULT TRUE")
+                    log.info("Added auto_renew column to users table")
+                else:
+                    log.debug("auto_renew column already exists")
             except Exception as e:
                 # Колонка уже существует или другая ошибка
-                log.debug(f"auto_renew column already exists or error: {e}")
+                log.debug(f"auto_renew column check failed: {e}")
             
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -105,11 +113,17 @@ def init_tables():
             
             # Добавляем колонку auto_renew если её нет (миграция)
             try:
-                cur.execute("ALTER TABLE users ADD COLUMN auto_renew BOOLEAN DEFAULT 1")
-                log.info("Added auto_renew column to users table")
+                # Проверяем, существует ли колонка в SQLite
+                cur.execute("PRAGMA table_info(users)")
+                columns = [row[1] for row in cur.fetchall()]
+                if 'auto_renew' not in columns:
+                    cur.execute("ALTER TABLE users ADD COLUMN auto_renew BOOLEAN DEFAULT 1")
+                    log.info("Added auto_renew column to users table")
+                else:
+                    log.debug("auto_renew column already exists")
             except Exception as e:
                 # Колонка уже существует или другая ошибка
-                log.debug(f"auto_renew column already exists or error: {e}")
+                log.debug(f"auto_renew column check failed: {e}")
             
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS subscriptions (
