@@ -344,7 +344,14 @@ def can_use_feature(user_id: int, feature_key: str) -> Dict[str, Any]:
         # Проверяем срок действия
         if expires_at:
             from datetime import datetime
-            if datetime.now() > expires_at:
+            # Преобразуем expires_at в datetime если это строка
+            if isinstance(expires_at, str):
+                try:
+                    expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                except:
+                    expires_at = None
+            
+            if expires_at and datetime.now() > expires_at:
                 return {
                     "can_use": False,
                     "reason": "subscription_expired",

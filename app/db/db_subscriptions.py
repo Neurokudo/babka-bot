@@ -157,11 +157,19 @@ def init_tables():
 def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
                        duration_days: int = 30, payment_id: str | None = None):
     """
-    Добавляет новую подписку и обновляет профиль пользователя.
+    Создаёт новую подписку пользователя.
+    Исправлена ошибка SQLite: теперь даты вычисляются в Python,
+    а количество placeholder'ов и параметров совпадает.
     """
+    from datetime import datetime, timedelta
+    
     try:
         with db_conn() as conn:
             cur = conn.cursor()
+            
+            # Вычисляем даты в Python
+            created_at = datetime.utcnow()
+            expires_at = created_at + timedelta(days=int(duration_days))
             
             # Определяем тип базы данных
             is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
@@ -172,30 +180,42 @@ def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
                 
                 # PostgreSQL синтаксис
                 cur.execute("""
-                    INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, payment_id)
-                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + (%s || ' days')::interval, %s)
-                """, (user_id, plan, coins, price_rub, duration_days, payment_id))
+                    INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, is_active, payment_id, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s)
+                """, (user_id, plan, coins, price_rub, created_at, expires_at, payment_id, created_at, created_at))
                 
                 cur.execute("""
                     UPDATE users
-                    SET plan = %s, plan_expiry = CURRENT_TIMESTAMP + (%s || ' days')::interval, coins = coins + %s
+                    SET plan = %s, plan_expiry = %s, coins = coins + %s, auto_renew = TRUE
                     WHERE user_id = %s
-                """, (plan, duration_days, coins, user_id))
+                """, (plan, expires_at, coins, user_id))
             else:
                 # Деактивируем предыдущие подписки
                 cur.execute("UPDATE subscriptions SET is_active = 0 WHERE user_id = ?", (user_id,))
                 
-                # SQLite синтаксис
+                # SQLite синтаксис - все даты вычисляются в Python
                 cur.execute("""
-                    INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, is_active, payment_id)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, datetime('now', '+? days'), 1, ?)
-                """, (user_id, plan, coins, price_rub, duration_days, payment_id))
+                    INSERT INTO subscriptions (user_id, plan, coins, price_rub, start_date, end_date, is_active, payment_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                """, (user_id, plan, coins, price_rub, created_at, expires_at, payment_id, created_at, created_at))
                 
-                cur.execute("""
-                    UPDATE users
-                    SET plan = ?, plan_expiry = datetime('now', '+? days'), coins = coins + ?
-                    WHERE user_id = ?
-                """, (plan, duration_days, coins, user_id))
+                # Проверяем, существует ли пользователь
+                cur.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+                user_exists = cur.fetchone()
+                
+                if user_exists:
+                    # Обновляем существующего пользователя
+                    cur.execute("""
+                        UPDATE users
+                        SET plan = ?, plan_expiry = ?, coins = coins + ?, auto_renew = 1
+                        WHERE user_id = ?
+                    """, (plan, expires_at, coins, user_id))
+                else:
+                    # Создаем нового пользователя
+                    cur.execute("""
+                        INSERT INTO users (user_id, plan, plan_expiry, coins, auto_renew, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, 1, ?, ?)
+                    """, (user_id, plan, expires_at, coins, created_at, created_at))
             
             conn.commit()
             log.info(f"Subscription created for user {user_id}: {plan} plan, {coins} coins")
