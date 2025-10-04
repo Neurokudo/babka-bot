@@ -257,10 +257,14 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
         bool: True если платеж обработан успешно
     """
     try:
+        log.info(f"PAYMENT DEBUG: processing payment data: {payment_data}")
+        
         user_id = payment_data.get("user_id", 0)
         amount = payment_data.get("amount", 0)
         metadata = payment_data.get("metadata", {})
         payment_id = payment_data.get("payment_id", "")
+        
+        log.info(f"PAYMENT DEBUG: user_id={user_id}, amount={amount}, metadata={metadata}, payment_id={payment_id}")
         
         if not user_id:
             log.error("No user_id in payment data")
@@ -315,6 +319,10 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
                         
                         # Получаем токен бота из переменных окружения
                         bot_token = os.getenv("BOT_TOKEN")
+                        log.info(f"NOTIFICATION DEBUG: bot_token exists: {bool(bot_token)}")
+                        log.info(f"NOTIFICATION DEBUG: user_id: {user_id}")
+                        log.info(f"NOTIFICATION DEBUG: message length: {len(success_message)}")
+                        
                         if not bot_token:
                             log.error("BOT_TOKEN not found in environment variables")
                         else:
@@ -326,13 +334,20 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
                                 "parse_mode": "HTML"
                             }
                             
+                            log.info(f"NOTIFICATION DEBUG: sending to URL: {url}")
+                            log.info(f"NOTIFICATION DEBUG: data: {data}")
+                            
                             response = requests.post(url, json=data, timeout=10)
+                            log.info(f"NOTIFICATION DEBUG: response status: {response.status_code}")
+                            log.info(f"NOTIFICATION DEBUG: response text: {response.text}")
+                            
                             if response.status_code == 200:
                                 log.info(f"Success notification sent to user {user_id}")
                             else:
                                 log.error(f"Failed to send notification: {response.status_code} - {response.text}")
                     except Exception as e:
                         log.error(f"Failed to send success notification to user {user_id}: {e}")
+                        log.exception("Full exception details:")
                     
                 except Exception as e:
                     log.error(f"Failed to send success notification to user {user_id}: {e}")
