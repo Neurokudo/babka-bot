@@ -34,50 +34,93 @@ def init_tables():
     with db_conn() as conn:
         cur = conn.cursor()
         
-        # Создаем таблицу пользователей
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id BIGINT PRIMARY KEY,
-                username TEXT,
-                first_name TEXT,
-                last_name TEXT,
-                plan TEXT DEFAULT 'lite',
-                plan_expiry TIMESTAMP,
-                coins INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        # Определяем тип базы данных
+        database_url = os.getenv("DATABASE_URL", "")
+        is_postgres = database_url.startswith("postgresql://")
         
-        # Создаем таблицу подписок
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS subscriptions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id BIGINT NOT NULL,
-                plan TEXT NOT NULL,
-                coins INTEGER DEFAULT 0,
-                price_rub INTEGER NOT NULL,
-                start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                end_date TIMESTAMP NOT NULL,
-                is_active BOOLEAN DEFAULT 1,
-                payment_id TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Создаем таблицу транзакций
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id BIGINT,
-                feature TEXT,
-                coins_spent INTEGER,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                note TEXT
-            )
-        """)
+        if is_postgres:
+            # PostgreSQL синтаксис для Railway
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    username TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    plan TEXT DEFAULT 'lite',
+                    plan_expiry TIMESTAMP,
+                    coins INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    plan TEXT NOT NULL,
+                    coins INTEGER DEFAULT 0,
+                    price_rub INTEGER NOT NULL,
+                    start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    end_date TIMESTAMP NOT NULL,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    payment_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    feature TEXT,
+                    coins_spent INTEGER,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    note TEXT
+                )
+            """)
+        else:
+            # SQLite синтаксис для локальной разработки
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    username TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    plan TEXT DEFAULT 'lite',
+                    plan_expiry TIMESTAMP,
+                    coins INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id BIGINT NOT NULL,
+                    plan TEXT NOT NULL,
+                    coins INTEGER DEFAULT 0,
+                    price_rub INTEGER NOT NULL,
+                    start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    end_date TIMESTAMP NOT NULL,
+                    is_active BOOLEAN DEFAULT 1,
+                    payment_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id BIGINT,
+                    feature TEXT,
+                    coins_spent INTEGER,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    note TEXT
+                )
+            """)
         
         conn.commit()
-        log.info("Database tables initialized")
+        log.info("Database tables initialized successfully")
 
 def create_subscription(user_id: int, plan: str, coins: int, price_rub: int,
                        duration_days: int = 30, payment_id: str | None = None):

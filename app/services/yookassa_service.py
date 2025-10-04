@@ -15,14 +15,18 @@ def init_yookassa():
     SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
     SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
     
+    # Отладочная информация о переменных окружения
+    print("DEBUG YOOKASSA ENV:", SHOP_ID, SECRET_KEY[:6] + "..." if SECRET_KEY else None)
+    print("Available env keys:", [k for k in os.environ.keys() if 'YOOKASSA' in k or 'SHOP' in k])
+    
     if not SHOP_ID or not SECRET_KEY:
-        raise RuntimeError("YooKassa credentials not found in environment variables")
+        log.warning("YooKassa credentials not found in environment variables")
+        log.warning(f"SHOP_ID: {SHOP_ID}, SECRET_KEY: {'present' if SECRET_KEY else 'missing'}")
+        return False
     
     Configuration.account_id = SHOP_ID
     Configuration.secret_key = SECRET_KEY
     
-    # Отладочная информация
-    print("DEBUG YOOKASSA:", SHOP_ID, SECRET_KEY[:10] + "..." if SECRET_KEY else "None")
     log.info(f"YooKassa initialized with shop_id: {SHOP_ID}")
     return True
 
@@ -298,7 +302,9 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
 
 # Инициализируем YooKassa при импорте модуля
 try:
-    init_yookassa()
-    log.info("YooKassa service initialized successfully")
+    if init_yookassa():
+        log.info("YooKassa service initialized successfully")
+    else:
+        log.warning("YooKassa service initialization skipped - credentials not found")
 except Exception as e:
     log.warning(f"YooKassa initialization failed: {e}")

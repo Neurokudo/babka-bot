@@ -4381,8 +4381,10 @@ def main():
         # Инициализация YooKassa
         try:
             from app.services.yookassa_service import init_yookassa
-            init_yookassa()
-            log.info("YooKassa initialized successfully")
+            if init_yookassa():
+                log.info("YooKassa initialized successfully")
+            else:
+                log.warning("YooKassa initialization skipped - credentials not found")
         except Exception as e:
             log.error(f"YooKassa initialization failed: {e}")
             # Продолжаем работу без платежей
