@@ -339,8 +339,8 @@ def check_subscription(user_id: int):
         tariffs = get_available_tariffs()
         plan_name = plan_data.get("plan", "lite")
         
-        # Получаем информацию о тарифе из конфигурации
-        tariff_info = tariffs.get(plan_name, {})
+        # Получаем информацию о тарифе из конфигурации (tariffs - это список)
+        tariff_info = next((t for t in tariffs if t["name"] == plan_name), {})
         coins_from_tariff = tariff_info.get("coins", 0) if tariff_info else 0
         
         # Используем монеты из базы данных, если они есть, иначе из тарифа

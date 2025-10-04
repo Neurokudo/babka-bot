@@ -21,8 +21,8 @@ T = {
         "btn.tryon": "👗 Примерочная",
         "btn.transforms": "📸 Изменить фото",
         "btn.jsonpro": "⚡ JSON Pro",
-        "btn.guides": "📚 Гайды",
-        "btn.profile": "👤 Профиль",
+        "btn.guides": "📚 Гайды / Оплата",
+        "btn.profile": "👤 Профиль / Баланс",
         "btn.history": "📜 История",
         "btn.back": "⬅️ Назад",
         "btn.home": "🏠 Главное меню",
@@ -114,7 +114,7 @@ T = {
         "profile.tariff": "📊 Тариф: {tariff_name}",
         "profile.video_count": "🎬 Видео: {count}",
         "profile.photo_count": "📸 Фотографий: {count}",
-        "profile.cost_examples": "💡 Пример: видео = 10 монеток, преобразование = 1 монетка",
+        "profile.cost_examples": "💡 Стоимость генераций обновляется автоматически",
         
         # Тарифы
         "tariffs.title": "💰 Тарифы",

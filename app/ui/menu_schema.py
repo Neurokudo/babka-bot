@@ -7,15 +7,8 @@ MENU = {
     "root": {
         "text_key": "menu.title",
         "buttons": [
-            {"text_key": "btn.generate", "to": "modes", "cb": (Actions.MENU_MAKE,)},
-            {"text_key": "btn.lego", "to": "lego_menu", "cb": (Actions.MENU_LEGO,)},
-            {"text_key": "btn.alive", "to": "root", "cb": (Actions.MENU_ALIVE,)},
-            {"text_key": "btn.tryon", "to": "tryon_start", "cb": (Actions.MENU_TRYON,)},
-            {"text_key": "btn.transforms", "to": "transforms", "cb": (Actions.MENU_TRANSFORMS,)},
-            {"text_key": "btn.jsonpro", "to": "jsonpro_start", "cb": (Actions.MENU_JSONPRO,)},
             {"text_key": "btn.guides", "to": "root", "cb": (Actions.MENU_GUIDES,)},
             {"text_key": "btn.profile", "to": "profile", "cb": (Actions.MENU_PROFILE,)},
-            {"text_key": "btn.history", "to": "root", "cb": (Actions.MENU_HISTORY,)},
         ],
     },
     

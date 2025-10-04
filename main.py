@@ -931,16 +931,18 @@ def reply_main_kb():
     )
 
 def kb_home_inline():
-    # Инлайн-меню БЕЗ SOS (по просьбе)
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎬 Создание видео", callback_data="menu_make")],
-        [InlineKeyboardButton("🧱LEGO мультики", callback_data="menu_lego")],
-        [InlineKeyboardButton("📸 Изменить фото", callback_data="menu_transforms")],
-        [InlineKeyboardButton("👗 Виртуальная примерочная", callback_data="menu_tryon")],
-        [InlineKeyboardButton("🧾 JSON (для продвинутых)", callback_data="menu_jsonpro")],
-        [InlineKeyboardButton("📚 Гайды", callback_data="menu_guides")],
-        [InlineKeyboardButton("👤 Профиль / Оплата 💰", callback_data="menu_profile")],
-    ])
+    # Новое главное меню - только нужные пункты
+    try:
+        from app.ui.keyboards import build_keyboard_with_description
+        text, kb = build_keyboard_with_description("root")
+        return kb
+    except Exception as e:
+        log.error(f"Failed to build new keyboard: {e}")
+        # Fallback на упрощенное меню
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("📚 Гайды / Оплата", callback_data="menu_guides")],
+            [InlineKeyboardButton("👤 Профиль / Баланс", callback_data="menu_profile")],
+        ])
 
 def kb_modes():
     return InlineKeyboardMarkup([
@@ -2464,6 +2466,28 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = q.from_user.id; _ensure(uid); st = users[uid]; data = q.data
     log.info("Button: %s", data)
 
+    # РУБИЛЬНИК: блокируем старые callback'и тарифов
+    LEGACY_TARIFF_CB = {"show_plans","buy_lite","buy_standard","buy_pro","menu_coins","fast_topup"}
+    if data in LEGACY_TARIFF_CB:
+        await q.answer("Этот раздел обновлён. Открываю профиль.", show_alert=False)
+        # переадресуем в новый профиль:
+        try:
+            from app.ui.keyboards import build_keyboard_with_description
+            text, kb = build_keyboard_with_description("profile")
+            await q.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        except Exception as e:
+            log.error(f"Failed to redirect to new profile: {e}")
+            # Fallback на старый профиль
+            await q.message.edit_text(
+                "👤 <b>Профиль / Баланс 💰</b>\n\n"
+                "Раздел обновлён. Используйте новые кнопки меню.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")],
+                ])
+            )
+        return
+
     # Главные пункты
     if data == "menu_make":
         await q.message.edit_text("Выберите режим генерации:", reply_markup=kb_modes()); return
@@ -2497,15 +2521,15 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_text(
             f"📸 Изменить фото\n\n"
             f"💰 У тебя: {coins} монеток\n\n"
-            f"✨ Удалить фон (−1 монетка)\n"
+            f"✨ Удалить фон\n"
             f"Вырежу фон. Могу поставить белый/градиент/ваш фон.\n\n"
-            f"👥 Совместить людей (−1 монетка)\n"
+            f"👥 Совместить людей\n"
             f"Соберу всех в один кадр, как будто снимались вместе.\n\n"
-            f"🧩 Внедрить объект на фото (−1 монетка)\n"
+            f"🧩 Внедрить объект на фото\n"
             f"Добавлю предмет и впишу по свету/перспективе.\n\n"
-            f"🪄 Магическая ретушь (−1 монетка)\n"
+            f"🪄 Магическая ретушь\n"
             f"Уберу лишнее или добавлю деталь. Можно указать область.\n\n"
-            f"📷 Polaroid (−1 монетка)\n"
+            f"📷 Polaroid\n"
             f"Рамка, плёночное зерно, подпись.",
             reply_markup=kb_transforms()
         )
@@ -2619,14 +2643,22 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     if data == "menu_profile":
+        # Получаем актуальные данные только из pricing.py и БД
+        from app.services.pricing import format_feature_costs, get_available_tariffs
+        from app.services.wallet import get_balance
+        
         coins = get_balance(uid)
         admin_coins = st.get("admin_coins", 0)
-        plan = st.get("plan", "lite")
+        
+        # Получаем данные о подписке из БД
+        subscription_data = check_subscription(uid)
+        plan_name = subscription_data.get("plan", "lite")
+        plan_expiry = subscription_data.get("expires_at")
+        
+        # Получаем название тарифа из конфигурации
         tariffs = get_available_tariffs()
-        plan_info = tariffs.get(plan)
-        # Используем динамическое название из конфигурации
-        plan_name = plan_info.name if plan_info else "Лайт"
-        plan_expiry = st.get("plan_expiry")
+        tariff_info = next((t for t in tariffs if t["name"] == plan_name), {})
+        tariff_title = tariff_info.get("title", "Лайт")
 
         profile_text = "👤 <b>Профиль / Баланс 💰</b>\n\n"
 
@@ -2634,8 +2666,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             profile_text += f"⭐️ БАЛАНС АДМИНА: {admin_coins} монеток\n\n"
 
         profile_text += f"💎 Монеток: {coins}\n"
-        profile_text += f"📊 Тариф: {plan_name}\n"
-        if plan != "lite" and plan_expiry:
+        profile_text += f"📊 Тариф: {tariff_title}\n"
+        
+        if plan_expiry:
             try:
                 from datetime import datetime
                 expiry_date = datetime.fromisoformat(str(plan_expiry).replace('Z', '+00:00'))
@@ -2644,7 +2677,6 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
         # Используем актуальные данные из конфигурации
-        from app.services.pricing import format_feature_costs
         profile_text += ("\n💡 <b>Стоимость генераций:</b>\n" + 
                          format_feature_costs().replace("🎬", "•").replace("🔇", "•").replace("📸", "•").replace("👗", "•"))
 
