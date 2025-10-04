@@ -38,29 +38,49 @@ def get_user_state(user_id: int) -> Dict[str, Any]:
 
 def can_spend(user_id: int, feature_key: str) -> bool:
     """Проверить, может ли пользователь потратить монеты на функцию"""
-    st = get_user_state(user_id)
-    cost = feature_cost_coins(feature_key)
-    return st.get("coins", 0) >= cost
+    try:
+        # Получаем актуальный баланс из базы данных
+        from app.services.wallet import get_balance
+        current_balance = get_balance(user_id)
+        cost = feature_cost_coins(feature_key)
+        
+        # Логируем проверку
+        log.info(f"[CanSpend] user_id={user_id} balance={current_balance} cost={cost} feature={feature_key} source=db")
+        
+        return current_balance >= cost
+    except Exception as e:
+        log.warning(f"Failed to check spending ability for user {user_id}: {e}")
+        return False
 
 def hold_and_start(user_id: int, feature_type: str, quality: str = "basic") -> str:
     """Заблокировать монеты и начать задачу"""
-    st = get_user_state(user_id)
-    
-    # Определяем стоимость в зависимости от типа функции
-    if feature_type == "video":
-        cost = 20 if quality == "audio" else 16
-    elif feature_type == "transform":
-        cost = 1
-    elif feature_type == "tryon":
-        cost = 3
-    elif feature_type == "json":
-        cost = 20
-    else:
-        cost = 1
-    
-    # Проверяем, хватает ли монет
-    if st.get("coins", 0) < cost:
-        raise ValueError(f"Недостаточно монет. Нужно: {cost}, у вас: {st.get('coins', 0)}")
+    try:
+        # Получаем актуальный баланс из базы данных
+        from app.services.wallet import get_balance
+        current_balance = get_balance(user_id)
+        
+        # Определяем стоимость в зависимости от типа функции
+        if feature_type == "video":
+            cost = 20 if quality == "audio" else 16
+        elif feature_type == "transform":
+            cost = 1
+        elif feature_type == "tryon":
+            cost = 3
+        elif feature_type == "json":
+            cost = 20
+        else:
+            cost = 1
+        
+        # Проверяем, хватает ли монет
+        if current_balance < cost:
+            raise ValueError(f"Недостаточно монет. Нужно: {cost}, у вас: {current_balance}")
+        
+        # Логируем начало задачи
+        log.info(f"[HoldAndStart] user_id={user_id} balance={current_balance} cost={cost} feature={feature_type} source=db")
+        
+    except Exception as e:
+        log.error(f"Failed to start task for user {user_id}: {e}")
+        raise
     
     # Создаем задачу
     job_id = f"{user_id}_{feature_type}_{int(datetime.now().timestamp())}"
@@ -174,9 +194,15 @@ def get_retry_cost(user_id: int, job_id: str) -> int:
 
 def check_low_coins(user_id: int) -> bool:
     """Проверить, низкий ли баланс монет"""
-    st = get_user_state(user_id)
-    coins = st.get("coins", 0)
-    return coins < 20  # Считаем низким баланс меньше 20 монет
+    try:
+        from app.services.wallet import get_balance
+        coins = get_balance(user_id)
+        is_low = coins < 20  # Считаем низким баланс меньше 20 монет
+        log.info(f"[CheckLowCoins] user_id={user_id} coins={coins} is_low={is_low} source=db")
+        return is_low
+    except Exception as e:
+        log.warning(f"Failed to check low coins for user {user_id}: {e}")
+        return True  # При ошибке считаем баланс низким
 
 def can_generate_video(user_id: int) -> bool:
     """Проверить, может ли пользователь генерировать видео"""
@@ -192,24 +218,69 @@ def can_use_tryon(user_id: int) -> bool:
 
 def get_user_coins(user_id: int) -> int:
     """Получить количество монет пользователя"""
-    st = get_user_state(user_id)
-    return st.get("coins", 0)
+    try:
+        from app.services.wallet import get_balance
+        coins = get_balance(user_id)
+        log.info(f"[GetUserCoins] user_id={user_id} coins={coins} source=db")
+        return coins
+    except Exception as e:
+        log.warning(f"Failed to get coins for user {user_id}: {e}")
+        return 0
 
 def add_coins(user_id: int, amount: int) -> bool:
     """Добавить монеты пользователю"""
-    st = get_user_state(user_id)
-    st["coins"] = st.get("coins", 0) + amount
-    log.info(f"Added {amount} coins to user {user_id}, new balance: {st['coins']}")
-    return True
+    try:
+        from app.db.queries import db_manager
+        
+        # Получаем текущий баланс
+        user = db_manager.get_user(user_id)
+        if not user:
+            # Создаем пользователя если его нет
+            user = db_manager.create_user(user_id)
+        
+        # Добавляем монеты в базу данных
+        success = db_manager.add_coins(user_id, amount)
+        
+        if success:
+            new_balance = user.balance + amount
+            log.info(f"[AddCoins] user_id={user_id} added={amount} new_balance={new_balance} source=db")
+        else:
+            log.error(f"Failed to add coins to user {user_id}")
+            
+        return success
+    except Exception as e:
+        log.error(f"Failed to add coins to user {user_id}: {e}")
+        return False
 
 def spend_coins(user_id: int, amount: int) -> bool:
     """Потратить монеты пользователя"""
-    st = get_user_state(user_id)
-    if st.get("coins", 0) >= amount:
-        st["coins"] -= amount
-        log.info(f"Spent {amount} coins from user {user_id}, new balance: {st['coins']}")
-        return True
-    return False
+    try:
+        from app.db.queries import db_manager
+        
+        # Получаем текущий баланс
+        user = db_manager.get_user(user_id)
+        if not user:
+            log.warning(f"User {user_id} not found for spending coins")
+            return False
+        
+        # Проверяем, хватает ли монет
+        if user.balance < amount:
+            log.warning(f"Insufficient coins for user {user_id}: {user.balance} < {amount}")
+            return False
+        
+        # Списываем монеты в базе данных
+        success = db_manager.spend_coins(user_id, amount, "manual_spend")
+        
+        if success:
+            new_balance = user.balance - amount
+            log.info(f"[SpendCoins] user_id={user_id} spent={amount} new_balance={new_balance} source=db")
+        else:
+            log.error(f"Failed to spend coins from user {user_id}")
+            
+        return success
+    except Exception as e:
+        log.error(f"Failed to spend coins from user {user_id}: {e}")
+        return False
 
 # Дополнительные функции для совместимости
 def can_generate_photo(user_id: int) -> bool:
@@ -226,25 +297,79 @@ def can_generate_json(user_id: int) -> bool:
 
 def activate_plan(user_id: int, plan_name: str) -> bool:
     """Активировать план для пользователя"""
-    st = get_user_state(user_id)
-    st["tariff"] = plan_name
-    st["tariff_expires"] = datetime.now() + timedelta(days=30)
-    log.info(f"Activated plan {plan_name} for user {user_id}")
-    return True
+    try:
+        from app.db import db_subscriptions as db
+        from app.services.pricing import get_available_tariffs
+        
+        # Получаем информацию о тарифе из конфигурации
+        tariffs = get_available_tariffs()
+        tariff_info = tariffs.get(plan_name, {})
+        
+        if not tariff_info:
+            log.error(f"Unknown plan {plan_name} for user {user_id}")
+            return False
+        
+        # Активируем план в базе данных
+        success = db.activate_user_plan(user_id, plan_name, tariff_info.get("coins", 0))
+        
+        if success:
+            log.info(f"[ActivatePlan] user_id={user_id} plan={plan_name} coins={tariff_info.get('coins', 0)} source=db")
+        else:
+            log.error(f"Failed to activate plan {plan_name} for user {user_id}")
+            
+        return success
+    except Exception as e:
+        log.error(f"Failed to activate plan {plan_name} for user {user_id}: {e}")
+        return False
 
 def apply_top_up(user_id: int, coins: int) -> bool:
     """Применить пополнение монет"""
     return add_coins(user_id, coins)
 
 def check_subscription(user_id: int):
-    """Проверка активной подписки"""
+    """Проверка активной подписки и получение полной информации о пользователе"""
     try:
         from app.db import db_subscriptions as db
-        plan = db.get_user_plan(user_id)
-        return bool(plan and plan.get("is_active"))
+        from app.services.pricing import get_available_tariffs
+        
+        # Получаем данные из базы данных
+        plan_data = db.get_user_plan(user_id)
+        
+        # Получаем актуальные тарифы из конфигурации
+        tariffs = get_available_tariffs()
+        plan_name = plan_data.get("plan", "lite")
+        
+        # Получаем информацию о тарифе из конфигурации
+        tariff_info = tariffs.get(plan_name, {})
+        coins_from_tariff = tariff_info.get("coins", 0) if tariff_info else 0
+        
+        # Используем монеты из базы данных, если они есть, иначе из тарифа
+        coins = plan_data.get("coins", coins_from_tariff)
+        
+        # Логируем источник данных
+        log.info(f"[SubscriptionCheck] user_id={user_id} plan={plan_name} coins={coins} source=db")
+        
+        # Возвращаем полную информацию о пользователе
+        return {
+            "user_id": user_id,
+            "plan": plan_name,
+            "coins": coins,
+            "expires_at": plan_data.get("expiry"),
+            "is_active": plan_data.get("is_active", False),
+            "source": "db"  # Указываем источник данных
+        }
+        
     except Exception as e:
         log.warning(f"Failed to check subscription for user {user_id}: {e}")
-        return False
+        # Возвращаем дефолтные значения при ошибке
+        return {
+            "user_id": user_id,
+            "plan": "lite",
+            "coins": 0,
+            "expires_at": None,
+            "is_active": False,
+            "source": "error"
+        }
 
 def check_and_reset_expired_plans():
     """

@@ -182,6 +182,36 @@ class DatabaseManager:
             log.warning(f"Failed to spend coins for user {user_id}: {e}")
             return False
     
+    def add_coins(self, user_id: int, amount: int) -> bool:
+        """Добавить монеты пользователю"""
+        try:
+            if not self._initialized:
+                self._init_db()
+            
+            if not self._initialized:
+                return False
+                
+            with self.get_session() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    user.balance += amount
+                    session.commit()
+                    
+                    # Записываем транзакцию
+                    transaction = Transaction(
+                        user_id=user_id,
+                        type='add',
+                        amount=amount,
+                        feature='manual_add'
+                    )
+                    session.add(transaction)
+                    session.commit()
+                    return True
+                return False
+        except Exception as e:
+            log.warning(f"Failed to add coins for user {user_id}: {e}")
+            return False
+    
     def add_transaction(self, user_id: int, transaction_type: str, amount: int, 
                        feature: str = None, description: str = None):
         """Добавить запись о транзакции"""

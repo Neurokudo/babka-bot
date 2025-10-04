@@ -608,6 +608,60 @@ def get_user_transaction_history(user_id: int, limit: int = 50) -> List[Dict[str
         log.error(f"Failed to get transaction history for user {user_id}: {e}")
         return []
 
+def activate_user_plan(user_id: int, plan_name: str, coins: int) -> bool:
+    """Активировать план для пользователя"""
+    try:
+        with db_conn() as conn:
+            cur = conn.cursor()
+            
+            # Определяем тип базы данных
+            is_postgres = hasattr(conn, 'cursor') and 'psycopg2' in str(type(conn))
+            
+            # Вычисляем дату окончания подписки (30 дней)
+            from datetime import datetime, timedelta
+            expiry_date = datetime.now() + timedelta(days=30)
+            
+            # Проверяем, существует ли пользователь
+            if is_postgres:
+                cur.execute("SELECT user_id FROM users WHERE user_id = %s", (user_id,))
+                existing = cur.fetchone()
+            else:
+                cur.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+                existing = cur.fetchone()
+            
+            if existing:
+                # Обновляем существующего пользователя
+                if is_postgres:
+                    cur.execute("""
+                        UPDATE users SET plan = %s, plan_expiry = %s, coins = coins + %s
+                        WHERE user_id = %s
+                    """, (plan_name, expiry_date, coins, user_id))
+                else:
+                    cur.execute("""
+                        UPDATE users SET plan = ?, plan_expiry = ?, coins = coins + ?
+                        WHERE user_id = ?
+                    """, (plan_name, expiry_date, coins, user_id))
+            else:
+                # Создаем нового пользователя
+                if is_postgres:
+                    cur.execute("""
+                        INSERT INTO users (user_id, plan, plan_expiry, coins)
+                        VALUES (%s, %s, %s, %s)
+                    """, (user_id, plan_name, expiry_date, coins))
+                else:
+                    cur.execute("""
+                        INSERT INTO users (user_id, plan, plan_expiry, coins)
+                        VALUES (?, ?, ?, ?)
+                    """, (user_id, plan_name, expiry_date, coins))
+            
+            conn.commit()
+            log.info(f"Activated plan {plan_name} for user {user_id} with {coins} coins")
+            return True
+            
+    except Exception as e:
+        log.error(f"Failed to activate plan {plan_name} for user {user_id}: {e}")
+        return False
+
 # Инициализируем таблицы при импорте модуля
 try:
     init_tables()
