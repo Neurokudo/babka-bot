@@ -38,7 +38,7 @@ def create_combined_webhook_app():
                 log.warning("Empty webhook data received from Telegram")
                 return jsonify({"status": "error", "message": "Empty data"}), 400
             
-            log.info("WEBHOOK HIT: method=%s path=%s", request.method, request.url.path)
+            log.info("WEBHOOK HIT: method=%s path=%s", request.method, request.path)
             
             # Создаем объект Update из данных webhook
             from telegram import Update
