@@ -2538,6 +2538,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Детальное логирование всех callback'ов
     log.info("CALLBACK %s uid=%s", data, uid)
+    log.info("CALLBACK %s uid=%s - DATA LEN: %s", data, uid, len(data))
 
     # РУБИЛЬНИК: блокируем старые callback'и тарифов
     LEGACY_TARIFF_CB = {"show_plans","buy_lite","buy_standard","buy_pro","menu_coins","fast_topup"}
@@ -3318,13 +3319,17 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("buy_plan_"):
         plan_name = data.replace("buy_plan_", "")
         log.info("CALLBACK buy_plan uid=%s plan=%s", uid, plan_name)
+        log.info("CALLBACK buy_plan uid=%s - AVAILABLE TARIFFS: %s", uid, [t["name"] for t in get_available_tariffs()])
+        
         tariffs = get_available_tariffs()
         
         # Ищем тариф в списке
         plan_info = None
         for tariff in tariffs:
+            log.info("CALLBACK buy_plan uid=%s - CHECKING TARIFF: name=%s, looking_for=%s", uid, tariff["name"], plan_name)
             if tariff["name"] == plan_name:
                 plan_info = tariff
+                log.info("CALLBACK buy_plan uid=%s - FOUND TARIFF: %s", uid, tariff)
                 break
         
         if not plan_info:
