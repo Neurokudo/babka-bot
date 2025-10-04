@@ -50,6 +50,15 @@ def get_balance(user_id: int) -> int:
     except Exception:
         return 100  # Заглушка при недоступности БД
 
+def add_coins(user_id: int, amount: int, description: str = None) -> bool:
+    """Добавить монеты пользователю"""
+    try:
+        from app.db.queries import db_manager
+        return db_manager.add_coins(user_id, amount)
+    except Exception as e:
+        print(f"Error adding coins to user {user_id}: {e}")
+        return False
+
 def charge_feature(user_id: int, feature_key: str) -> bool:
     """Списать монеты за функцию"""
     try:
