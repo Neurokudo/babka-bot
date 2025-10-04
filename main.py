@@ -179,14 +179,14 @@ def format_user_status(user: Dict[str, Any]) -> str:
     if expiry_text:
         text += f"⏰ Действует до: {expiry_text}\n"
 
-    text += "\n💡 Генерации списывают монеты. Техническая ошибка = автоматический возврат."
+    text += "\n💡 Генерации списывают монетки. Техническая ошибка = автоматический возврат."
     return text
 
 
 
 def format_topup_packs() -> str:
     """Форматирование пакетов пополнения"""
-    lines = ["➕ <b>Пополнить монеты</b>\n"]
+    lines = ["➕ <b>Пополнить монетки</b>\n"]
     topup_packs = get_available_topup_packs()
     
     # Группируем пакеты по 2 в строку
@@ -198,7 +198,7 @@ def format_topup_packs() -> str:
             line_parts.append(f"{coins} — {price:,} ₽")
         lines.append(" · ".join(line_parts))
     
-    lines.append("\n💡 Докупка монет не продлевает подписку.")
+    lines.append("\n💡 Докупка монеток не продлевает подписку.")
     return "\n".join(lines)
 
 
@@ -1199,7 +1199,7 @@ def addons_text() -> str:
     # Заменено на актуальные пакеты пополнения монет
     from app.services.pricing import get_available_topup_packs
     packs = get_available_topup_packs()
-    lines = ["➕ <b>Пополнить монеты</b>\n"]
+    lines = ["➕ <b>Пополнить монетки</b>\n"]
     items = list(packs.items())
     for i in range(0, len(items), 2):
         row = []
@@ -1207,7 +1207,7 @@ def addons_text() -> str:
             coins, price = items[j]
             row.append(f"{coins} — {price:,} ₽")
         lines.append(" · ".join(row))
-    lines.append("\n💡 Докупка монет не продлевает подписку.")
+    lines.append("\n💡 Докупка монеток не продлевает подписку.")
     return "\n".join(lines)
 
 
@@ -1217,7 +1217,7 @@ def addons_keyboard(order=None) -> InlineKeyboardMarkup:
     packs = get_available_topup_packs()
     rows = []
     for coins, price in packs.items():
-        rows.append([InlineKeyboardButton(f"{coins} монет — {price:,} ₽", callback_data=f"buy_topup_{coins}")])
+        rows.append([InlineKeyboardButton(f"{coins} монеток — {price:,} ₽", callback_data=f"buy_topup_{coins}")])
     rows.append([InlineKeyboardButton("← Назад к тарифам", callback_data="show_tariffs")])
     return InlineKeyboardMarkup(rows)
 
@@ -1285,7 +1285,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         coins = get_balance(uid)
         if coins > 0 and coins < 20:  # Только если есть монеты, но их мало
             await update.message.reply_text(
-                f"⚠️ У вас осталось мало монет: {coins}\n\n"
+                f"⚠️ У вас осталось мало монеток: {coins}\n\n"
                 f"💡 Рекомендуем пополнить баланс для продолжения работы",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
@@ -3053,7 +3053,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 plan_price = tariff["price_rub"]
                 plan_coins = tariff["coins"]
                 
-                label = f"{plan_title} — {plan_price:,} ₽ → {plan_coins} монет"
+                label = f"{plan_title} - Купить"
                 keyboard.append([InlineKeyboardButton(label, callback_data=f"plan_{plan_id}")])
             
             keyboard.append([InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")])
@@ -3089,7 +3089,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         topup_packs = get_available_topup_packs()
         for pack in topup_packs:
             keyboard.append([InlineKeyboardButton(
-                f"{pack['coins']} монет — {pack['price_rub']} ₽",
+                f"{pack['coins']} монеток — {pack['price_rub']} ₽",
                 callback_data=f"buy_topup_{pack['coins']}"
             )])
         

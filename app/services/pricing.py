@@ -85,7 +85,7 @@ def format_plans_list() -> str:
     plans = []
     for tariff_data in get_available_tariffs():
         plans.append(
-            f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽ → {tariff_data['coins']} монет"
+            f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽ → 🎟️ {tariff_data['coins']} монеток"
         )
     return "\n".join(plans)
 
@@ -97,12 +97,12 @@ def format_feature_costs() -> str:
     costs.append("💡 <b>Стоимость операций:</b>")
     
     # Видео
-    costs.append("🎬 Veo 3 Fast 8s (со звуком) — 20 монет")
-    costs.append("🔇 Veo 3 Fast 8s (без звука) — 16 монет")
+    costs.append("🎬 Veo 3 Fast 8s (со звуком) — 20 монеток")
+    costs.append("🔇 Veo 3 Fast 8s (без звука) — 16 монеток")
     
     # Фото и примерка
-    costs.append("📸 Фото-инструменты — 1 монета")
-    costs.append("👗 Виртуальная примерочная — 3 монеты")
+    costs.append("📸 Фото-инструменты — 1 монеток")
+    costs.append("👗 Виртуальная примерочная — 3 монеток")
     
     return "\n".join(costs)
 
@@ -110,7 +110,7 @@ def format_topup_packs() -> str:
     """Форматированный список пакетов пополнения"""
     packs = []
     for pack in TOPUP_PACKS:
-        packs.append(f"{pack.coins} монет — {pack.price_rub} ₽")
+        packs.append(f"{pack.coins} монеток — {pack.price_rub} ₽")
     return "\n".join(packs)
 
 def pricing_text() -> str:
