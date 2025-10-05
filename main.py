@@ -189,7 +189,7 @@ def get_access_denied_keyboard(access_check: dict) -> InlineKeyboardMarkup:
         ])
     elif access_check["reason"] == "insufficient_coins":
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton("💰 Докупить монетокки", callback_data="show_topup")],
+            [InlineKeyboardButton("💰 Докупить монеток", callback_data="show_topup")],
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
         ])
     else:
@@ -280,14 +280,14 @@ def format_user_status(user: Dict[str, Any]) -> str:
     if expiry_text:
         text += f"⏰ Действует до: {expiry_text}\n"
 
-    text += "\n💡 Генерации списывают монетокки. Техническая ошибка = автоматический возврат."
+    text += "\n💡 Генерации списывают монеток. Техническая ошибка = автоматический возврат."
     return text
 
 
 
 def format_topup_packs() -> str:
     """Форматирование пакетов пополнения"""
-    lines = ["➕ <b>Пополнить монетокки</b>\n"]
+    lines = ["➕ <b>Пополнить монеток</b>\n"]
     topup_packs = get_available_topup_packs()
     
     # Группируем пакеты по 2 в строку
@@ -492,7 +492,7 @@ async def send_coin_notification(update: Update, context: ContextTypes.DEFAULT_T
         from app.services.billing import check_subscription
         from app.services.wallet import add_coins
         
-        # Если это возврат - сначала возвращаем монетокки в БД
+        # Если это возврат - сначала возвращаем монеток в БД
         if action == "refund":
             success = add_coins(uid, amount, reason or "Refund")
             if not success:
@@ -1149,7 +1149,7 @@ def _ensure(uid: int):
                 # ориентация
                 "orientation": DEFAULT_ORIENTATION,
                 "with_audio": DEFAULT_AUDIO,  # настройка аудио
-                # монетокы и биллинг
+                # монеток и биллинг
                 "coins": coins,
                 "admin_coins": admin_coins,
                 "plan": None,  # У новых пользователей НЕТ подписки
@@ -1404,10 +1404,10 @@ def kb_tryon_confirm():
 
 def kb_tryon_after():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Другая поза (-3 монетокки)", callback_data="tryon_new_pose")],
-        [InlineKeyboardButton("👗 Другая одежда (-3 монетокки)", callback_data="tryon_new_garment")],
-        [InlineKeyboardButton("🏞 Новый фон (-3 монетокки)", callback_data="tryon_new_bg")],
-        [InlineKeyboardButton("✍️ Описать задачу (-2 монетокки)", callback_data="tryon_prompt")],
+        [InlineKeyboardButton("🔄 Другая поза (-3 монеток)", callback_data="tryon_new_pose")],
+        [InlineKeyboardButton("👗 Другая одежда (-3 монеток)", callback_data="tryon_new_garment")],
+        [InlineKeyboardButton("🏞 Новый фон (-3 монеток)", callback_data="tryon_new_bg")],
+        [InlineKeyboardButton("✍️ Описать задачу (-2 монеток)", callback_data="tryon_prompt")],
         [InlineKeyboardButton("🏠 В меню", callback_data="back_home")],
     ])
 
@@ -1511,7 +1511,7 @@ def addons_text() -> str:
     # Заменено на актуальные пакеты пополнения монеток
     from app.services.pricing import get_available_topup_packs
     packs = get_available_topup_packs()
-    lines = ["➕ <b>Пополнить монетокки</b>\n"]
+    lines = ["➕ <b>Пополнить монеток</b>\n"]
     items = list(packs.items())
     for i in range(0, len(items), 2):
         row = []
@@ -1559,7 +1559,7 @@ async def check_gpt_access(update_or_callback) -> bool:
     # Проверяем подписку
     if not is_active:
         message = (
-            "Извини, я помогу тебе с радостью, когда у тебя будут подписка и монетокки! 😞\n\n"
+            "Извини, я помогу тебе с радостью, когда у тебя будут подписка и монеток! 😞\n\n"
             "🧠 Умный помощник доступен только с активной подпиской."
         )
         
@@ -1642,7 +1642,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "nkudo_type": None, "nkudo_scene1": None, "nkudo_scene2": None,
             "jsonpro": {"await_text": False, "last_json": None, "orientation": DEFAULT_ORIENTATION},
             "tryon": {"stage": "idle", "person": None, "garment": None, "dressed": None, "await_bg": False, "await_prompt": False},
-            # сбрасываем только рабочие поля, монетокы и план оставляем
+            # сбрасываем только рабочие поля, монеток и план оставляем
             "awaiting_transform": False, "transform_type": None, "transform_quality": "basic",
             "transform_images": [], "transform_text": None, "current_job_id": None,
         })
@@ -1652,7 +1652,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Получаем актуальные данные из БД
         subscription_data = check_subscription(uid)
         coins = subscription_data.get("coins", 0)
-        if coins > 0 and coins < 20:  # Только если есть монетокы, но их мало
+        if coins > 0 and coins < 20:  # Только если есть монеток, но их мало
             await update.message.reply_text(
                 f"⚠️ У вас осталось мало монеток: {coins}\n\n"
                 f"💡 Рекомендуем пополнить баланс для продолжения работы",
@@ -2122,7 +2122,7 @@ async def cmd_add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Показываем текущее состояние
     await update.message.reply_text(
         "⭐️ Админский баланс обновлён!\n\n"
-        f"💰 Админские монетокы: {st['admin_coins']}\n"
+        f"💰 Админские монеток: {st['admin_coins']}\n"
         f"💎 Монеты кошелька: {st.get('coins', 0)}\n\n"
         "✅ Эта графа видна только вам в профиле.",
         reply_markup=kb_home_inline()
@@ -2287,7 +2287,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             log.exception("Custom prompt failed for user %s: %s", uid, str(e))
             
-            # Возвращаем монетокки, если генерация не удалась
+            # Возвращаем монеток, если генерация не удалась
             try:
                 from app.services.wallet import add_coins
                 add_coins(uid, 2, "Refund for failed custom prompt")
@@ -2296,8 +2296,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as refund_error:
                 log.error("Custom prompt refund failed for user %s: %s", uid, refund_error)
             
+            # Получаем актуальный баланс после возврата
+            from app.services.billing import check_subscription
+            subscription_data = check_subscription(uid)
+            current_balance = subscription_data.get("coins", 0)
+            
             await update.message.reply_text(
-                f"⚠️ Описание задачи временно недоступно.\n💰 Возвращено: 2 монетокки\n\nПопробуйте другие функции или обратитесь в поддержку."
+                f"⚠️ Описание задачи временно недоступно.\n💰 Возвращено: 2 монеток\n💎 Баланс: {current_balance} монеток\n\nПопробуйте другие функции или обратитесь в поддержку."
             )
         return
 
@@ -2773,7 +2778,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
         except ValueError as e:
             if "Prompt too long" in str(e) or "JSON prompt too long" in str(e) or "Simple prompt too long" in str(e):
-                # Возвращаем монетокки за слишком длинный промт
+                # Возвращаем монеток за слишком длинный промт
                 await send_coin_notification(update, context, "refund", cost, "Промт слишком длинный")
                 await update.message.reply_text(
                     f"❌ Запрос слишком длинный, пожалуйста, сократите промт до {MAX_PROMPT_LENGTH} символов 🤏\n\n"
@@ -2904,7 +2909,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
         except ValueError as e:
             if "Prompt too long" in str(e) or "JSON prompt too long" in str(e) or "Simple prompt too long" in str(e):
-                # Возвращаем монетокки за слишком длинный промт
+                # Возвращаем монеток за слишком длинный промт
                 await send_coin_notification(update, context, "refund", cost, "Промт слишком длинный")
                 await update.message.reply_text(
                     f"❌ Запрос слишком длинный, пожалуйста, сократите промт до {MAX_PROMPT_LENGTH} символов 🤏\n\n"
@@ -3058,7 +3063,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Все фото получены, начинаем обработку
         try:
-            # Проверяем и списываем монетокы
+            # Проверяем и списываем монеток
             quality = st.get("transform_quality", "basic")
             cost = 1 if quality == "basic" else 2
             
@@ -3083,7 +3088,6 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await update.message.reply_text(
                 "🔄 Обрабатываю фото...\n"
-                f"💰 Списано: {cost} монеток\n"
                 "⏱️ Это может занять 1-2 минуты."
             )
             
@@ -3208,7 +3212,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             log.exception("Background change failed for user %s: %s", uid, str(e))
             
-            # Возвращаем монетокки, если генерация не удалась
+            # Возвращаем монеток, если генерация не удалась
             try:
                 from app.services.wallet import add_coins
                 add_coins(uid, 3, "Refund for failed background change")
@@ -3217,8 +3221,13 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as refund_error:
                 log.error("Background change refund failed for user %s: %s", uid, refund_error)
             
+            # Получаем актуальный баланс после возврата
+            from app.services.billing import check_subscription
+            subscription_data = check_subscription(uid)
+            current_balance = subscription_data.get("coins", 0)
+            
             await update.message.reply_text(
-                f"⚠️ Смена фона временно недоступна.\n💰 Возвращено: 3 монетокки\n\nПопробуйте другие функции или обратитесь в поддержку."
+                f"⚠️ Смена фона временно недоступна.\n💰 Возвращено: 3 монеток\n💎 Баланс: {current_balance} монеток\n\nПопробуйте другие функции или обратитесь в поддержку."
             )
         return
 
@@ -3255,16 +3264,21 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 stt["dressed"] = result_bytes
                 stt["stage"] = "after"
                 
+                # Получаем актуальный баланс после списания
+                from app.services.billing import check_subscription
+                subscription_data = check_subscription(uid)
+                current_balance = subscription_data.get("coins", 0)
+                
                 await update.message.reply_photo(
                     photo=result_bytes, 
-                    caption="✅ Готово! Одежда изменена.\n💰 Списано: 3 монетокки", 
+                    caption=f"✅ Готово! Одежда изменена.\n💰 Списано: 3 монеток\n💎 Баланс: {current_balance} монеток", 
                     reply_markup=kb_tryon_after()
                 )
                 
             except Exception as e:
                 log.exception("Garment change failed for user %s: %s", uid, str(e))
                 
-                # Возвращаем монетокки, если генерация не удалась
+                # Возвращаем монеток, если генерация не удалась
                 try:
                     from app.services.wallet import add_coins
                     add_coins(uid, 3, "Refund for failed garment change")
@@ -3273,8 +3287,13 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception as refund_error:
                     log.error("Garment change refund failed for user %s: %s", uid, refund_error)
                 
+                # Получаем актуальный баланс после возврата
+                from app.services.billing import check_subscription
+                subscription_data = check_subscription(uid)
+                current_balance = subscription_data.get("coins", 0)
+                
                 await update.message.reply_text(
-                    f"⚠️ Смена одежды временно недоступна.\n💰 Возвращено: 3 монетокки\n\nПопробуйте другие функции или обратитесь в поддержку."
+                    f"⚠️ Смена одежды временно недоступна.\n💰 Возвращено: 3 монеток\n💎 Баланс: {current_balance} монеток\n\nПопробуйте другие функции или обратитесь в поддержку."
                 )
         else:
             # Первая одежда - переводим в режим подтверждения
@@ -3468,7 +3487,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_text(
             f"{text}\n\n"
             f"✅ Качество: {quality_text}\n"
-            f"💰 Стоимость: {cost} монетокки",
+            f"💰 Стоимость: {cost} монеток",
             reply_markup=kb_back_transforms()
         )
         st["awaiting_transform"] = True
@@ -3544,7 +3563,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📋 Тарифы", callback_data="show_tariffs")],
-                [InlineKeyboardButton("➕ Пополнить монетокы", callback_data="show_topup")],
+                [InlineKeyboardButton("➕ Пополнить монеток", callback_data="show_topup")],
                 [InlineKeyboardButton("📊 История операций", callback_data="show_history")],
                 [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
             ])
@@ -3671,7 +3690,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"❌ Не хватает монеток для ретрая.\n"
                 f"Нужно: {retry_cost} монеток, у вас: {st.get('coins', 0)} монеток.",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Докупить монетокы", callback_data="buy_coins")],
+                    [InlineKeyboardButton("💳 Докупить монеток", callback_data="buy_coins")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ])
             )
@@ -3680,9 +3699,15 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Делаем ретрай
         if retry(st, job_id):
             cost_spent = st["jobs"][job_id].get("coin_cost", retry_cost)
+            
+            # Получаем актуальный баланс после списания
+            from app.services.billing import check_subscription
+            subscription_data = check_subscription(uid)
+            current_balance = subscription_data.get("coins", 0)
+            
             await q.message.edit_text(
                 "🔄 Создаю ещё вариант видео...\n"
-                f"💰 Списано: {cost_spent} монеток"
+                f"💰 Списано: {cost_spent} монеток\n💎 Баланс: {current_balance} монеток"
             )
             # Здесь будет повторная генерация видео
             # Пока заглушка
@@ -3702,7 +3727,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"❌ Не хватает монеток для ретрая.\n"
                 f"Нужно: {retry_cost} монеток, у вас: {st.get('coins', 0)} монеток.",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Докупить монетокы", callback_data="buy_coins")],
+                    [InlineKeyboardButton("💳 Докупить монеток", callback_data="buy_coins")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
                 ])
             )
@@ -3711,9 +3736,15 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Делаем ретрай
         if retry(st, job_id):
             cost_spent = st["jobs"][job_id].get("coin_cost", retry_cost)
+            
+            # Получаем актуальный баланс после списания
+            from app.services.billing import check_subscription
+            subscription_data = check_subscription(uid)
+            current_balance = subscription_data.get("coins", 0)
+            
             await q.message.edit_text(
                 "🔄 Обрабатываю фото ещё раз...\n"
-                f"💰 Списано: {cost_spent} монеток"
+                f"💰 Списано: {cost_spent} монеток\n💎 Баланс: {current_balance} монеток"
             )
             # Повторная обработка фото
             transform_type = st.get("transform_type")
@@ -3780,7 +3811,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await q.edit_message_text(
                     f"Выбрано: {plan['name']} — {plan['price_rub']} ₽\n"
-                    "После оплаты монетокы поступят на баланс автоматически.\n\n"
+                    "После оплаты монеток поступят на баланс автоматически.\n\n"
                     f"📋 Что включено:\n"
                     f"• {plan['coins']} монеток\n"
                     f"• Тариф действует 30 дней\n\n"
@@ -3990,7 +4021,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if data == "show_topup":
         from app.services.pricing import format_topup_packs, get_available_topup_packs
-        topup_text = "💰 Пополнить монетокки\n\n"
+        topup_text = "💰 Пополнить монеток\n\n"
         topup_text += format_topup_packs()
         
         # Создаем кнопки для покупки пакетов пополнения
@@ -4859,7 +4890,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
             elif access_check["reason"] == "insufficient_coins":
                 buttons = [
-                    [InlineKeyboardButton("💰 Докупить монетокки", callback_data="show_topup")],
+                    [InlineKeyboardButton("💰 Докупить монеток", callback_data="show_topup")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ]
             else:
@@ -4873,7 +4904,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Списываем монетокы
+        # Списываем монеток
         cost = access_check["cost"]
         if not db.charge_feature(uid, "tryon", cost, "Virtual try-on"):
             log.error("CALLBACK tryon_confirm uid=%s - CHARGE FAILED", uid)
@@ -4896,10 +4927,16 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result_bytes = await loop.run_in_executor(None, virtual_tryon, stt["person"], stt["garment"], 1)
             stt["dressed"] = result_bytes
             log.info("CALLBACK tryon_confirm uid=%s - VTO SUCCESS, RESULT SIZE: %s", uid, len(result_bytes))
+            
+            # Получаем актуальный баланс после списания
+            from app.services.billing import check_subscription
+            subscription_data = check_subscription(uid)
+            current_balance = subscription_data.get("coins", 0)
+            
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=result_bytes,
-                    caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {cost} монеток",
+                    caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {cost} монеток\n💎 Баланс: {current_balance} монеток",
                 ),
                 reply_markup=kb_tryon_after(),
             )
@@ -4912,7 +4949,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- AFTER RESULT ACTIONS ---
     if data == "tryon_new_pose":
-        # Проверяем доступ и списываем монетокки
+        # Проверяем доступ и списываем монеток
         access_check = can_use_feature(uid, "virtual_tryon")
         if not access_check["can_use"]:
             log.warning("CALLBACK tryon_new_pose uid=%s - ACCESS DENIED: %s", uid, access_check["reason"])
@@ -4924,7 +4961,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
             elif access_check["reason"] == "insufficient_coins":
                 buttons = [
-                    [InlineKeyboardButton("💰 Докупить монетокки", callback_data="show_topup")],
+                    [InlineKeyboardButton("💰 Докупить монеток", callback_data="show_topup")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ]
             else:
@@ -4938,7 +4975,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Списываем монетокки
+        # Списываем монеток
         cost = access_check["cost"]
         if not db.charge_feature(uid, "tryon_pose", cost, "Virtual try-on pose change"):
             log.error("CALLBACK tryon_new_pose uid=%s - CHARGE FAILED", uid)
@@ -4954,7 +4991,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_media(
             media=InputMediaPhoto(
                 media=stt["dressed"],  # Показываем текущее изображение
-                caption="🔄 Генерирую новую позу (-3 монетокки)..."
+                caption="🔄 Генерирую новую позу (-3 монеток)..."
             ),
             reply_markup=kb_tryon_after()
         )
@@ -4989,10 +5026,15 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             log.info("CALLBACK tryon_new_pose uid=%s - POSE GENERATED SUCCESSFULLY", uid)
             
+            # Получаем актуальный баланс после списания
+            from app.services.billing import check_subscription
+            subscription_data = check_subscription(uid)
+            current_balance = subscription_data.get("coins", 0)
+            
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=new_pose_bytes,
-                    caption=f"✅ Готово! Поза изменена.\n💰 Списано: {cost} монеток"
+                    caption=f"✅ Готово! Поза изменена.\n💰 Списано: {cost} монеток\n💎 Баланс: {current_balance} монеток"
                 ),
                 reply_markup=kb_tryon_after()
             )
@@ -5000,7 +5042,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             log.exception("CALLBACK tryon_new_pose uid=%s - POSE GENERATION FAILED: %s", uid, str(e))
             
-            # Возвращаем монетокки, если генерация не удалась
+            # Возвращаем монеток, если генерация не удалась
             try:
                 from app.services.wallet import add_coins
                 add_coins(uid, cost, "Refund for failed pose generation")
@@ -5009,17 +5051,22 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as refund_error:
                 log.error("CALLBACK tryon_new_pose uid=%s - REFUND FAILED: %s", uid, refund_error)
             
+            # Получаем актуальный баланс после возврата
+            from app.services.billing import check_subscription
+            subscription_data = check_subscription(uid)
+            current_balance = subscription_data.get("coins", 0)
+            
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=stt["dressed"],
-                    caption=f"⚠️ Генерация позы временно недоступна.\n💰 Возвращено: {cost} монеток\n\nПопробуйте другие функции или обратитесь в поддержку."
+                    caption=f"⚠️ Генерация позы временно недоступна.\n💰 Возвращено: {cost} монеток\n💎 Баланс: {current_balance} монеток\n\nПопробуйте другие функции или обратитесь в поддержку."
                 ),
                 reply_markup=kb_tryon_after()
             )
         return
 
     if data == "tryon_new_garment":
-        # Проверяем доступ и списываем монетокки
+        # Проверяем доступ и списываем монеток
         access_check = can_use_feature(uid, "virtual_tryon")
         if not access_check["can_use"]:
             log.warning("CALLBACK tryon_new_garment uid=%s - ACCESS DENIED: %s", uid, access_check["reason"])
@@ -5031,7 +5078,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
             elif access_check["reason"] == "insufficient_coins":
                 buttons = [
-                    [InlineKeyboardButton("💰 Докупить монетокки", callback_data="show_topup")],
+                    [InlineKeyboardButton("💰 Докупить монеток", callback_data="show_topup")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ]
             else:
@@ -5045,7 +5092,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Списываем монетокки
+        # Списываем монеток
         cost = access_check["cost"]
         if not db.charge_feature(uid, "tryon_garment", cost, "Virtual try-on garment change"):
             log.error("CALLBACK tryon_new_garment uid=%s - CHARGE FAILED", uid)
@@ -5060,14 +5107,14 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_media(
             media=InputMediaPhoto(
                 media=stt["dressed"],  # Используем уже готовое изображение
-                caption="👗 Другая одежда (-3 монетокки).\nПришлите фото новой одежды на нейтральном фоне."
+                caption="👗 Другая одежда (-3 монеток).\nПришлите фото новой одежды на нейтральном фоне."
             ),
             reply_markup=kb_tryon_need_garment()
         )
         return
 
     if data == "tryon_new_bg":
-        # Проверяем доступ и списываем монетокки
+        # Проверяем доступ и списываем монеток
         access_check = can_use_feature(uid, "virtual_tryon")
         if not access_check["can_use"]:
             log.warning("CALLBACK tryon_new_bg uid=%s - ACCESS DENIED: %s", uid, access_check["reason"])
@@ -5079,7 +5126,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
             elif access_check["reason"] == "insufficient_coins":
                 buttons = [
-                    [InlineKeyboardButton("💰 Докупить монетокки", callback_data="show_topup")],
+                    [InlineKeyboardButton("💰 Докупить монеток", callback_data="show_topup")],
                     [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
                 ]
             else:
@@ -5093,7 +5140,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Списываем монетокки
+        # Списываем монеток
         cost = access_check["cost"]
         if not db.charge_feature(uid, "tryon_background", cost, "Virtual try-on background change"):
             log.error("CALLBACK tryon_new_bg uid=%s - CHARGE FAILED", uid)
@@ -5108,7 +5155,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_media(
             media=InputMediaPhoto(
                 media=stt["dressed"],  # Используем уже готовое изображение
-                caption="🏞 Новый фон (-3 монетокки).\nПришлите фон-картинку (фото места), куда поместить одетую модель."
+                caption="🏞 Новый фон (-3 монеток).\nПришлите фон-картинку (фото места), куда поместить одетую модель."
             ),
             reply_markup=kb_tryon_after()
         )
@@ -5124,7 +5171,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.edit_media(
             media=InputMediaPhoto(
                 media=stt["dressed"],  # Используем уже готовое изображение
-                caption="✍️ Описать задачу (-2 монетокки).\nОпишите кратко позу/локацию (например: «сидит на лавочке, двор в деревне, закат»).\n"
+                caption="✍️ Описать задачу (-2 монеток).\nОпишите кратко позу/локацию (например: «сидит на лавочке, двор в деревне, закат»).\n"
                 "Это экспериментальная функция — возможны лёгкие изменения лица."
             ),
             reply_markup=kb_tryon_after()
@@ -5580,10 +5627,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Отправляем уведомление о списании
         await send_coin_notification(q, context, "charge", cost, "Генерация видео")
 
-        cost_text = cost
         msg = await q.message.reply_text(
-            "⏳ Генерирую видео… Это может занять несколько минут.\n"
-            f"💰 Списано: {cost_text} монеток"
+            "⏳ Генерирую видео… Это может занять несколько минут."
         )
         try:
             # REPORTAGE — два видео подряд
@@ -5663,7 +5708,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         except ValueError as e:
             if "Prompt too long" in str(e):
-                # Возвращаем монетокки за слишком длинный промт
+                # Возвращаем монеток за слишком длинный промт
                 await send_coin_notification(q, context, "refund", cost, "Промт слишком длинный")
                 await q.message.reply_text(
                     f"❌ Запрос слишком длинный, пожалуйста, сократите промт до {MAX_PROMPT_LENGTH} символов 🤏\n\n"
@@ -5674,14 +5719,14 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=kb_home_inline()
                 )
             else:
-                # Возвращаем монетокы при ошибке
+                # Возвращаем монеток при ошибке
                 if st.get("current_job_id"):
                     on_error(st, st["current_job_id"], reason="video_error")
                     st["current_job_id"] = None
                 log.exception("Veo generation failed")
                 await q.message.reply_text(f"⚠️ Ошибка генерации: {e}\n\nМонетки возвращены. Попробуйте ещё раз.", reply_markup=kb_home_inline())
         except Exception as e:
-            # Возвращаем монетокы при ошибке
+            # Возвращаем монеток при ошибке
             if st.get("current_job_id"):
                 on_error(st, st["current_job_id"], reason="video_error")
                 st["current_job_id"] = None
@@ -5715,7 +5760,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                       reply_markup=kb_jsonpro_start()); return
         orr = st["jsonpro"].get("orientation", DEFAULT_ORIENTATION)
         
-        # Проверяем и списываем монетокы за JSON-генерацию
+        # Проверяем и списываем монеток за JSON-генерацию
         cost = feature_cost_coins("json")
         if not db.charge_feature(uid, "json", cost, "JSON video generation"):
             # Получаем актуальные данные из БД
@@ -5736,10 +5781,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Отправляем уведомление о списании
         await send_coin_notification(q, context, "charge", cost, "JSON-генерация")
 
-        cost_text = cost
         msg = await q.message.reply_text(
-            "⏳ Генерирую видео по JSON…\n"
-            f"💰 Списано: {cost_text} монеток"
+            "⏳ Генерирую видео по JSON…"
         )
         try:
             res = await asyncio.to_thread(generate_video_sync, jj, duration=8, aspect_ratio=orr, with_audio=st.get("with_audio", True))
@@ -5763,7 +5806,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 st["current_job_id"] = None
         except ValueError as e:
             if "Prompt too long" in str(e):
-                # Возвращаем монетокки за слишком длинный промт
+                # Возвращаем монеток за слишком длинный промт
                 await send_coin_notification(q, context, "refund", cost, "JSON промт слишком длинный")
                 await q.message.reply_text(
                     f"❌ Запрос слишком длинный, пожалуйста, сократите промт до {MAX_PROMPT_LENGTH} символов 🤏\n\n"
