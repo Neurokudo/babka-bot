@@ -2652,7 +2652,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # JSON PRO: ожидание текста сцены
-    if st["jsonpro"].get("await_text"):
+    if st.get("jsonpro") and st["jsonpro"].get("await_text"):
         st["jsonpro"]["await_text"] = False
         # генерим JSON без показа в обычных режимах — здесь наоборот ПОКАЗЫВАЕМ, это раздел для продвинутых
         jj = to_json_prompt(text, style=None, replica=None, mode="manual",
