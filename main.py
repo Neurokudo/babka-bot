@@ -2568,37 +2568,28 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Все фото получены, начинаем обработку
         try:
-            # Проверяем монеты
+            # Проверяем и списываем монеты
             quality = st.get("transform_quality", "basic")
             cost = 1 if quality == "basic" else 2
             
-            if not can_generate_photo(st, cost):
-                coins = st.get("coins", 0)
-
+            if not db.charge_feature(uid, "transform", cost, f"Photo transform: {quality}"):
+                # Получаем актуальные данные из БД
+                subscription_data = check_subscription(uid)
+                coins = subscription_data.get("coins", 0)
                 await update.message.reply_text(
                     f"❌ Не хватает монет для обработки фото.\n\n"
                     f"💰 Монеток: {coins} (нужно: {cost})\n\n"
                     f"💳 Пополнить баланс?",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("💳 Докупить", callback_data="show_topup")],
+                        [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
                         [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
                     ])
                 )
                 return
-            
-            # Проверяем и списываем монеты
-            if not db.charge_feature(uid, "transform", cost, f"Photo transform: {quality}"):
-                coins = db.get_user_balance(uid)
-                await update.message.reply_text(
-                    f"❌ Не хватает монет для обработки фото.\n\n"
-                    f"💰 Монеток: {coins} (нужно: {cost})\n\n"
-                    "💳 Пополнить баланс?",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("💳 Докупить", callback_data="show_topup")],
-                        [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
-                    ])
-                )
-                return
+
+            # Отправляем уведомление о списании
+            await send_coin_notification(update, context, "charge", cost, f"Трансформация фото ({quality})")
             
             await update.message.reply_text(
                 "🔄 Обрабатываю фото...\n"
@@ -5001,11 +4992,12 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if st.get("style") is None: st["style"] = DEFAULT_STYLE
         if not st.get("orientation"): st["orientation"] = DEFAULT_ORIENTATION
 
-        if not can_generate_video(st):
+        # Проверяем и списываем монеты за генерацию видео
+        cost = feature_cost_coins("video_8s_audio")
+        if not db.charge_feature(uid, "video_8s_audio", cost, "Video generation"):
             # Получаем актуальные данные из БД
             subscription_data = check_subscription(uid)
             coins = subscription_data.get("coins", 0)
-            cost = feature_cost_coins("video_8s_audio")
             await q.message.reply_text(
                 f"❌ Не хватает монет для генерации видео.\n\n"
                 f"💰 Монеток: {coins} (нужно: {cost})\n\n"
@@ -5018,20 +5010,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        cost = feature_cost_coins("video_8s_audio")
-        if not db.charge_feature(uid, "video_8s_audio", cost, "Video generation"):
-            coins = db.get_user_balance(uid)
-            await q.message.reply_text(
-                f"❌ Не хватает монет для генерации видео.\n\n"
-                f"💰 Монеток: {coins} (нужно: {cost})\n\n"
-                "💳 Пополнить баланс?",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
-                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
-                ])
-            )
-            return
+        # Отправляем уведомление о списании
+        await send_coin_notification(q, context, "charge", cost, "Генерация видео")
 
         cost_text = cost
         msg = await q.message.reply_text(
@@ -5139,26 +5119,13 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.edit_text("Сначала введи текст сцены, чтобы собрать JSON.",
                                       reply_markup=kb_jsonpro_start()); return
         orr = st["jsonpro"].get("orientation", DEFAULT_ORIENTATION)
-        if not can_generate_json(st):
+        
+        # Проверяем и списываем монеты за JSON-генерацию
+        cost = feature_cost_coins("json")
+        if not db.charge_feature(uid, "json", cost, "JSON video generation"):
             # Получаем актуальные данные из БД
             subscription_data = check_subscription(uid)
             coins = subscription_data.get("coins", 0)
-            cost = feature_cost_coins("video_8s_audio")
-            await q.message.reply_text(
-                f"❌ Не хватает монет для JSON-генерации.\n\n"
-                f"💰 Монеток: {coins} (нужно: {cost})\n\n"
-                "💳 Пополнить баланс?",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
-                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
-                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
-                ])
-            )
-            return
-
-        cost = feature_cost_coins("json")
-        if not db.charge_feature(uid, "json", cost, "JSON video generation"):
-            coins = db.get_user_balance(uid)
             await q.message.reply_text(
                 f"❌ Не хватает монет для JSON-генерации.\n\n"
                 f"💰 Монеток: {coins} (нужно: {cost})\n\n"
@@ -5170,6 +5137,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ])
             )
             return
+
+        # Отправляем уведомление о списании
+        await send_coin_notification(q, context, "charge", cost, "JSON-генерация")
 
         cost_text = cost
         msg = await q.message.reply_text(

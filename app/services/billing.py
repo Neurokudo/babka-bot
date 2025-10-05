@@ -86,16 +86,18 @@ def can_spend(user_id: int, feature_key: str) -> bool:
     try:
         # Получаем данные о подписке и балансе
         subscription_data = check_subscription(user_id)
+        is_active = subscription_data.get("is_active", False)
         current_balance = subscription_data.get("coins", 0)
         cost = feature_cost_coins(feature_key)
         
-        # Проверяем только баланс монеток - монетки сохраняются даже при истечении подписки
-        # Пользователь может тратить монетки, пока они есть на счету
+        # КРИТИЧНО: Проверяем и подписку, и баланс
+        # Пользователь может тратить монетки ТОЛЬКО при активной подписке
         
         # Логируем проверку
-        log.info(f"[CanSpend] user_id={user_id} balance={current_balance} cost={cost} feature={feature_key} active={subscription_data.get('is_active')} source=db")
+        log.info(f"[CanSpend] user_id={user_id} balance={current_balance} cost={cost} feature={feature_key} active={is_active} source=db")
         
-        return current_balance >= cost
+        # Проверяем и активность подписки, и достаточность монеток
+        return is_active and current_balance >= cost
     except Exception as e:
         log.warning(f"Failed to check spending ability for user {user_id}: {e}")
         return False
