@@ -1251,7 +1251,6 @@ def kb_manual_after_video():
     """Клавиатура после генерации видео в режиме manual"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 Сменить ориентацию", callback_data="manual_change_orientation")],
-        [InlineKeyboardButton("🏠 Меню", callback_data="back_home")],
     ])
 
 def kb_back_transforms():
@@ -1380,7 +1379,6 @@ def kb_after_video():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔧 Доработать промт", callback_data="refine_prompt")],
         [InlineKeyboardButton("🔄 Сгенерировать ещё", callback_data="menu_make")],
-        [InlineKeyboardButton("🏠 В меню", callback_data="back_home")],
     ])
 
 # --- Примерочная: клавиатуры ---
@@ -1467,7 +1465,6 @@ def kb_video_result():
     cost = feature_cost_coins("video_8s_audio")
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"🔄 Сделать ещё вариант (−{cost} монеток)", callback_data="video_retry")],
-        [InlineKeyboardButton("⬅️ Главное меню", callback_data="back_home")],
     ])
 
 # -----------------------------------------------------------------------------
@@ -2682,11 +2679,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_coin_notification(update, context, "charge", cost, "Быстрое создание видео")
         
         # Генерируем видео
-        orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥 Горизонтальное (16:9)"
+        orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥️ Горизонтальное (16:9)"
         await update.message.reply_text(
             f"⚡ Быстрое создание\n\n"
             f"📝 Промт: {text[:100]}...\n"
-            f"📱 Ориентация: {orientation_status}\n\n"
+            f"Ориентация: {orientation_status}\n\n"
             f"⏳ Генерирую видео… Это может занять несколько минут."
         )
         
@@ -2710,7 +2707,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     video=file_path or uri,
                     caption=f"✅ Видео готово!\n\n📝 Промт: {text[:100]}...\n📱 Ориентация: {orientation_status}"
                 )
-                await update.message.reply_text("🎉 Быстрое создание завершено!", reply_markup=kb_manual_after_video())
+                await update.message.reply_text("🎉 Быстрое создание завершено!\n\nПришлите новый промт для продолжения генерации, или вернитесь в главное меню ⬇️", reply_markup=kb_manual_after_video())
                 
                 # Устанавливаем флаг для следующего промта
                 st["awaiting_scene"] = True
@@ -2802,11 +2799,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_coin_notification(update, context, "charge", cost, "Быстрое создание видео")
         
         # Генерируем видео
-        orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥 Горизонтальное (16:9)"
+        orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥️ Горизонтальное (16:9)"
         await update.message.reply_text(
             f"⚡ Быстрое создание\n\n"
             f"📝 Промт: {text[:100]}...\n"
-            f"📱 Ориентация: {orientation_status}\n\n"
+            f"Ориентация: {orientation_status}\n\n"
             f"⏳ Генерирую видео… Это может занять несколько минут."
         )
         
@@ -2830,7 +2827,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     video=file_path or uri,
                     caption=f"✅ Видео готово!\n\n📝 Промт: {text[:100]}...\n📱 Ориентация: {orientation_status}"
                 )
-                await update.message.reply_text("🎉 Быстрое создание завершено!", reply_markup=kb_manual_after_video())
+                await update.message.reply_text("🎉 Быстрое создание завершено!\n\nПришлите новый промт для продолжения генерации, или вернитесь в главное меню ⬇️", reply_markup=kb_manual_after_video())
                 
                 # Устанавливаем флаг для следующего промта
                 st["awaiting_scene"] = True
@@ -3618,7 +3615,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Здесь будет повторная генерация видео
             # Пока заглушка
             await asyncio.sleep(3)
-            await q.message.edit_text("✅ Новый вариант готов!", reply_markup=kb_video_result())
+            await q.message.edit_text("✅ Новый вариант готов!\n\nПришлите новый промт для продолжения генерации, или вернитесь в главное меню ⬇️", reply_markup=kb_video_result())
         return
 
     if data == "transform_retry":
@@ -5397,11 +5394,11 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Для режима manual переходим к ожиданию промта
         if st.get("mode") == "manual":
-            orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥 Горизонтальное (16:9)"
+            orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥️ Горизонтальное (16:9)"
             st["awaiting_scene"] = True
             await q.message.edit_text(
                 f"⚡ Быстрое создание\n\n"
-                f"📱 Ориентация: {orientation_status}\n\n"
+                f"Ориентация: {orientation_status}\n\n"
                 f"Теперь отправьте промт для генерации видео:"
             )
             return
@@ -5416,7 +5413,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Показываем финальное меню с настройками
         audio_status = "🔊 С аудио" if st["with_audio"] else "🔇 Без аудио"
-        orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥 Горизонтальное (16:9)"
+        orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥️ Горизонтальное (16:9)"
         
         preview_text = (
             f"📝 Итоговые настройки:\n\n"
@@ -5507,7 +5504,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     on_success(st, st["current_job_id"])
                     st["current_job_id"] = None
                 
-                await q.message.reply_text("Готово! Что дальше?", reply_markup=kb_video_result())
+                await q.message.reply_text("Готово! Что дальше?\n\nПришлите новый промт для продолжения генерации, или вернитесь в главное меню ⬇️", reply_markup=kb_video_result())
                 await q.message.reply_text("Быстрые кнопки внизу активны.", reply_markup=reply_main_kb())
                 return
 
@@ -5539,8 +5536,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if file_path and os.path.exists(file_path):
                 with open(file_path, "rb") as f:
                     await q.message.reply_video(video=f, caption=caption, supports_streaming=True, reply_markup=kb_video_result())
+                    await q.message.reply_text("🎉 Видео готово!\n\nПришлите новый промт для продолжения генерации, или вернитесь в главное меню ⬇️")
             elif uri:
                 await q.message.reply_text(f"{caption}\n\n🔗 GCS: {uri}", reply_markup=kb_video_result())
+                await q.message.reply_text("🎉 Видео готово!\n\nПришлите новый промт для продолжения генерации, или вернитесь в главное меню ⬇️")
             else:
                 await q.message.reply_text("⚠️ Видео не вернулось. Попробуйте ещё раз.", reply_markup=kb_home_inline())
 
@@ -5635,8 +5634,10 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if file_path and os.path.exists(file_path):
                 with open(file_path, "rb") as f:
                     await q.message.reply_video(video=f, caption=caption, supports_streaming=True, reply_markup=kb_after_video())
+                    await q.message.reply_text("🎉 Видео готово!\n\nПришлите новый промт для продолжения генерации, или вернитесь в главное меню ⬇️")
             elif uri:
                 await q.message.reply_text(f"{caption}\n\n🔗 GCS: {uri}", reply_markup=kb_after_video())
+                await q.message.reply_text("🎉 Видео готово!\n\nПришлите новый промт для продолжения генерации, или вернитесь в главное меню ⬇️")
             else:
                 await q.message.reply_text("⚠️ Видео не вернулось. Попробуй ещё раз.", reply_markup=kb_home_inline())
             if st.get("current_job_id"):
