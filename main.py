@@ -129,6 +129,7 @@ if "gemini" in (OPENAI_MODEL or "").lower():
 DEFAULT_STYLE = "Кино"
 DEFAULT_ORIENTATION = "9:16"  # по умолчанию вертикалка
 DEFAULT_AUDIO = True  # по умолчанию с аудио
+MAX_PROMPT_LENGTH = 2000  # максимальная длина промта для VEO
 
 # -----------------------------------------------------------------------------
 # КОНФИГУРАЦИЯ И БИЛЛИНГ
@@ -324,7 +325,7 @@ def _sanitize(text: str) -> str:
         text = text.replace("  ", " ")
     return text.strip()
 
-def _limit_prompt_length(text: str, max_length: int = 2000) -> tuple[str, bool]:
+def _limit_prompt_length(text: str, max_length: int = MAX_PROMPT_LENGTH) -> tuple[str, bool]:
     """Проверить длину промта для VEO API
     
     Returns:
@@ -2490,22 +2491,59 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Ожидание сокращенного промта (manual режим)
     if st.get("mode") == "manual" and st.get("awaiting_short_prompt"):
-        st["awaiting_short_prompt"] = False  # Сбрасываем флаг
+        import time
+        
+        # Проверяем TTL
+        if time.time() > st.get("short_deadline", 0):
+            st["awaiting_short_prompt"] = False
+            log.info(f"AWAIT_SHORT_EXPIRED user_id={uid}")
+            await update.message.reply_text(
+                "⏰ Сессия сокращения истекла. Выберите ориентацию и пришлите промт заново.",
+                reply_markup=kb_orientation()
+            )
+            return
+        
+        # Проверяем контекст (обязательные поля)
+        orientation = st.get("orientation")
+        if not orientation:
+            st["awaiting_short_prompt"] = False
+            log.warning(f"MISSING_ORIENTATION user_id={uid}")
+            await update.message.reply_text(
+                "❌ Нужно выбрать ориентацию. Нажмите «Сменить ориентацию» и затем пришлите промт.",
+                reply_markup=kb_orientation()
+            )
+            return
+        
+        # Проверяем идемпотентность (защита от дубликатов)
+        prompt_hash = hash(text.strip())
+        current_time = time.time()
+        if (st.get("last_prompt_hash") == prompt_hash and 
+            current_time - st.get("last_prompt_at", 0) < 30):
+            log.info(f"DUPLICATE_PROMPT_IGNORED user_id={uid}")
+            return
+        
+        st["last_prompt_hash"] = prompt_hash
+        st["last_prompt_at"] = current_time
         
         # Проверяем длину сокращенного промта
         limited_text, is_valid = _limit_prompt_length(text, max_length=2000)
         
         if not is_valid:
             # Если все еще слишком длинный, снова просим сократить
-            st["awaiting_short_prompt"] = True
+            st["short_deadline"] = time.time() + 900  # Обновляем TTL
+            log.info(f"SHORT_PROMPT_STILL_TOO_LONG len={len(text)} user_id={uid}")
             await update.message.reply_text(
-                f"❌ Запрос все еще слишком длинный, пожалуйста, сократите промт до 2000 символов 🤏\n\n"
-                f"📏 Текущая длина: {len(text)} символов\n"
-                f"📏 Максимальная длина: 2000 символов\n\n"
-                f"💡 Попробуйте убрать лишние детали или разделить на несколько частей.",
+                f"❌ Промт все еще слишком длинный: {len(text)}/{MAX_PROMPT_LENGTH} символов 🤏\n\n"
+                f"💡 Сократите еще и пришлите снова.",
                 reply_markup=kb_back_only()
             )
             return
+        
+        # Промт подходящей длины - логируем и продолжаем
+        elapsed_sec = int(current_time - st.get("short_deadline", current_time) + 900)
+        log.info(f"SHORT_PROMPT_RECEIVED len={len(text)} elapsed_sec={elapsed_sec} user_id={uid}")
+        
+        st["awaiting_short_prompt"] = False  # Сбрасываем флаг
         
         # Промт подходящей длины - продолжаем генерацию
         st["scene"] = text
@@ -2516,6 +2554,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Проверяем и списываем монеты за генерацию видео
         cost = feature_cost_coins("video_8s_audio")
+        subscription_data = check_subscription(uid)
+        coins_before = subscription_data.get("coins", 0)
+        
+        log.info(f"GENERATION_START ori={orientation} model=veo-3-fast coins_before={coins_before} cost={cost} user_id={uid}")
+        
         if not db.charge_feature(uid, "video_8s_audio", cost, "Quick video generation"):
             # Получаем актуальные данные из БД
             subscription_data = check_subscription(uid)
@@ -2604,13 +2647,19 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         limited_text, is_valid = _limit_prompt_length(text, max_length=2000)
         
         if not is_valid:
-            # Устанавливаем состояние ожидания сокращенного промта
+            # Устанавливаем состояние ожидания сокращенного промта с TTL
+            import time
             st["awaiting_short_prompt"] = True
+            st["short_deadline"] = time.time() + 900  # 15 минут
+            st["original_prompt_len"] = len(text)
+            
+            log.info(f"PROMPT_TOO_LONG len={len(text)} mode=manual orientation={st.get('orientation')} user_id={uid}")
+            log.info(f"AWAIT_SHORT_SET deadline={st['short_deadline']} user_id={uid}")
+            
             await update.message.reply_text(
-                f"❌ Запрос слишком длинный, пожалуйста, сократите промт до 2000 символов 🤏\n\n"
-                f"📏 Текущая длина: {len(text)} символов\n"
-                f"📏 Максимальная длина: 2000 символов\n\n"
-                f"💡 Попробуйте убрать лишние детали или разделить на несколько частей.",
+                f"❌ Промт слишком длинный: {len(text)}/{MAX_PROMPT_LENGTH} символов 🤏\n\n"
+                f"💡 Сократите и пришлите один текст сообщением.\n\n"
+                f"⏰ Время на сокращение: 15 минут",
                 reply_markup=kb_back_only()
             )
             return
@@ -4049,9 +4098,21 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "back_home":
-        # Сбрасываем состояние ожидания сцены и сокращенного промта при возврате в главное меню
-        st["awaiting_scene"] = False
-        st["awaiting_short_prompt"] = False
+        # Полная очистка состояния при возврате в главное меню
+        st.update({
+            "awaiting_scene": False,
+            "awaiting_short_prompt": False,
+            "short_deadline": None,
+            "original_prompt_len": None,
+            "last_prompt_hash": None,
+            "last_prompt_at": None,
+            "mode": None,
+            "orientation": None,
+            "scene": None,
+            "style": None,
+            "replica": None
+        })
+        log.info(f"STATE_CLEARED user_id={uid}")
         await q.message.edit_text("Главное меню:", reply_markup=kb_home_inline())
         return
 
