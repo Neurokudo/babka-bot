@@ -1502,13 +1502,20 @@ def addons_keyboard(order=None) -> InlineKeyboardMarkup:
 # ДОСТУП
 # -----------------------------------------------------------------------------
 
-async def check_gpt_access(update: Update) -> bool:
+async def check_gpt_access(update_or_callback) -> bool:
     """
     Проверяет доступ к GPT функциям (только подписка)
     Возвращает True если доступ разрешен, False если нет
     При отсутствии доступа отправляет сообщение с кнопками
     """
-    uid = update.effective_user.id
+    # Поддерживаем как Update, так и CallbackQuery
+    if hasattr(update_or_callback, 'effective_user'):
+        uid = update_or_callback.effective_user.id
+        update_obj = update_or_callback
+    else:
+        # Это CallbackQuery
+        uid = update_or_callback.from_user.id
+        update_obj = update_or_callback
     
     # Проверяем только подписку
     subscription_data = check_subscription(uid)
@@ -1527,10 +1534,14 @@ async def check_gpt_access(update: Update) -> bool:
         ])
         
         try:
-            if update.message:
-                await update.message.reply_text(message, reply_markup=keyboard)
-            elif update.callback_query:
-                await update.callback_query.message.reply_text(message, reply_markup=keyboard)
+            # Поддерживаем как Update, так и CallbackQuery
+            if hasattr(update_obj, 'message') and update_obj.message:
+                await update_obj.message.reply_text(message, reply_markup=keyboard)
+            elif hasattr(update_obj, 'callback_query') and update_obj.callback_query:
+                await update_obj.callback_query.message.reply_text(message, reply_markup=keyboard)
+            elif hasattr(update_obj, 'message') and update_obj.message:
+                # Это CallbackQuery с message
+                await update_obj.message.reply_text(message, reply_markup=keyboard)
         except Exception as e:
             log.error(f"Failed to send GPT access denied message: {e}")
         
