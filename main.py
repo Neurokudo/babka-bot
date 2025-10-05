@@ -2488,6 +2488,113 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Ожидание сокращенного промта (manual режим)
+    if st.get("mode") == "manual" and st.get("awaiting_short_prompt"):
+        st["awaiting_short_prompt"] = False  # Сбрасываем флаг
+        
+        # Проверяем длину сокращенного промта
+        limited_text, is_valid = _limit_prompt_length(text, max_length=2000)
+        
+        if not is_valid:
+            # Если все еще слишком длинный, снова просим сократить
+            st["awaiting_short_prompt"] = True
+            await update.message.reply_text(
+                f"❌ Запрос все еще слишком длинный, пожалуйста, сократите промт до 2000 символов 🤏\n\n"
+                f"📏 Текущая длина: {len(text)} символов\n"
+                f"📏 Максимальная длина: 2000 символов\n\n"
+                f"💡 Попробуйте убрать лишние детали или разделить на несколько частей.",
+                reply_markup=kb_back_only()
+            )
+            return
+        
+        # Промт подходящей длины - продолжаем генерацию
+        st["scene"] = text
+        
+        # Устанавливаем дефолтные значения
+        if st.get("style") is None: st["style"] = DEFAULT_STYLE
+        if not st.get("with_audio"): st["with_audio"] = DEFAULT_AUDIO
+        
+        # Проверяем и списываем монеты за генерацию видео
+        cost = feature_cost_coins("video_8s_audio")
+        if not db.charge_feature(uid, "video_8s_audio", cost, "Quick video generation"):
+            # Получаем актуальные данные из БД
+            subscription_data = check_subscription(uid)
+            coins = subscription_data.get("coins", 0)
+            await update.message.reply_text(
+                f"❌ Не хватает монет для генерации видео.\n\n"
+                f"💰 Монеток: {coins} (нужно: {cost})\n\n"
+                "💳 Пополнить баланс?",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
+                    [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                ])
+            )
+            return
+
+        # Отправляем уведомление о списании
+        await send_coin_notification(update, context, "charge", cost, "Быстрое создание видео")
+        
+        # Генерируем видео
+        orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥 Горизонтальное (16:9)"
+        await update.message.reply_text(
+            f"⚡ Быстрое создание\n\n"
+            f"📝 Промт: {text[:100]}...\n"
+            f"📱 Ориентация: {orientation_status}\n\n"
+            f"⏳ Генерирую видео… Это может занять несколько минут."
+        )
+        
+        # Запускаем генерацию видео
+        try:
+            # Обычное видео
+            prompt = to_json_prompt(
+                text, st.get("style"), st.get("replica"), st.get("mode"),
+                aspect_ratio=st["orientation"], context=None
+            )
+            
+            res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
+            videos = (res or {}).get("videos", [])
+            if not videos:
+                await update.message.reply_text("⚠️ Видео не вернулось. Попробуй ещё раз.", reply_markup=kb_manual_after_video())
+                return
+            
+            v0 = videos[0]
+            file_path = v0.get("file_path")
+            uri = v0.get("uri")
+            
+            if file_path or uri:
+                await update.message.reply_video(
+                    video=file_path or uri,
+                    caption=f"✅ Видео готово!\n\n📝 Промт: {text[:100]}...\n📱 Ориентация: {orientation_status}"
+                )
+                await update.message.reply_text("🎉 Быстрое создание завершено!", reply_markup=kb_manual_after_video())
+                
+                # Устанавливаем флаг для следующего промта
+                st["awaiting_scene"] = True
+            else:
+                await update.message.reply_text("⚠️ Ошибка генерации видео.", reply_markup=kb_manual_after_video())
+                
+        except ValueError as e:
+            if "Prompt too long" in str(e):
+                # Возвращаем монетки за слишком длинный промт
+                await send_coin_notification(update, context, "refund", cost, "Промт слишком длинный")
+                await update.message.reply_text(
+                    f"❌ Запрос слишком длинный, пожалуйста, сократите промт до 2000 символов 🤏\n\n"
+                    f"📏 Текущая длина: {len(text)} символов\n"
+                    f"📏 Максимальная длина: 2000 символов\n\n"
+                    f"💡 Попробуйте убрать лишние детали или разделить на несколько частей.\n\n"
+                    f"💰 Монетки возвращены.",
+                    reply_markup=kb_manual_after_video()
+                )
+            else:
+                log.exception("Quick video generation failed: %s", str(e))
+                await update.message.reply_text(f"❌ Ошибка генерации: {str(e)}", reply_markup=kb_manual_after_video())
+        except Exception as e:
+            log.exception("Quick video generation failed: %s", str(e))
+            await update.message.reply_text(f"❌ Ошибка генерации: {str(e)}", reply_markup=kb_manual_after_video())
+        
+        return
+
     # Ожидание сцены (manual режим - обрабатывается отдельно)
     if st.get("mode") == "manual" and st.get("awaiting_scene"):
         st["scene"] = text
@@ -2497,6 +2604,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         limited_text, is_valid = _limit_prompt_length(text, max_length=2000)
         
         if not is_valid:
+            # Устанавливаем состояние ожидания сокращенного промта
+            st["awaiting_short_prompt"] = True
             await update.message.reply_text(
                 f"❌ Запрос слишком длинный, пожалуйста, сократите промт до 2000 символов 🤏\n\n"
                 f"📏 Текущая длина: {len(text)} символов\n"
@@ -3940,8 +4049,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "back_home":
-        # Сбрасываем состояние ожидания сцены при возврате в главное меню
+        # Сбрасываем состояние ожидания сцены и сокращенного промта при возврате в главное меню
         st["awaiting_scene"] = False
+        st["awaiting_short_prompt"] = False
         await q.message.edit_text("Главное меню:", reply_markup=kb_home_inline())
         return
 
