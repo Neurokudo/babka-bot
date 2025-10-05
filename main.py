@@ -2655,11 +2655,24 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if st.get("jsonpro") and st["jsonpro"].get("await_text"):
         st["jsonpro"]["await_text"] = False
         # генерим JSON без показа в обычных режимах — здесь наоборот ПОКАЗЫВАЕМ, это раздел для продвинутых
-        jj = to_json_prompt(text, style=None, replica=None, mode="manual",
-                            aspect_ratio=st["jsonpro"].get("orientation", DEFAULT_ORIENTATION), context=None)
-        st["jsonpro"]["last_json"] = jj
-        await update.message.reply_text("🧾 JSON:\n```\n" + jj + "\n```", parse_mode="Markdown",
-                                        reply_markup=kb_jsonpro_after_text())
+        try:
+            jj = to_json_prompt(text, style=None, replica=None, mode="manual",
+                                aspect_ratio=st["jsonpro"].get("orientation", DEFAULT_ORIENTATION), context=None)
+            st["jsonpro"]["last_json"] = jj
+            await update.message.reply_text("🧾 JSON:\n```\n" + jj + "\n```", parse_mode="Markdown",
+                                            reply_markup=kb_jsonpro_after_text())
+        except ValueError as e:
+            if "Prompt too long" in str(e):
+                await update.message.reply_text(
+                    f"❌ Запрос слишком длинный, пожалуйста, сократите промт до 2000 символов 🤏\n\n"
+                    f"📏 Текущая длина: {len(text)} символов\n"
+                    f"📏 Максимальная длина: 2000 символов\n\n"
+                    f"💡 Попробуйте убрать лишние детали или разделить на несколько частей.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="back_home")]])
+                )
+            else:
+                await update.message.reply_text(f"❌ Ошибка обработки промта: {e}", 
+                                              reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="back_home")]]))
         return
 
     # по умолчанию
