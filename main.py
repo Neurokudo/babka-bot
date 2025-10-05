@@ -338,7 +338,7 @@ def _limit_prompt_length(text: str, max_length: int = MAX_PROMPT_LENGTH) -> tupl
     if not text:
         return text, True
     
-    # Если текст короче лимита - возвращаем как есть
+    # Если текст короче или равен лимиту - возвращаем как есть
     if len(text) <= max_length:
         return text, True
     
@@ -2553,6 +2553,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Промт подходящей длины - продолжаем генерацию
         st["scene"] = text
         
+        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: проверяем длину еще раз перед списанием монеток
+        # Это защищает от случаев, когда промт проходит первую проверку, но не проходит в to_json_prompt
+        limited_text, is_valid = _limit_prompt_length(text, max_length=MAX_PROMPT_LENGTH)
+        if not is_valid:
+            log.warning(f"SECOND_LENGTH_CHECK_FAILED len={len(text)} user_id={uid}")
+            await update.message.reply_text(
+                f"❌ Промт все еще слишком длинный: {len(text)}/{MAX_PROMPT_LENGTH} символов 🤏\n\n"
+                f"💡 Сократите еще и пришлите снова.",
+                reply_markup=kb_back_only()
+            )
+            return
+        
         # Устанавливаем дефолтные значения
         if st.get("style") is None: st["style"] = DEFAULT_STYLE
         if not st.get("with_audio"): st["with_audio"] = DEFAULT_AUDIO
@@ -2665,6 +2677,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"❌ Промт слишком длинный: {len(text)}/{MAX_PROMPT_LENGTH} символов 🤏\n\n"
                 f"💡 Сократите и пришлите один текст сообщением.\n\n"
                 f"⏰ Время на сокращение: 15 минут",
+                reply_markup=kb_back_only()
+            )
+            return
+        
+        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: проверяем длину еще раз перед списанием монеток
+        # Это защищает от случаев, когда промт проходит первую проверку, но не проходит в to_json_prompt
+        limited_text, is_valid = _limit_prompt_length(text, max_length=MAX_PROMPT_LENGTH)
+        if not is_valid:
+            log.warning(f"SECOND_LENGTH_CHECK_FAILED len={len(text)} user_id={uid}")
+            await update.message.reply_text(
+                f"❌ Промт все еще слишком длинный: {len(text)}/{MAX_PROMPT_LENGTH} символов 🤏\n\n"
+                f"💡 Сократите еще и пришлите снова.",
                 reply_markup=kb_back_only()
             )
             return
