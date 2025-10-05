@@ -1140,6 +1140,12 @@ def kb_home_inline():
         [InlineKeyboardButton("👤 Профиль / Баланс", callback_data="menu_profile")],
     ])
 
+def kb_back_only():
+    """Клавиатура только с кнопкой 'Назад'"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+    ])
+
 def kb_modes():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⚡ Быстрое создание", callback_data="mode_manual")],
