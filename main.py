@@ -25,6 +25,7 @@ from datetime import datetime
 from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional, Dict, Any
+from collections import defaultdict
 
 from dotenv import load_dotenv
 import os
@@ -42,6 +43,9 @@ from telegram.ext import (
 # Импорты для работы с базой данных и биллингом
 from app.db.queries import db_manager
 from app.db import queries as db
+
+# Лок на пользователя для предотвращения гонок состояний
+user_locks = defaultdict(asyncio.Lock)
 
 # Диагностический маяк
 import hashlib, json
@@ -2491,59 +2495,60 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Ожидание сокращенного промта (manual режим)
     if st.get("mode") == "manual" and st.get("awaiting_short_prompt"):
-        import time
-        
-        # Проверяем TTL
-        if time.time() > st.get("short_deadline", 0):
-            st["awaiting_short_prompt"] = False
-            log.info(f"AWAIT_SHORT_EXPIRED user_id={uid}")
-            await update.message.reply_text(
-                "⏰ Сессия сокращения истекла. Выберите ориентацию и пришлите промт заново.",
-                reply_markup=kb_orientation()
-            )
-            return
-        
-        # Проверяем контекст (обязательные поля)
-        orientation = st.get("orientation")
-        if not orientation:
-            st["awaiting_short_prompt"] = False
-            log.warning(f"MISSING_ORIENTATION user_id={uid}")
-            await update.message.reply_text(
-                "❌ Нужно выбрать ориентацию. Нажмите «Сменить ориентацию» и затем пришлите промт.",
-                reply_markup=kb_orientation()
-            )
-            return
-        
-        # Проверяем идемпотентность (защита от дубликатов)
-        prompt_hash = hash(text.strip())
-        current_time = time.time()
-        if (st.get("last_prompt_hash") == prompt_hash and 
-            current_time - st.get("last_prompt_at", 0) < 30):
-            log.info(f"DUPLICATE_PROMPT_IGNORED user_id={uid}")
-            return
-        
-        st["last_prompt_hash"] = prompt_hash
-        st["last_prompt_at"] = current_time
-        
-        # Проверяем длину сокращенного промта
-        limited_text, is_valid = _limit_prompt_length(text, max_length=2000)
-        
-        if not is_valid:
-            # Если все еще слишком длинный, снова просим сократить
-            st["short_deadline"] = time.time() + 900  # Обновляем TTL
-            log.info(f"SHORT_PROMPT_STILL_TOO_LONG len={len(text)} user_id={uid}")
-            await update.message.reply_text(
-                f"❌ Промт все еще слишком длинный: {len(text)}/{MAX_PROMPT_LENGTH} символов 🤏\n\n"
-                f"💡 Сократите еще и пришлите снова.",
-                reply_markup=kb_back_only()
-            )
-            return
-        
-        # Промт подходящей длины - логируем и продолжаем
-        elapsed_sec = int(current_time - st.get("short_deadline", current_time) + 900)
-        log.info(f"SHORT_PROMPT_RECEIVED len={len(text)} elapsed_sec={elapsed_sec} user_id={uid}")
-        
-        st["awaiting_short_prompt"] = False  # Сбрасываем флаг
+        async with user_locks[uid]:
+            import time
+            
+            # Проверяем TTL
+            if time.time() > st.get("short_deadline", 0):
+                st["awaiting_short_prompt"] = False
+                log.info(f"AWAIT_SHORT_EXPIRED user_id={uid}")
+                await update.message.reply_text(
+                    "⏰ Сессия сокращения истекла. Выберите ориентацию и пришлите промт заново.",
+                    reply_markup=kb_orientation()
+                )
+                return
+            
+            # Проверяем контекст (обязательные поля)
+            orientation = st.get("orientation")
+            if not orientation:
+                st["awaiting_short_prompt"] = False
+                log.warning(f"MISSING_ORIENTATION user_id={uid}")
+                await update.message.reply_text(
+                    "❌ Нужно выбрать ориентацию. Нажмите «Сменить ориентацию» и затем пришлите промт.",
+                    reply_markup=kb_orientation()
+                )
+                return
+            
+            # Проверяем идемпотентность (защита от дубликатов)
+            prompt_hash = hash(text.strip())
+            current_time = time.time()
+            if (st.get("last_prompt_hash") == prompt_hash and 
+                current_time - st.get("last_prompt_at", 0) < 30):
+                log.info(f"DUPLICATE_PROMPT_IGNORED user_id={uid}")
+                return
+            
+            st["last_prompt_hash"] = prompt_hash
+            st["last_prompt_at"] = current_time
+            
+            # Проверяем длину сокращенного промта
+            limited_text, is_valid = _limit_prompt_length(text, max_length=MAX_PROMPT_LENGTH)
+            
+            if not is_valid:
+                # Если все еще слишком длинный, снова просим сократить
+                st["short_deadline"] = time.time() + 900  # Обновляем TTL
+                log.info(f"SHORT_PROMPT_STILL_TOO_LONG len={len(text)} user_id={uid}")
+                await update.message.reply_text(
+                    f"❌ Промт все еще слишком длинный: {len(text)}/{MAX_PROMPT_LENGTH} символов 🤏\n\n"
+                    f"💡 Сократите еще и пришлите снова.",
+                    reply_markup=kb_back_only()
+                )
+                return
+            
+            # Промт подходящей длины - логируем и продолжаем
+            elapsed_sec = int(current_time - st.get("short_deadline", current_time) + 900)
+            log.info(f"SHORT_PROMPT_RECEIVED len={len(text)} elapsed_sec={elapsed_sec} user_id={uid}")
+            
+            st["awaiting_short_prompt"] = False  # Сбрасываем флаг
         
         # Промт подходящей длины - продолжаем генерацию
         st["scene"] = text
