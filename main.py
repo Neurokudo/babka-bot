@@ -3940,6 +3940,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "back_home":
+        # Сбрасываем состояние ожидания сцены при возврате в главное меню
+        st["awaiting_scene"] = False
         await q.message.edit_text("Главное меню:", reply_markup=kb_home_inline())
         return
 
