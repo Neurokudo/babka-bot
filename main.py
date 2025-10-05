@@ -324,6 +324,57 @@ def _sanitize(text: str) -> str:
         text = text.replace("  ", " ")
     return text.strip()
 
+def _limit_prompt_length(text: str, max_length: int = 2000) -> str:
+    """Ограничить длину промта для VEO API"""
+    if not text:
+        return text
+    
+    # Если текст короче лимита - возвращаем как есть
+    if len(text) <= max_length:
+        return text
+    
+    # Если это JSON - пытаемся сократить его умно
+    try:
+        data = json.loads(text)
+        
+        # Сокращаем длинные поля
+        if "shot" in data and "composition" in data["shot"]:
+            composition = data["shot"]["composition"]
+            if len(composition) > 500:
+                data["shot"]["composition"] = composition[:500] + "..."
+        
+        if "characters" in data:
+            # Ограничиваем количество персонажей и их описания
+            data["characters"] = data["characters"][:3]  # Максимум 3 персонажа
+            for char in data["characters"]:
+                if "appearance" in char and len(char["appearance"]) > 200:
+                    char["appearance"] = char["appearance"][:200] + "..."
+                if "action" in char and len(char["action"]) > 100:
+                    char["action"] = char["action"][:100] + "..."
+        
+        if "dialogue" in data:
+            # Ограничиваем диалоги
+            data["dialogue"] = data["dialogue"][:2]  # Максимум 2 реплики
+            for d in data["dialogue"]:
+                if "line" in d and len(d["line"]) > 150:
+                    d["line"] = d["line"][:150] + "..."
+        
+        # Убираем лишние поля если нужно
+        if "ambient" in data and len(data["ambient"]) > 100:
+            data["ambient"] = data["ambient"][:100] + "..."
+        
+        shortened = json.dumps(data, ensure_ascii=False)
+        
+        # Если все еще слишком длинный - обрезаем жестко
+        if len(shortened) > max_length:
+            return shortened[:max_length] + "..."
+        
+        return shortened
+        
+    except Exception:
+        # Если не JSON - просто обрезаем
+        return text[:max_length] + "..."
+
 def _clean_replica(text: str) -> str:
     """Очищает фразу от всех видов тире и дефисов"""
     if not text:
@@ -923,16 +974,16 @@ def _neurokudo_json_parser(scene: str, style: Optional[str], replica: Optional[s
 
 def to_json_prompt(scene: str, style: Optional[str], replica: Optional[str],
                    mode: Optional[str], aspect_ratio: str, context: Optional[str] = None) -> str:
-    # если пользователь прислал уже JSON — используем как есть
+    # если пользователь прислал уже JSON — используем как есть, но ограничиваем длину
     try:
         json.loads(scene)
-        return scene
+        return _limit_prompt_length(scene, max_length=2000)
     except Exception:
         pass
     
     if not gpt:
         # fallback JSON если GPT недоступен
-        return json.dumps({
+        fallback_json = json.dumps({
             "model": "veo-3.0-fast",
             "duration": 8,
             "aspect_ratio": aspect_ratio,
@@ -949,9 +1000,11 @@ def to_json_prompt(scene: str, style: Optional[str], replica: Optional[str],
             "mood": "neutral",
             "restrictions": "No text or logos"
         }, ensure_ascii=False)
+        return _limit_prompt_length(fallback_json, max_length=2000)
     
     # Новый JSON-парсер для NEUROKUDO стиля
-    return _neurokudo_json_parser(scene, style, replica, mode, aspect_ratio, context)
+    result = _neurokudo_json_parser(scene, style, replica, mode, aspect_ratio, context)
+    return _limit_prompt_length(result, max_length=2000)
 
 # -----------------------------------------------------------------------------
 # СОСТОЯНИЕ
@@ -2483,11 +2536,19 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Для режима manual сразу переходим к выбору ориентации
         if st["mode"] == "manual":
             st["scene"] = text
-            await update.message.reply_text(
-                f"⚡ Быстрое создание\n\n📝 Промт принят:\n\n{text}\n\n"
-                f"Выберите ориентацию видео:",
-                reply_markup=kb_orientation()
-            )
+            
+            # Проверяем длину промта и предупреждаем если он был сокращен
+            original_length = len(text)
+            limited_text = _limit_prompt_length(text, max_length=2000)
+            
+            message = f"⚡ Быстрое создание\n\n📝 Промт принят:\n\n{limited_text}\n\n"
+            
+            if len(limited_text) < original_length:
+                message += f"⚠️ Промт был сокращен с {original_length} до {len(limited_text)} символов для совместимости с VEO API.\n\n"
+            
+            message += "Выберите ориентацию видео:"
+            
+            await update.message.reply_text(message, reply_markup=kb_orientation())
             return
         
         st["scene"] = text
