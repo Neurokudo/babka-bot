@@ -2510,6 +2510,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Для режима manual сразу переходим к выбору ориентации
         if st["mode"] == "manual":
             st["scene"] = text
+            st["awaiting_scene"] = False  # Сбрасываем флаг сразу
             
             # Проверяем длину промта
             limited_text, is_valid = _limit_prompt_length(text, max_length=2000)
