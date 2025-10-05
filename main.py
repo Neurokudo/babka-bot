@@ -329,7 +329,7 @@ def _sanitize(text: str) -> str:
         text = text.replace("  ", " ")
     return text.strip()
 
-def process_manual_prompt(text: str, aspect_ratio: str, mode: str = "manual") -> str:
+def process_manual_prompt(text: str, aspect_ratio: str, mode: str = "manual", duration: int = 8) -> str:
     """Обработка промта для режима 'Быстрое создание'
     
     Args:
@@ -383,11 +383,11 @@ def process_manual_prompt(text: str, aspect_ratio: str, mode: str = "manual") ->
         # Если это простой текст - создаем минимальный JSON для VEO
         simple_json = json.dumps({
             "model": "veo-3.0-fast",
-            "duration": 8,
+            "duration": duration,
             "aspect_ratio": aspect_ratio,
             "subject": {"description": text, "voice_sync": False},
             "scene": {"location": "generic", "time_of_day": "day"},
-            "action": "8s action",
+            "action": f"{duration}s action",
             "restrictions": "No text or logos"
         }, ensure_ascii=False)
         
@@ -2697,14 +2697,24 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if st.get("style") is None: st["style"] = DEFAULT_STYLE
         if not st.get("with_audio"): st["with_audio"] = DEFAULT_AUDIO
         
-        # Проверяем и списываем монеты за генерацию видео
-        cost = feature_cost_coins("video_8s_audio")
+        # Определяем стоимость на основе длительности и аудио
+        duration = st.get("video_duration", "8s")
+        with_audio = st.get("with_audio", True)
+        
+        if duration == "6s":
+            feature_key = "video_6s_mute"
+        elif with_audio:
+            feature_key = "video_8s_audio"
+        else:
+            feature_key = "video_8s_mute"
+            
+        cost = feature_cost_coins(feature_key)
         subscription_data = check_subscription(uid)
         coins_before = subscription_data.get("coins", 0)
         
         log.info(f"GENERATION_START ori={orientation} model=veo-3-fast coins_before={coins_before} cost={cost} user_id={uid}")
         
-        if not db.charge_feature(uid, "video_8s_audio", cost, "Quick video generation"):
+        if not db.charge_feature(uid, feature_key, cost, "Quick video generation"):
             # Получаем актуальные данные из БД
             subscription_data = check_subscription(uid)
             coins = subscription_data.get("coins", 0)
@@ -2735,9 +2745,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Запускаем генерацию видео
         try:
             # Обычное видео - используем специальную обработку для режима "Быстрое создание"
-            prompt = process_manual_prompt(text, st["orientation"], mode="manual")
+            video_duration = int(st.get("video_duration", "8s").replace("s", ""))
+            prompt = process_manual_prompt(text, st["orientation"], mode="manual", duration=video_duration)
             
-            res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
+            res = await asyncio.to_thread(generate_video_sync, prompt, duration=video_duration, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
             videos = (res or {}).get("videos", [])
             if not videos:
                 await update.message.reply_text("⚠️ Видео не вернулось. Попробуй ещё раз.", reply_markup=kb_manual_after_video())
@@ -2822,9 +2833,19 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if st.get("style") is None: st["style"] = DEFAULT_STYLE
         if not st.get("with_audio"): st["with_audio"] = DEFAULT_AUDIO
         
-        # Проверяем и списываем монеты за генерацию видео
-        cost = feature_cost_coins("video_8s_audio")
-        if not db.charge_feature(uid, "video_8s_audio", cost, "Quick video generation"):
+        # Определяем стоимость на основе длительности и аудио
+        duration = st.get("video_duration", "8s")
+        with_audio = st.get("with_audio", True)
+        
+        if duration == "6s":
+            feature_key = "video_6s_mute"
+        elif with_audio:
+            feature_key = "video_8s_audio"
+        else:
+            feature_key = "video_8s_mute"
+            
+        cost = feature_cost_coins(feature_key)
+        if not db.charge_feature(uid, feature_key, cost, "Quick video generation"):
             # Получаем актуальные данные из БД
             subscription_data = check_subscription(uid)
             coins = subscription_data.get("coins", 0)
@@ -2855,9 +2876,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Запускаем генерацию видео
         try:
             # Обычное видео - используем специальную обработку для режима "Быстрое создание"
-            prompt = process_manual_prompt(text, st["orientation"], mode="manual")
+            video_duration = int(st.get("video_duration", "8s").replace("s", ""))
+            prompt = process_manual_prompt(text, st["orientation"], mode="manual", duration=video_duration)
             
-            res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
+            res = await asyncio.to_thread(generate_video_sync, prompt, duration=video_duration, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
             videos = (res or {}).get("videos", [])
             if not videos:
                 await update.message.reply_text("⚠️ Видео не вернулось. Попробуй ещё раз.", reply_markup=kb_manual_after_video())
@@ -5441,15 +5463,9 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data in ("ori_916", "ori_169"):
         st["orientation"] = "9:16" if data == "ori_916" else "16:9"
         
-        # Для режима manual переходим к ожиданию промта
+        # Для режима manual тоже переходим к выбору длительности
         if st.get("mode") == "manual":
-            orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥️ Горизонтальное (16:9)"
-            st["awaiting_scene"] = True
-            await q.message.edit_text(
-                f"⚡ Быстрое создание\n\n"
-                f"Ориентация: {orientation_status}\n\n"
-                f"Теперь отправьте промт для генерации видео:"
-            )
+            await q.message.edit_text("Выбери длительность видео:", reply_markup=kb_video_duration())
             return
         
         # Для остальных режимов - переходим к выбору длительности
@@ -5472,7 +5488,24 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             st["with_audio"] = data == "audio_on"
         
-        # Показываем финальное меню с настройками
+        # Для manual режима переходим к ожиданию промта
+        if st.get("mode") == "manual":
+            audio_status = "🔊 С аудио" if st["with_audio"] else "🔇 Без аудио"
+            orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥️ Горизонтальное (16:9)"
+            duration = st.get("video_duration", "8s")
+            duration_status = f"⏱️ {duration} секунд"
+            
+            st["awaiting_scene"] = True
+            await q.message.edit_text(
+                f"⚡ Быстрое создание\n\n"
+                f"✅ Ориентация: {orientation_status}\n"
+                f"✅ Длительность: {duration_status}\n"
+                f"✅ Аудио: {audio_status}\n\n"
+                f"Теперь отправьте промт для генерации видео:"
+            )
+            return
+        
+        # Для остальных режимов показываем финальное меню с настройками
         audio_status = "🔊 С аудио" if st["with_audio"] else "🔇 Без аудио"
         orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥️ Горизонтальное (16:9)"
         duration = st.get("video_duration", "8s")
@@ -5596,7 +5629,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Обычные — одно видео
             # Используем правильную функцию в зависимости от режима
             if st.get("mode") == "manual":
-                prompt = process_manual_prompt(st["scene"], st["orientation"], mode="manual")
+                video_duration = int(st.get("video_duration", "8s").replace("s", ""))
+                prompt = process_manual_prompt(st["scene"], st["orientation"], mode="manual", duration=video_duration)
             else:
                 prompt = to_json_prompt(
                     st["scene"], st.get("style"), st.get("replica"), st.get("mode"),
