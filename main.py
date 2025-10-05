@@ -2885,6 +2885,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"📝 Промт принят (GPT недоступен - используется исходный текст):\n\n{text}", reply_markup=kb_variants())
             return
         
+        # Проверяем, что это не режим manual (который обрабатывается выше)
+        if st.get("mode") == "manual":
+            return
+            
         st["scene"] = text
         await update.message.reply_text(f"📝 Промт принят:\n\n{text}", reply_markup=kb_variants())
         return
