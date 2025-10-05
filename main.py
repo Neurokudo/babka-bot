@@ -329,6 +329,42 @@ def _sanitize(text: str) -> str:
         text = text.replace("  ", " ")
     return text.strip()
 
+def process_manual_prompt(text: str, aspect_ratio: str) -> str:
+    """Обработка промта для режима 'Быстрое создание'
+    
+    Args:
+        text: Промт от пользователя (может быть простым текстом или JSON)
+        aspect_ratio: Ориентация видео (9:16 или 16:9)
+    
+    Returns:
+        str: Промт готовый для VEO API
+    """
+    # Проверяем, является ли текст валидным JSON
+    try:
+        json.loads(text)
+        # Если это JSON - проверяем длину и возвращаем как есть
+        limited_text, is_valid = _limit_prompt_length(text, max_length=MAX_PROMPT_LENGTH)
+        if not is_valid:
+            raise ValueError("JSON prompt too long")
+        return limited_text
+    except (json.JSONDecodeError, TypeError):
+        # Если это простой текст - создаем минимальный JSON для VEO
+        simple_json = json.dumps({
+            "model": "veo-3.0-fast",
+            "duration": 8,
+            "aspect_ratio": aspect_ratio,
+            "subject": {"description": text, "voice_sync": False},
+            "scene": {"location": "generic", "time_of_day": "day"},
+            "action": "8s action",
+            "restrictions": "No text or logos"
+        }, ensure_ascii=False)
+        
+        # Проверяем длину получившегося JSON
+        limited_text, is_valid = _limit_prompt_length(simple_json, max_length=MAX_PROMPT_LENGTH)
+        if not is_valid:
+            raise ValueError("Simple prompt too long")
+        return limited_text
+
 def _limit_prompt_length(text: str, max_length: int = MAX_PROMPT_LENGTH) -> tuple[str, bool]:
     """Проверить длину промта для VEO API
     
@@ -2606,11 +2642,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Запускаем генерацию видео
         try:
-            # Обычное видео
-            prompt = to_json_prompt(
-                text, st.get("style"), st.get("replica"), st.get("mode"),
-                aspect_ratio=st["orientation"], context=None
-            )
+            # Обычное видео - используем специальную обработку для режима "Быстрое создание"
+            prompt = process_manual_prompt(text, st["orientation"])
             
             res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
             videos = (res or {}).get("videos", [])
@@ -2635,13 +2668,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("⚠️ Ошибка генерации видео.", reply_markup=kb_manual_after_video())
                 
         except ValueError as e:
-            if "Prompt too long" in str(e):
+            if "Prompt too long" in str(e) or "JSON prompt too long" in str(e) or "Simple prompt too long" in str(e):
                 # Возвращаем монетки за слишком длинный промт
                 await send_coin_notification(update, context, "refund", cost, "Промт слишком длинный")
                 await update.message.reply_text(
-                    f"❌ Запрос слишком длинный, пожалуйста, сократите промт до 2000 символов 🤏\n\n"
+                    f"❌ Запрос слишком длинный, пожалуйста, сократите промт до {MAX_PROMPT_LENGTH} символов 🤏\n\n"
                     f"📏 Текущая длина: {len(text)} символов\n"
-                    f"📏 Максимальная длина: 2000 символов\n\n"
+                    f"📏 Максимальная длина: {MAX_PROMPT_LENGTH} символов\n\n"
                     f"💡 Попробуйте убрать лишние детали или разделить на несколько частей.\n\n"
                     f"💰 Монетки возвращены.",
                     reply_markup=kb_manual_after_video()
@@ -2729,11 +2762,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Запускаем генерацию видео
         try:
-            # Обычное видео
-            prompt = to_json_prompt(
-                text, st.get("style"), st.get("replica"), st.get("mode"),
-                aspect_ratio=st["orientation"], context=None
-            )
+            # Обычное видео - используем специальную обработку для режима "Быстрое создание"
+            prompt = process_manual_prompt(text, st["orientation"])
             
             res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
             videos = (res or {}).get("videos", [])
@@ -2758,13 +2788,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("⚠️ Ошибка генерации видео.", reply_markup=kb_manual_after_video())
                 
         except ValueError as e:
-            if "Prompt too long" in str(e):
+            if "Prompt too long" in str(e) or "JSON prompt too long" in str(e) or "Simple prompt too long" in str(e):
                 # Возвращаем монетки за слишком длинный промт
                 await send_coin_notification(update, context, "refund", cost, "Промт слишком длинный")
                 await update.message.reply_text(
-                    f"❌ Запрос слишком длинный, пожалуйста, сократите промт до 2000 символов 🤏\n\n"
+                    f"❌ Запрос слишком длинный, пожалуйста, сократите промт до {MAX_PROMPT_LENGTH} символов 🤏\n\n"
                     f"📏 Текущая длина: {len(text)} символов\n"
-                    f"📏 Максимальная длина: 2000 символов\n\n"
+                    f"📏 Максимальная длина: {MAX_PROMPT_LENGTH} символов\n\n"
                     f"💡 Попробуйте убрать лишние детали или разделить на несколько частей.\n\n"
                     f"💰 Монетки возвращены.",
                     reply_markup=kb_manual_after_video()
