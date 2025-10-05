@@ -456,6 +456,22 @@ async def send_coin_notification(update: Update, context: ContextTypes.DEFAULT_T
     try:
         uid = update.effective_user.id
         from app.services.billing import check_subscription
+        from app.services.wallet import add_coins
+        
+        # Если это возврат - сначала возвращаем монетки в БД
+        if action == "refund":
+            success = add_coins(uid, amount, reason or "Refund")
+            if not success:
+                log.error(f"Failed to refund {amount} coins to user {uid}")
+                # Отправляем уведомление об ошибке
+                error_message = f"❌ Ошибка возврата {amount} монеток. Обратитесь в поддержку."
+                if update.message:
+                    await update.message.reply_text(error_message)
+                elif update.callback_query:
+                    await update.callback_query.message.reply_text(error_message)
+                return
+        
+        # Получаем актуальный баланс после операции
         subscription_data = check_subscription(uid)
         current_balance = subscription_data.get("coins", 0)
         
