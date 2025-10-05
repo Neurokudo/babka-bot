@@ -204,7 +204,7 @@ async def check_feature_access(update: Update, feature_name: str, cost: int = No
     Args:
         update: Telegram Update объект
         feature_name: Название функции (например, "video_generation", "tryon", "transform")
-        cost: Стоимость функции в монетокках (опционально)
+        cost: Стоимость функции в монетокх (опционально)
     
     Returns:
         True если доступ разрешен, False если отказано
@@ -223,7 +223,7 @@ async def check_feature_access(update: Update, feature_name: str, cost: int = No
     # Формируем сообщение об ошибке
     error_message = access_check["message"]
     if cost:
-        error_message += f"\n\n💰 Стоимость: {cost} монетокок"
+        error_message += f"\n\n💰 Стоимость: {cost} монеток"
     
     # Получаем клавиатуру
     keyboard = get_access_denied_keyboard(access_check)
@@ -259,7 +259,7 @@ def format_user_status(user: Dict[str, Any]) -> str:
         plan_name = "Нет подписки"
 
     text = "👤 <b>Профиль</b>\n\n"
-    text += f"💰 Осталось: {coins} монетокок\n"
+    text += f"💰 Осталось: {coins} монеток\n"
     text += f"📊 Тариф: {plan_name}\n"
     
     # Показываем статус автопродления
@@ -299,7 +299,7 @@ def format_topup_packs() -> str:
             line_parts.append(f"{coins} — {price:,} ₽")
         lines.append(" · ".join(line_parts))
     
-    lines.append("\n💡 Докупка монетокок не продлевает подписку.")
+    lines.append("\n💡 Докупка монеток не продлевает подписку.")
     return "\n".join(lines)
 
 
@@ -486,7 +486,7 @@ async def send_to_support_group(context: ContextTypes.DEFAULT_TYPE, text: str):
 
 async def send_coin_notification(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                                 action: str, amount: int, reason: str = None):
-    """Отправить уведомление о списании/возврате монетокок"""
+    """Отправить уведомление о списании/возврате монеток"""
     try:
         uid = update.effective_user.id
         from app.services.billing import check_subscription
@@ -498,7 +498,7 @@ async def send_coin_notification(update: Update, context: ContextTypes.DEFAULT_T
             if not success:
                 log.error(f"Failed to refund {amount} coins to user {uid}")
                 # Отправляем уведомление об ошибке
-                error_message = f"❌ Ошибка возврата {amount} монетокок. Обратитесь в поддержку."
+                error_message = f"❌ Ошибка возврата {amount} монеток. Обратитесь в поддержку."
                 if update.message:
                     await update.message.reply_text(error_message)
                 elif update.callback_query:
@@ -510,11 +510,11 @@ async def send_coin_notification(update: Update, context: ContextTypes.DEFAULT_T
         current_balance = subscription_data.get("coins", 0)
         
         if action == "charge":
-            message = f"💰 Списано {amount} монетокок\n💎 Баланс: {current_balance} монетокок"
+            message = f"💰 Списано {amount} монеток\n💎 Баланс: {current_balance} монеток"
         elif action == "refund":
-            message = f"💰 Возвращено {amount} монетокок\n💎 Баланс: {current_balance} монетокок"
+            message = f"💰 Возвращено {amount} монеток\n💎 Баланс: {current_balance} монеток"
         else:
-            message = f"💰 {action}: {amount} монетокок\n💎 Баланс: {current_balance} монетокок"
+            message = f"💰 {action}: {amount} монеток\n💎 Баланс: {current_balance} монеток"
         
         if reason:
             message += f"\n📝 {reason}"
@@ -1394,7 +1394,7 @@ def kb_tryon_need_garment():
 
 def kb_tryon_confirm():
     cost = feature_cost_coins("virtual_tryon")
-    button_text = f"✨ Примерить (−{cost} монетокок)"
+    button_text = f"✨ Примерить (−{cost} монеток)"
 
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(button_text, callback_data="tryon_confirm")],
@@ -1430,34 +1430,34 @@ def kb_jsonpro_after_text():
 def kb_transforms():
     cost = feature_cost_coins("image_basic")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"✨ Удалить фон (−{cost} монетокка)", callback_data="transform_remove_bg")],
-        [InlineKeyboardButton(f"👥 Совместить людей (−{cost} монетокка)", callback_data="transform_merge_people")],
-        [InlineKeyboardButton(f"🧩 Внедрить объект на фото (−{cost} монетокка)", callback_data="transform_inject_object")],
-        [InlineKeyboardButton(f"🪄 Магическая ретушь (−{cost} монетокка)", callback_data="transform_retouch")],
-        [InlineKeyboardButton(f"📷 Polaroid (−{cost} монетокка)", callback_data="transform_polaroid")],
+        [InlineKeyboardButton(f"✨ Удалить фон (−{cost} монеток)", callback_data="transform_remove_bg")],
+        [InlineKeyboardButton(f"👥 Совместить людей (−{cost} монеток)", callback_data="transform_merge_people")],
+        [InlineKeyboardButton(f"🧩 Внедрить объект на фото (−{cost} монеток)", callback_data="transform_inject_object")],
+        [InlineKeyboardButton(f"🪄 Магическая ретушь (−{cost} монеток)", callback_data="transform_retouch")],
+        [InlineKeyboardButton(f"📷 Polaroid (−{cost} монеток)", callback_data="transform_polaroid")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
     ])
 
 def kb_transform_quality():
     basic_cost = feature_cost_coins("image_basic")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"⚡ Быстрое −{basic_cost} монетокка", callback_data="quality_basic")],
+        [InlineKeyboardButton(f"⚡ Быстрое −{basic_cost} монеток", callback_data="quality_basic")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
     ])
 
 def kb_transform_result():
     cost = feature_cost_coins("image_basic")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🔄 Ещё вариант (−{cost} монетокка)", callback_data="transform_retry")],
+        [InlineKeyboardButton(f"🔄 Ещё вариант (−{cost} монеток)", callback_data="transform_retry")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
     ])
 
 def kb_video_options():
     """Клавиатура для выбора вариантов видео с полной стоимостью"""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⏱️ 6 сек (без звука) — 14 монетокок", callback_data="video_6s_mute")],
-        [InlineKeyboardButton("⏱️ 8 сек (без звука) — 18 монетокок", callback_data="video_8s_mute")],
-        [InlineKeyboardButton("⏱️ 8 сек (со звуком) — 26 монетокок", callback_data="video_8s_audio")],
+        [InlineKeyboardButton("⏱️ 6 сек (без звука) — 14 монеток", callback_data="video_6s_mute")],
+        [InlineKeyboardButton("⏱️ 8 сек (без звука) — 18 монеток", callback_data="video_8s_mute")],
+        [InlineKeyboardButton("⏱️ 8 сек (со звуком) — 26 монеток", callback_data="video_8s_audio")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_modes")],
     ])
 
@@ -1466,7 +1466,7 @@ def kb_video_audio(duration="8s"):
     if duration == "6s":
         cost_mute = feature_cost_coins("video_6s_mute")
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"🚀 Сгенерировать ролик (−{cost_mute} монетокок)", callback_data="generate_now")],
+            [InlineKeyboardButton(f"🚀 Сгенерировать ролик (−{cost_mute} монеток)", callback_data="generate_now")],
             [InlineKeyboardButton("🔇 Без звука", callback_data="audio_mute")],
             [InlineKeyboardButton("⬅️ Назад", callback_data="go_orientation")],
         ])
@@ -1474,7 +1474,7 @@ def kb_video_audio(duration="8s"):
         cost_mute = feature_cost_coins("video_8s_mute")
         cost_audio = feature_cost_coins("video_8s_audio")
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"🚀 Сгенерировать ролик (−{cost_audio} монетокок)", callback_data="generate_now")],
+            [InlineKeyboardButton(f"🚀 Сгенерировать ролик (−{cost_audio} монеток)", callback_data="generate_now")],
             [InlineKeyboardButton("🔇 Без звука (−18 монеток)", callback_data="audio_mute")],
             [InlineKeyboardButton("🔊 Со звуком (−26 монеток)", callback_data="audio_on")],
             [InlineKeyboardButton("⬅️ Назад", callback_data="go_orientation")],
@@ -1491,7 +1491,7 @@ def kb_video_generate(with_audio=True, duration="8s"):
     
     audio_text = "🔊 Со звуком" if with_audio else "🔇 Тихий режим"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🚀 Сгенерировать ролик (−{cost} монетокок)", callback_data="generate_now")],
+        [InlineKeyboardButton(f"🚀 Сгенерировать ролик (−{cost} монеток)", callback_data="generate_now")],
         [InlineKeyboardButton(audio_text, callback_data="toggle_audio")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_modes")],
     ])
@@ -1499,7 +1499,7 @@ def kb_video_generate(with_audio=True, duration="8s"):
 def kb_video_result():
     cost = feature_cost_coins("video_8s_audio")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🔄 Сделать ещё вариант (−{cost} монетокок)", callback_data="video_retry")],
+        [InlineKeyboardButton(f"🔄 Сделать ещё вариант (−{cost} монеток)", callback_data="video_retry")],
     ])
 
 # -----------------------------------------------------------------------------
@@ -1519,7 +1519,7 @@ def addons_text() -> str:
             coins, price = items[j]
             row.append(f"{coins} — {price:,} ₽")
         lines.append(" · ".join(row))
-    lines.append("\n💡 Докупка монетокок не продлевает подписку.")
+    lines.append("\n💡 Докупка монеток не продлевает подписку.")
     return "\n".join(lines)
 
 
@@ -1529,7 +1529,7 @@ def addons_keyboard(order=None) -> InlineKeyboardMarkup:
     packs = get_available_topup_packs()
     rows = []
     for coins, price in packs.items():
-        rows.append([InlineKeyboardButton(f"{coins} монетокок — {price:,} ₽", callback_data=f"buy_topup_{coins}")])
+        rows.append([InlineKeyboardButton(f"{coins} монеток — {price:,} ₽", callback_data=f"buy_topup_{coins}")])
     rows.append([InlineKeyboardButton("← Назад к тарифам", callback_data="show_tariffs")])
     return InlineKeyboardMarkup(rows)
 
@@ -1654,7 +1654,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         coins = subscription_data.get("coins", 0)
         if coins > 0 and coins < 20:  # Только если есть монетокы, но их мало
             await update.message.reply_text(
-                f"⚠️ У вас осталось мало монетокок: {coins}\n\n"
+                f"⚠️ У вас осталось мало монеток: {coins}\n\n"
                 f"💡 Рекомендуем пополнить баланс для продолжения работы",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("💳 Пополнить", callback_data="show_payment_options")],
@@ -1721,7 +1721,7 @@ async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextT
                                 message = (
                                     f"✅ <b>Тариф активирован!</b>\n\n"
                                     f"📋 Тариф: {plan_info['title']}\n"
-                                    f"💎 Получено: {plan_info['coins']} монетокок\n\n"
+                                    f"💎 Получено: {plan_info['coins']} монеток\n\n"
                                     f"⏰ Тариф действует 30 дней\n"
                                     f"💡 Подписки выгоднее разовых покупок!\n\n"
                                     f"Приятного использования! 🎉"
@@ -1733,7 +1733,7 @@ async def handle_payment_webhook(webhook_data: Dict[str, Any], context: ContextT
                             coins_amount = metadata.get("coins", 0)
                             message = (
                                 f"✅ <b>Монеты начислены!</b>\n\n"
-                                f"💎 Получено: {coins_amount} монетокок\n"
+                                f"💎 Получено: {coins_amount} монеток\n"
                                 f"💳 Сумма: {payment_data.get('amount', 0):.2f} ₽\n\n"
                                 "💡 Монеты списываются во время генераций"
                             )
@@ -1868,7 +1868,7 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def cmd_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /coins - покупка монетокок (перенаправляет на новую систему)"""
+    """Команда /coins - покупка монеток (перенаправляет на новую систему)"""
     if not await check_access(update): return
     uid = update.effective_user.id
     _ensure(uid)
@@ -2096,7 +2096,7 @@ async def cmd_test_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Ошибка тестовой оплаты: {e}")
 
 async def cmd_add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда для начисления АДМИНСКИХ монетокок - ТОЛЬКО ДЛЯ АДМИНИСТРАТОРА"""
+    """Команда для начисления АДМИНСКИХ монеток - ТОЛЬКО ДЛЯ АДМИНИСТРАТОРА"""
     uid = update.effective_user.id
     
     # Проверка: только владелец может начислять бонусы
@@ -2186,7 +2186,7 @@ async def cmd_reset_my_profile(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(
         "♻️ ВАШ ПРОФИЛЬ ПОЛНОСТЬЮ СБРОШЕН!\n\n"
         "📊 Установлены админские значения:\n\n"
-        "🪙 БАЛАНС: 0 монетокок\n"
+        "🪙 БАЛАНС: 0 монеток\n"
         f"📋 ТАРИФ: {tariff_name}\n\n"
         "✅ Профиль сохранен в БД!",
         reply_markup=kb_home_inline()
@@ -2682,7 +2682,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Промт подходящей длины - продолжаем генерацию
         st["scene"] = text
         
-        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: проверяем длину еще раз перед списанием монетокок
+        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: проверяем длину еще раз перед списанием монеток
         # Это защищает от случаев, когда промт проходит первую проверку, но не проходит в to_json_prompt
         limited_text, is_valid = _limit_prompt_length(text, max_length=MAX_PROMPT_LENGTH)
         if not is_valid:
@@ -2818,7 +2818,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: проверяем длину еще раз перед списанием монетокок
+        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: проверяем длину еще раз перед списанием монеток
         # Это защищает от случаев, когда промт проходит первую проверку, но не проходит в to_json_prompt
         limited_text, is_valid = _limit_prompt_length(text, max_length=MAX_PROMPT_LENGTH)
         if not is_valid:
@@ -3355,7 +3355,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         coins = st.get("coins", 0)
         await q.message.edit_text(
             f"📸 Изменить фото\n\n"
-            f"💰 У тебя: {coins} монетокок\n\n"
+            f"💰 У тебя: {coins} монеток\n\n"
             f"✨ Удалить фон\n"
             f"Вырежу фон. Могу поставить белый/градиент/ваш фон.\n\n"
             f"👥 Совместить людей\n"
@@ -3625,7 +3625,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buttons = []
         tariffs = get_available_tariffs()
         for plan_id, plan_data in tariffs.items():
-            label = f"{plan_id.title()} — {plan_data.price_rub} ₽ • {plan_data.coins} монетокок"
+            label = f"{plan_id.title()} — {plan_data.price_rub} ₽ • {plan_data.coins} монеток"
             if plan_id == "standard":
                 label += " (Рекомендуем)"
             buttons.append([InlineKeyboardButton(label, callback_data=f"plan_{plan_id}")])
@@ -3965,7 +3965,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             current_tariff_info = ""
             for tariff in tariffs:
                 if tariff["name"] == current_plan:
-                    current_tariff_info = f"📋 <b>Ваш текущий тариф:</b> {tariff['title']} ({tariff['coins']} монетокок)\n\n"
+                    current_tariff_info = f"📋 <b>Ваш текущий тариф:</b> {tariff['title']} ({tariff['coins']} монеток)\n\n"
                     break
             
             full_text = f"{current_tariff_info}{plans_text}\n\n{costs_text}"
@@ -3998,7 +3998,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         topup_packs = get_available_topup_packs()
         for pack in topup_packs:
             keyboard.append([InlineKeyboardButton(
-                f"{pack['coins']} монетокок — {pack['price_rub']} ₽",
+                f"{pack['coins']} монеток — {pack['price_rub']} ₽",
                 callback_data=f"buy_topup_{pack['coins']}"
             )])
         
@@ -4068,7 +4068,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if "credentials not found" in error_msg.lower():
                     await q.message.edit_text(
                         f"🔧 <b>Платежи временно недоступны</b>\n\n"
-                        f"Выбрано: {coins} монетокок — {price:,} ₽\n\n"
+                        f"Выбрано: {coins} монеток — {price:,} ₽\n\n"
                         f"🔧 Для активации реальных платежей необходимо:\n"
                         f"1. Зарегистрироваться в ЮKassa\n"
                         f"2. Получить реальные ключи API\n"
@@ -4177,7 +4177,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.edit_text(
                 f"💳 <b>Оплата тарифа {plan_info['title']}</b>\n\n"
                 f"💰 Сумма: {plan_info['price_rub']:,} ₽\n"
-                f"💎 {plan_info['coins']} монетокок\n\n"
+                f"💎 {plan_info['coins']} монеток\n\n"
                 f"⏰ Тариф действует 30 дней\n"
                 f"💡 Подписки выгоднее разовых покупок!\n\n"
                 f"📋 Соглашаясь на оплату, вы принимаете условия оферты:\n"
@@ -4203,7 +4203,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"🔧 <b>Платежи временно недоступны</b>\n\n"
                     f"Выбрано: {plan_info['title']} — {plan_info['price_rub']:,} ₽\n\n"
                     f"📋 Что включено:\n"
-                    f"• {plan_info['coins']} монетокок\n\n"
+                    f"• {plan_info['coins']} монеток\n\n"
                     f"🔧 Для активации реальных платежей необходимо:\n"
                     f"1. Зарегистрироваться в ЮKassa\n"
                     f"2. Получить реальные ключи API\n"
@@ -4225,7 +4225,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         return
     
-    # --- Обработка покупки монетокок (удалено - используем новую систему) ---
+    # --- Обработка покупки монеток (удалено - используем новую систему) ---
     
     
     
@@ -4899,7 +4899,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=result_bytes,
-                    caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {cost} монетокок",
+                    caption=f"✅ Готово! Одежда перенесена на человека.\n💰 Списано: {cost} монеток",
                 ),
                 reply_markup=kb_tryon_after(),
             )
@@ -4992,7 +4992,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=new_pose_bytes,
-                    caption=f"✅ Готово! Поза изменена.\n💰 Списано: {cost} монетокок"
+                    caption=f"✅ Готово! Поза изменена.\n💰 Списано: {cost} монеток"
                 ),
                 reply_markup=kb_tryon_after()
             )
@@ -5012,7 +5012,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.edit_media(
                 media=InputMediaPhoto(
                     media=stt["dressed"],
-                    caption=f"⚠️ Генерация позы временно недоступна.\n💰 Возвращено: {cost} монетокок\n\nПопробуйте другие функции или обратитесь в поддержку."
+                    caption=f"⚠️ Генерация позы временно недоступна.\n💰 Возвращено: {cost} монеток\n\nПопробуйте другие функции или обратитесь в поддержку."
                 ),
                 reply_markup=kb_tryon_after()
             )
@@ -5497,7 +5497,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ Ориентация: {orientation_status}\n"
                 f"✅ Длительность: {duration_status}\n"
                 f"✅ Аудио: {audio_status}\n"
-                f"💰 Стоимость: {cost} монетокок\n\n"
+                f"💰 Стоимость: {cost} монеток\n\n"
                 f"Теперь отправьте промт для генерации видео:"
             )
             return
@@ -5583,7 +5583,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cost_text = cost
         msg = await q.message.reply_text(
             "⏳ Генерирую видео… Это может занять несколько минут.\n"
-            f"💰 Списано: {cost_text} монетокок"
+            f"💰 Списано: {cost_text} монеток"
         )
         try:
             # REPORTAGE — два видео подряд
@@ -5739,7 +5739,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cost_text = cost
         msg = await q.message.reply_text(
             "⏳ Генерирую видео по JSON…\n"
-            f"💰 Списано: {cost_text} монетокок"
+            f"💰 Списано: {cost_text} монеток"
         )
         try:
             res = await asyncio.to_thread(generate_video_sync, jj, duration=8, aspect_ratio=orr, with_audio=st.get("with_audio", True))
@@ -5883,7 +5883,7 @@ def create_app():
     app.add_handler(CommandHandler("terms", cmd_terms))  # пользовательское соглашение
     app.add_handler(CommandHandler("sync_pricing", lambda u, c: u.message.reply_text(pricing_text(), parse_mode="HTML")))
     app.add_handler(CommandHandler("test_payment", cmd_test_payment))  # тестовая команда
-    app.add_handler(CommandHandler("add_bonus", cmd_add_bonus))  # команда для админских монетокок
+    app.add_handler(CommandHandler("add_bonus", cmd_add_bonus))  # команда для админских монеток
     app.add_handler(CommandHandler("reload_profile", cmd_reload_profile))  # перезагрузка профиля из БД
     app.add_handler(CommandHandler("reset_my_profile", cmd_reset_my_profile))  # сброс профиля админа
     app.add_handler(CallbackQueryHandler(on_cb))

@@ -85,7 +85,7 @@ def format_plans_list() -> str:
     plans = []
     for tariff_data in get_available_tariffs():
         plans.append(
-            f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽ → {tariff_data['coins']} монет"
+            f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽ → {tariff_data['coins']} монеток"
         )
     return "\n".join(plans)
 
@@ -96,22 +96,22 @@ def calculate_tariff_examples(coins: int) -> str:
     # Видео 6 сек без звука
     video_6s_count = coins // FEATURE_COSTS["video_6s_mute"]
     if video_6s_count > 0:
-        examples.append(f"• до {video_6s_count} видео (6 сек, без звука) или")
+        examples.append(f"* до {video_6s_count} видео (6 сек, без звука) или")
     
     # Видео 8 сек без звука
     video_8s_mute_count = coins // FEATURE_COSTS["video_8s_mute"]
     if video_8s_mute_count > 0:
-        examples.append(f"• до {video_8s_mute_count} видео (8 сек, без звука) или")
+        examples.append(f"* до {video_8s_mute_count} видео (8 сек, без звука) или")
     
     # Видео 8 сек со звуком
     video_8s_audio_count = coins // FEATURE_COSTS["video_8s_audio"]
     if video_8s_audio_count > 0:
-        examples.append(f"• до {video_8s_audio_count} видео (8 сек, со звуком) или")
+        examples.append(f"* до {video_8s_audio_count} видео (8 сек, со звуком) или")
     
     # Фото-операции
     photo_count = coins // FEATURE_COSTS["image_basic"]
     if photo_count > 0:
-        examples.append(f"• до {photo_count} фото-операций")
+        examples.append(f"* до {photo_count} фото-операций")
     
     return "\n".join(examples)
 
@@ -120,17 +120,17 @@ def format_feature_costs() -> str:
     costs = []
     
     # Заголовок
-    costs.append("💡 <b>Как списываются монеты:</b>")
+    costs.append("💡 <b>Как списываются монетки:</b>")
     
     # Видео
     costs.append("🎬 Видео Veo 3:")
-    costs.append("• 6 сек, без звука — 14 монет")
-    costs.append("• 8 сек, без звука — 18 монет")
-    costs.append("• 8 сек, со звуком — 26 монет")
+    costs.append("• 6 сек, без звука — 14 монеток")
+    costs.append("• 8 сек, без звука — 18 монеток")
+    costs.append("• 8 сек, со звуком — 26 монеток")
     
     # Фото и примерка
-    costs.append("📸 Фото-инструменты — 1 монета за действие")
-    costs.append("👗 Виртуальная примерочная (Try-On) — 3 монеты за 1 образ (1 результат)")
+    costs.append("📸 Фото-инструменты — 1 монетка за действие")
+    costs.append("👗 Виртуальная примерочная (Try-On) — 3 монетки за 1 образ (1 результат)")
     
     return "\n".join(costs)
 
@@ -167,16 +167,16 @@ def format_special_packs() -> str:
         items_desc = []
         for item, count in pack.items.items():
             if item == "video_8s_mute":
-                items_desc.append(f"{count} видео Veo 3 (8 сек, без звука)")
+                items_desc.append(f"* {count} видео Veo 3 (8 сек, без звука) в подарок")
             elif item == "virtual_tryon":
-                items_desc.append(f"{count} запусков Переодеваний (по 1 результату)")
+                items_desc.append(f"* {count} запусков Переодеваний (по 1 результату)")
         
         if items_desc:
-            packs.append("• " + "\n• ".join(items_desc))
+            packs.append("\n".join(items_desc))
         
-        packs.append(f"• Активация: {pack.duration_days} дней")
+        packs.append(f"* Активация: {pack.duration_days} дней")
         if pack.one_time_only:
-            packs.append("• Покупка: 1 раз на пользователя")
+            packs.append("* Покупка: 1 раз на пользователя")
     
     return "\n".join(packs)
 
@@ -186,7 +186,7 @@ def pricing_text() -> str:
     
     # Добавляем детальные описания тарифов
     for tariff_data in get_available_tariffs():
-        text += f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽ → {tariff_data['coins']} монет\n"
+        text += f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽ → {tariff_data['coins']} монеток\n"
         text += f"Что это даёт:\n"
         text += calculate_tariff_examples(tariff_data['coins'])
         text += "\n\n"
@@ -196,7 +196,7 @@ def pricing_text() -> str:
     text += "💡 Подсказка пользователю: без звука — дешевле, роликов выйдет больше. Звук можно включить по желанию.\n\n"
     text += format_special_packs()
     text += "\n\n"
-    text += "➕ Пакеты монет:\n"
+    text += "➕ Пакеты монеток:\n"
     text += format_topup_packs()
     text += "\n\n💡 Докупка монеток не продлевает подписку."
     return text
