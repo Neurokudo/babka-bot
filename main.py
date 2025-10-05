@@ -339,15 +339,21 @@ def process_manual_prompt(text: str, aspect_ratio: str) -> str:
     Returns:
         str: Промт готовый для VEO API
     """
+    log.info(f"PROCESS_MANUAL_PROMPT len={len(text)} aspect_ratio={aspect_ratio}")
+    
     # Проверяем, является ли текст валидным JSON
     try:
         json.loads(text)
+        log.info(f"PROCESS_MANUAL_PROMPT: Valid JSON detected")
         # Если это JSON - проверяем длину и возвращаем как есть
         limited_text, is_valid = _limit_prompt_length(text, max_length=MAX_PROMPT_LENGTH)
         if not is_valid:
+            log.warning(f"PROCESS_MANUAL_PROMPT: JSON too long len={len(text)}")
             raise ValueError("JSON prompt too long")
+        log.info(f"PROCESS_MANUAL_PROMPT: JSON processed successfully")
         return limited_text
     except (json.JSONDecodeError, TypeError):
+        log.info(f"PROCESS_MANUAL_PROMPT: Not JSON, creating simple JSON")
         # Если это простой текст - создаем минимальный JSON для VEO
         simple_json = json.dumps({
             "model": "veo-3.0-fast",
@@ -362,7 +368,9 @@ def process_manual_prompt(text: str, aspect_ratio: str) -> str:
         # Проверяем длину получившегося JSON
         limited_text, is_valid = _limit_prompt_length(simple_json, max_length=MAX_PROMPT_LENGTH)
         if not is_valid:
+            log.warning(f"PROCESS_MANUAL_PROMPT: Simple JSON too long len={len(simple_json)}")
             raise ValueError("Simple prompt too long")
+        log.info(f"PROCESS_MANUAL_PROMPT: Simple JSON processed successfully")
         return limited_text
 
 def _limit_prompt_length(text: str, max_length: int = MAX_PROMPT_LENGTH) -> tuple[str, bool]:
@@ -999,7 +1007,7 @@ def to_json_prompt(scene: str, style: Optional[str], replica: Optional[str],
     # если пользователь прислал уже JSON — проверяем длину
     try:
         json.loads(scene)
-        limited_text, is_valid = _limit_prompt_length(scene, max_length=2000)
+        limited_text, is_valid = _limit_prompt_length(scene, max_length=MAX_PROMPT_LENGTH)
         if not is_valid:
             raise ValueError("Prompt too long")
         return limited_text
@@ -1025,14 +1033,14 @@ def to_json_prompt(scene: str, style: Optional[str], replica: Optional[str],
             "mood": "neutral",
             "restrictions": "No text or logos"
         }, ensure_ascii=False)
-        limited_text, is_valid = _limit_prompt_length(fallback_json, max_length=2000)
+        limited_text, is_valid = _limit_prompt_length(fallback_json, max_length=MAX_PROMPT_LENGTH)
         if not is_valid:
             raise ValueError("Prompt too long")
         return limited_text
     
     # Новый JSON-парсер для NEUROKUDO стиля
     result = _neurokudo_json_parser(scene, style, replica, mode, aspect_ratio, context)
-    limited_text, is_valid = _limit_prompt_length(result, max_length=2000)
+    limited_text, is_valid = _limit_prompt_length(result, max_length=MAX_PROMPT_LENGTH)
     if not is_valid:
         raise ValueError("Prompt too long")
     return limited_text
@@ -2710,7 +2718,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         st["awaiting_scene"] = False  # Сбрасываем флаг сразу
         
         # Проверяем длину промта
-        limited_text, is_valid = _limit_prompt_length(text, max_length=2000)
+        limited_text, is_valid = _limit_prompt_length(text, max_length=MAX_PROMPT_LENGTH)
         
         if not is_valid:
             # Устанавливаем состояние ожидания сокращенного промта с TTL
@@ -2897,9 +2905,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError as e:
             if "Prompt too long" in str(e):
                 await update.message.reply_text(
-                    f"❌ Запрос слишком длинный, пожалуйста, сократите промт до 2000 символов 🤏\n\n"
+                    f"❌ Запрос слишком длинный, пожалуйста, сократите промт до {MAX_PROMPT_LENGTH} символов 🤏\n\n"
                     f"📏 Текущая длина: {len(text)} символов\n"
-                    f"📏 Максимальная длина: 2000 символов\n\n"
+                    f"📏 Максимальная длина: {MAX_PROMPT_LENGTH} символов\n\n"
                     f"💡 Попробуйте убрать лишние детали или разделить на несколько частей.",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="back_home")]])
                 )
