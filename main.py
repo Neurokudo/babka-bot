@@ -329,19 +329,45 @@ def _sanitize(text: str) -> str:
         text = text.replace("  ", " ")
     return text.strip()
 
-def process_manual_prompt(text: str, aspect_ratio: str) -> str:
+def process_manual_prompt(text: str, aspect_ratio: str, mode: str = "manual") -> str:
     """Обработка промта для режима 'Быстрое создание'
     
     Args:
         text: Промт от пользователя (может быть простым текстом или JSON)
         aspect_ratio: Ориентация видео (9:16 или 16:9)
+        mode: Режим обработки ("manual" для быстрого создания, "smart" для умного помощника)
     
     Returns:
         str: Промт готовый для VEO API
     """
-    log.info(f"PROCESS_MANUAL_PROMPT len={len(text)} aspect_ratio={aspect_ratio}")
+    log.info(f"PROCESS_MANUAL_PROMPT len={len(text)} aspect_ratio={aspect_ratio} mode={mode}")
     
-    # Проверяем, является ли текст валидным JSON
+    # Если пользователь в режиме "Быстрое создание" - не конвертируем простой текст в JSON
+    if mode == "manual":
+        log.info("FAST MODE: checking if text is JSON, otherwise sending raw")
+        
+        # Проверяем, является ли текст валидным JSON
+        try:
+            json.loads(text)
+            log.info(f"PROCESS_MANUAL_PROMPT: Valid JSON detected in fast mode")
+            # Если это JSON - проверяем длину и возвращаем как есть
+            limited_text, is_valid = _limit_prompt_length(text, max_length=MAX_PROMPT_LENGTH)
+            if not is_valid:
+                log.warning(f"PROCESS_MANUAL_PROMPT: JSON too long len={len(text)}")
+                raise ValueError("JSON prompt too long")
+            log.info(f"PROCESS_MANUAL_PROMPT: JSON processed successfully")
+            return limited_text
+        except (json.JSONDecodeError, TypeError):
+            log.info(f"PROCESS_MANUAL_PROMPT: Not JSON in fast mode, sending raw text")
+            # Если это простой текст - возвращаем как есть (VEO API принимает простой текст)
+            limited_text, is_valid = _limit_prompt_length(text, max_length=MAX_PROMPT_LENGTH)
+            if not is_valid:
+                log.warning(f"PROCESS_MANUAL_PROMPT: Raw text too long len={len(text)}")
+                raise ValueError("Raw prompt too long")
+            log.info(f"PROCESS_MANUAL_PROMPT: Raw text processed successfully")
+            return limited_text
+    
+    # Для других режимов - стандартная логика с JSON-конвертацией
     try:
         json.loads(text)
         log.info(f"PROCESS_MANUAL_PROMPT: Valid JSON detected")
@@ -2667,7 +2693,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Запускаем генерацию видео
         try:
             # Обычное видео - используем специальную обработку для режима "Быстрое создание"
-            prompt = process_manual_prompt(text, st["orientation"])
+            prompt = process_manual_prompt(text, st["orientation"], mode="manual")
             
             res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
             videos = (res or {}).get("videos", [])
@@ -2787,7 +2813,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Запускаем генерацию видео
         try:
             # Обычное видео - используем специальную обработку для режима "Быстрое создание"
-            prompt = process_manual_prompt(text, st["orientation"])
+            prompt = process_manual_prompt(text, st["orientation"], mode="manual")
             
             res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
             videos = (res or {}).get("videos", [])
@@ -5486,10 +5512,14 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             # Обычные — одно видео
-            prompt = to_json_prompt(
-                st["scene"], st.get("style"), st.get("replica"), st.get("mode"),
-                aspect_ratio=st["orientation"], context=None
-            )
+            # Используем правильную функцию в зависимости от режима
+            if st.get("mode") == "manual":
+                prompt = process_manual_prompt(st["scene"], st["orientation"], mode="manual")
+            else:
+                prompt = to_json_prompt(
+                    st["scene"], st.get("style"), st.get("replica"), st.get("mode"),
+                    aspect_ratio=st["orientation"], context=None
+                )
             res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
             videos = (res or {}).get("videos", [])
             if not videos:
