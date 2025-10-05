@@ -1452,8 +1452,42 @@ def kb_transform_result():
         [InlineKeyboardButton("⬅️ Назад", callback_data="menu_transforms")],
     ])
 
-def kb_video_generate(with_audio=True):
-    cost = feature_cost_coins("video_8s_audio" if with_audio else "video_8s_mute")
+def kb_video_duration():
+    """Клавиатура для выбора длительности видео"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏱️ 6 секунд (−14 монет)", callback_data="duration_6s")],
+        [InlineKeyboardButton("⏱️ 8 секунд (−18 монет)", callback_data="duration_8s")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_modes")],
+    ])
+
+def kb_video_audio(duration="8s"):
+    """Клавиатура для выбора аудио после выбора длительности"""
+    if duration == "6s":
+        cost_mute = feature_cost_coins("video_6s_mute")
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"🚀 Сгенерировать ролик (−{cost_mute} монеток)", callback_data="generate_now")],
+            [InlineKeyboardButton("🔇 Без звука", callback_data="audio_mute")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="go_orientation")],
+        ])
+    else:  # 8s
+        cost_mute = feature_cost_coins("video_8s_mute")
+        cost_audio = feature_cost_coins("video_8s_audio")
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"🚀 Сгенерировать ролик (−{cost_audio} монеток)", callback_data="generate_now")],
+            [InlineKeyboardButton("🔇 Без звука (−18 монет)", callback_data="audio_mute")],
+            [InlineKeyboardButton("🔊 Со звуком (−26 монет)", callback_data="audio_on")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="go_orientation")],
+        ])
+
+def kb_video_generate(with_audio=True, duration="8s"):
+    """Устаревшая функция, оставлена для совместимости"""
+    if duration == "6s":
+        cost = feature_cost_coins("video_6s_mute")
+    elif with_audio:
+        cost = feature_cost_coins("video_8s_audio")
+    else:
+        cost = feature_cost_coins("video_8s_mute")
+    
     audio_text = "🔊 Со звуком" if with_audio else "🔇 Тихий режим"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"🚀 Сгенерировать ролик (−{cost} монеток)", callback_data="generate_now")],
@@ -5418,22 +5452,37 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Для остальных режимов - обычный флоу
-        await q.message.edit_text("Выбери настройки аудио:", reply_markup=kb_audio_choice())
+        # Для остальных режимов - переходим к выбору длительности
+        await q.message.edit_text("Выбери длительность видео:", reply_markup=kb_video_duration())
+        return
+    
+    # --- Выбор длительности видео ---
+    if data in ("duration_6s", "duration_8s"):
+        duration = "6s" if data == "duration_6s" else "8s"
+        st["video_duration"] = duration
+        
+        # Переходим к выбору аудио
+        await q.message.edit_text("Выбери настройки аудио:", reply_markup=kb_video_audio(duration))
         return
     
     # --- Выбор аудио ---
-    if data in ("audio_on", "audio_off"):
-        st["with_audio"] = data == "audio_on"
+    if data in ("audio_on", "audio_off", "audio_mute"):
+        if data == "audio_mute":
+            st["with_audio"] = False
+        else:
+            st["with_audio"] = data == "audio_on"
         
         # Показываем финальное меню с настройками
         audio_status = "🔊 С аудио" if st["with_audio"] else "🔇 Без аудио"
         orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥️ Горизонтальное (16:9)"
+        duration = st.get("video_duration", "8s")
+        duration_status = f"⏱️ {duration} секунд"
         
         preview_text = (
             f"📝 Итоговые настройки:\n\n"
             f"✅ Сцена: {st.get('scene', 'Не задана')[:100]}...\n"
             f"✅ Ориентация: {orientation_status}\n"
+            f"✅ Длительность: {duration_status}\n"
             f"✅ Аудио: {audio_status}\n"
             f"✅ Стиль: {st.get('style', DEFAULT_STYLE)}\n\n"
             f"Готов к генерации!"
@@ -5444,6 +5493,16 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("✍️ Изменить сцену", callback_data="prompt_add")],
             [InlineKeyboardButton("🔄 Переделать", callback_data="go_next")],
         ]))
+        return
+
+    # --- Обработка toggle_audio для обратной совместимости ---
+    if data == "toggle_audio":
+        # Переключаем аудио
+        current_audio = st.get("with_audio", True)
+        st["with_audio"] = not current_audio
+        
+        # Показываем обновленную клавиатуру
+        await q.message.edit_text("Настройки видео обновлены", reply_markup=kb_video_generate(st["with_audio"]))
         return
 
     # --- Отмена процедуры ---
@@ -5459,9 +5518,19 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if st.get("style") is None: st["style"] = DEFAULT_STYLE
         if not st.get("orientation"): st["orientation"] = DEFAULT_ORIENTATION
 
-        # Проверяем и списываем монеты за генерацию видео
-        cost = feature_cost_coins("video_8s_audio")
-        if not db.charge_feature(uid, "video_8s_audio", cost, "Video generation"):
+        # Определяем стоимость на основе длительности и аудио
+        duration = st.get("video_duration", "8s")
+        with_audio = st.get("with_audio", True)
+        
+        if duration == "6s":
+            feature_key = "video_6s_mute"
+        elif with_audio:
+            feature_key = "video_8s_audio"
+        else:
+            feature_key = "video_8s_mute"
+            
+        cost = feature_cost_coins(feature_key)
+        if not db.charge_feature(uid, feature_key, cost, "Video generation"):
             # Получаем актуальные данные из БД
             subscription_data = check_subscription(uid)
             coins = subscription_data.get("coins", 0)
@@ -5497,7 +5566,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     aspect_ratio=st["orientation"], context=st.get("nkudo_scene1")
                 )
 
-                res1 = await asyncio.to_thread(generate_video_sync, prompt1, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
+                video_duration = int(duration.replace("s", ""))
+                res1 = await asyncio.to_thread(generate_video_sync, prompt1, duration=video_duration, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
                 vids1 = (res1 or {}).get("videos", [])
                 if vids1 and vids1[0].get("file_path") and os.path.exists(vids1[0]["file_path"]):
                     with open(vids1[0]["file_path"], "rb") as f:
@@ -5505,7 +5575,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await q.message.reply_text("⚠️ Сцена 1: видео не вернулось.")
 
-                res2 = await asyncio.to_thread(generate_video_sync, prompt2, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
+                res2 = await asyncio.to_thread(generate_video_sync, prompt2, duration=video_duration, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
                 vids2 = (res2 or {}).get("videos", [])
                 cap2 = "🎤 Сцена 2" + (f"\n💬 {st.get('replica')}" if st.get("replica") else "")
                 if vids2 and vids2[0].get("file_path") and os.path.exists(vids2[0]["file_path"]):
@@ -5532,7 +5602,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     st["scene"], st.get("style"), st.get("replica"), st.get("mode"),
                     aspect_ratio=st["orientation"], context=None
                 )
-            res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
+            video_duration = int(duration.replace("s", ""))
+            res = await asyncio.to_thread(generate_video_sync, prompt, duration=video_duration, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
             videos = (res or {}).get("videos", [])
             if not videos:
                 await q.message.reply_text("⚠️ Видео не вернулось. Попробуйте ещё раз.", reply_markup=kb_home_inline())

@@ -1,6 +1,6 @@
 from decimal import Decimal
 from typing import List, Dict, Any
-from app.config.pricing import TARIFFS, FEATURE_COSTS, TOPUP_PACKS, COGS_USD
+from app.config.pricing import TARIFFS, FEATURE_COSTS, TOPUP_PACKS, SPECIAL_PACKS, COGS_USD
 
 def coins_for_tariff(tariff_name: str) -> int:
     return TARIFFS[tariff_name].coins
@@ -23,14 +23,6 @@ def cogs_usd(feature_key: str) -> Decimal:
 def get_available_tariffs() -> List[Dict[str, Any]]:
     """Получить список доступных тарифов"""
     return [
-        {
-            "name": "start",
-            "title": "Старт",
-            "price_rub": TARIFFS["start"].price_rub,
-            "coins": TARIFFS["start"].coins,
-            "duration_days": TARIFFS["start"].duration_days,
-            "icon": "🚀"
-        },
         {
             "name": "lite",
             "title": "Лайт",
@@ -93,24 +85,52 @@ def format_plans_list() -> str:
     plans = []
     for tariff_data in get_available_tariffs():
         plans.append(
-            f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽ → 🎟️ {tariff_data['coins']} монеток"
+            f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽ → {tariff_data['coins']} монет"
         )
     return "\n".join(plans)
+
+def calculate_tariff_examples(coins: int) -> str:
+    """Рассчитать примеры использования для тарифа"""
+    examples = []
+    
+    # Видео 6 сек без звука
+    video_6s_count = coins // FEATURE_COSTS["video_6s_mute"]
+    if video_6s_count > 0:
+        examples.append(f"• до {video_6s_count} видео (6 сек, без звука) или")
+    
+    # Видео 8 сек без звука
+    video_8s_mute_count = coins // FEATURE_COSTS["video_8s_mute"]
+    if video_8s_mute_count > 0:
+        examples.append(f"• до {video_8s_mute_count} видео (8 сек, без звука) или")
+    
+    # Видео 8 сек со звуком
+    video_8s_audio_count = coins // FEATURE_COSTS["video_8s_audio"]
+    if video_8s_audio_count > 0:
+        examples.append(f"• до {video_8s_audio_count} видео (8 сек, со звуком) или")
+    
+    # Фото-операции
+    photo_count = coins // FEATURE_COSTS["image_basic"]
+    if photo_count > 0:
+        examples.append(f"• до {photo_count} фото-операций")
+    
+    return "\n".join(examples)
 
 def format_feature_costs() -> str:
     """Форматированный список стоимости функций"""
     costs = []
     
     # Заголовок
-    costs.append("💡 <b>Стоимость операций:</b>")
+    costs.append("💡 <b>Как списываются монеты:</b>")
     
     # Видео
-    costs.append("🎬 Veo 3 Fast 8s (со звуком) — 20 монеток")
-    costs.append("🔇 Veo 3 Fast 8s (без звука) — 16 монеток")
+    costs.append("🎬 Видео Veo 3:")
+    costs.append("• 6 сек, без звука — 14 монет")
+    costs.append("• 8 сек, без звука — 18 монет")
+    costs.append("• 8 сек, со звуком — 26 монет")
     
     # Фото и примерка
-    costs.append("📸 Фото-инструменты — 1 монеток")
-    costs.append("👗 Виртуальная примерочная — 3 монеток")
+    costs.append("📸 Фото-инструменты — 1 монета за действие")
+    costs.append("👗 Виртуальная примерочная (Try-On) — 3 монеты за 1 образ (1 результат)")
     
     return "\n".join(costs)
 
@@ -121,12 +141,62 @@ def format_topup_packs() -> str:
         packs.append(f"{pack.coins} монеток — {pack.price_rub} ₽")
     return "\n".join(packs)
 
+def get_available_special_packs() -> List[Dict[str, Any]]:
+    """Получить список доступных разовых пакетов"""
+    return [
+        {
+            "name": pack.name,
+            "description": pack.description,
+            "price_rub": pack.price_rub,
+            "items": pack.items,
+            "duration_days": pack.duration_days,
+            "one_time_only": pack.one_time_only
+        }
+        for pack in SPECIAL_PACKS
+    ]
+
+def format_special_packs() -> str:
+    """Форматированный список разовых пакетов"""
+    packs = []
+    packs.append("🎁 <b>Разовый выгодный пакет</b>")
+    
+    for pack in SPECIAL_PACKS:
+        packs.append(f"{pack.description} — {pack.price_rub} ₽")
+        
+        # Детализация содержимого
+        items_desc = []
+        for item, count in pack.items.items():
+            if item == "video_8s_mute":
+                items_desc.append(f"{count} видео Veo 3 (8 сек, без звука)")
+            elif item == "virtual_tryon":
+                items_desc.append(f"{count} запусков Переодеваний (по 1 результату)")
+        
+        if items_desc:
+            packs.append("• " + "\n• ".join(items_desc))
+        
+        packs.append(f"• Активация: {pack.duration_days} дней")
+        if pack.one_time_only:
+            packs.append("• Покупка: 1 раз на пользователя")
+    
+    return "\n".join(packs)
+
 def pricing_text() -> str:
     """Полный текст с тарифами и стоимостью"""
-    text = "💰 Тарифы\n\n"
-    text += format_plans_list()
+    text = "💰 Тарифы на 30 дней\n\n"
+    
+    # Добавляем детальные описания тарифов
+    for tariff_data in get_available_tariffs():
+        text += f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽ → {tariff_data['coins']} монет\n"
+        text += f"Что это даёт:\n"
+        text += calculate_tariff_examples(tariff_data['coins'])
+        text += "\n\n"
+    
+    text += format_feature_costs()
     text += "\n\n"
-    text += "📸 Фотографии = любые фото-инструменты: виртуальная примерочная, полароид, ретушь, фон и т.д.\n\n"
+    text += "💡 Подсказка пользователю: без звука — дешевле, роликов выйдет больше. Звук можно включить по желанию.\n\n"
+    text += format_special_packs()
+    text += "\n\n"
     text += "➕ Пакеты монет:\n"
     text += format_topup_packs()
+    text += "\n\n💡 Докупка монеток не продлевает подписку."
     return text
