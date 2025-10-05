@@ -1115,10 +1115,10 @@ def kb_home_inline():
 
 def kb_modes():
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚡ Быстрое создание", callback_data="mode_manual")],
         [InlineKeyboardButton("🧠✨ Умный помощник", callback_data="mode_helper")],
         [InlineKeyboardButton("🔮 Как у NEUROKUDO", callback_data="mode_nkudo")],
         [InlineKeyboardButton("🎤 Репортаж из деревни", callback_data="nkudo_reportage")],
-        [InlineKeyboardButton("✏️ Я сам напишу промт", callback_data="mode_manual")],
         [InlineKeyboardButton("🎲 Мемный режим", callback_data="mode_meme")],
         [InlineKeyboardButton("⬅️ Назад в меню", callback_data="back_home")],
     ])
@@ -2480,6 +2480,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             st["scene"] = text
             await update.message.reply_text(f"📝 Промт принят (GPT недоступен - используется исходный текст):\n\n{text}", reply_markup=kb_variants())
             return
+        # Для режима manual сразу переходим к выбору ориентации
+        if st["mode"] == "manual":
+            st["scene"] = text
+            await update.message.reply_text(
+                f"⚡ Быстрое создание\n\n📝 Промт принят:\n\n{text}\n\n"
+                f"Выберите ориентацию видео:",
+                reply_markup=kb_orientation()
+            )
+            return
+        
         st["scene"] = text
         await update.message.reply_text(f"📝 Промт принят:\n\n{text}", reply_markup=kb_variants())
         return
@@ -3826,8 +3836,8 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "mode_manual":
         st.update({"mode": "manual", "scene": None, "style": None, "replica": None})
         st["awaiting_scene"] = True
-        await q.message.edit_text("✏️ Режим ручного ввода активирован!")
-        await q.message.reply_text("Введи свою сцену (я ничего не меняю).", reply_markup=kb_back_only()); return
+        await q.message.edit_text("⚡ Быстрое создание активировано!")
+        await q.message.reply_text("Введи свою сцену - после выбора ориентации видео сразу сгенерируется.", reply_markup=kb_back_only()); return
 
     if data == "mode_meme":
         st.update({"mode": "meme", "style": None, "replica": None})
@@ -4952,6 +4962,102 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Выбор ориентации ---
     if data in ("ori_916", "ori_169"):
         st["orientation"] = "9:16" if data == "ori_916" else "16:9"
+        
+        # Для режима manual сразу генерируем видео
+        if st.get("mode") == "manual":
+            # Устанавливаем дефолтные значения
+            if st.get("style") is None: st["style"] = DEFAULT_STYLE
+            if not st.get("with_audio"): st["with_audio"] = DEFAULT_AUDIO
+            
+            # Проверяем и списываем монеты за генерацию видео
+            cost = feature_cost_coins("video_8s_audio")
+            if not db.charge_feature(uid, "video_8s_audio", cost, "Quick video generation"):
+                # Получаем актуальные данные из БД
+                subscription_data = check_subscription(uid)
+                coins = subscription_data.get("coins", 0)
+                await q.message.reply_text(
+                    f"❌ Не хватает монет для генерации видео.\n\n"
+                    f"💰 Монеток: {coins} (нужно: {cost})\n\n"
+                    "💳 Пополнить баланс?",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("💰 Монетки", callback_data="show_topup")],
+                        [InlineKeyboardButton("📚 Тарифы", callback_data="show_tariffs")],
+                        [InlineKeyboardButton("⬅️ Назад", callback_data="back_home")],
+                    ])
+                )
+                return
+
+            # Отправляем уведомление о списании
+            await send_coin_notification(q, context, "charge", cost, "Быстрое создание видео")
+            
+            # Генерируем видео
+            orientation_status = "📱 Вертикальное (9:16)" if st["orientation"] == "9:16" else "🖥 Горизонтальное (16:9)"
+            await q.message.edit_text(
+                f"⚡ Быстрое создание\n\n"
+                f"📝 Промт: {st.get('scene', '')[:100]}...\n"
+                f"📱 Ориентация: {orientation_status}\n\n"
+                f"⏳ Генерирую видео… Это может занять несколько минут."
+            )
+            
+            # Запускаем генерацию видео
+            try:
+                # REPORTAGE — два видео подряд
+                if st.get("nkudo_type") == "reportage" or st.get("mode") == "reportage":
+                    prompt1 = to_json_prompt(
+                        st.get("nkudo_scene1",""), st.get("style"), None, "reportage",
+                        aspect_ratio=st["orientation"], context=None
+                    )
+                    prompt2 = to_json_prompt(
+                        st.get("nkudo_scene2",""), st.get("style"), st.get("replica"), "reportage",
+                        aspect_ratio=st["orientation"], context=None
+                    )
+                    
+                    # Генерируем первое видео
+                    res1 = await asyncio.to_thread(generate_video_sync, prompt1, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
+                    if res1 and res1.get("videos"):
+                        v1 = res1["videos"][0]
+                        await q.message.reply_video(video=v1.get("file_path") or v1.get("uri"), caption="📺 Сцена 1")
+                    
+                    # Генерируем второе видео
+                    res2 = await asyncio.to_thread(generate_video_sync, prompt2, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
+                    if res2 and res2.get("videos"):
+                        v2 = res2["videos"][0]
+                        await q.message.reply_video(video=v2.get("file_path") or v2.get("uri"), caption="🎤 Сцена 2")
+                    
+                    await q.message.reply_text("✅ Репортаж готов!", reply_markup=kb_video_result())
+                else:
+                    # Обычное видео
+                    prompt = to_json_prompt(
+                        st.get("scene",""), st.get("style"), st.get("replica"), st.get("mode"),
+                        aspect_ratio=st["orientation"], context=None
+                    )
+                    
+                    res = await asyncio.to_thread(generate_video_sync, prompt, duration=8, aspect_ratio=st["orientation"], with_audio=st.get("with_audio", True))
+                    videos = (res or {}).get("videos", [])
+                    if not videos:
+                        await q.message.reply_text("⚠️ Видео не вернулось. Попробуй ещё раз.", reply_markup=kb_home_inline())
+                        return
+                    
+                    v0 = videos[0]
+                    file_path = v0.get("file_path")
+                    uri = v0.get("uri")
+                    
+                    if file_path or uri:
+                        await q.message.reply_video(
+                            video=file_path or uri,
+                            caption=f"✅ Видео готово!\n\n📝 Промт: {st.get('scene', '')[:100]}...\n📱 Ориентация: {orientation_status}"
+                        )
+                        await q.message.reply_text("🎉 Быстрое создание завершено!", reply_markup=kb_home_inline())
+                    else:
+                        await q.message.reply_text("⚠️ Ошибка генерации видео.", reply_markup=kb_home_inline())
+                        
+            except Exception as e:
+                log.exception("Quick video generation failed: %s", str(e))
+                await q.message.reply_text(f"❌ Ошибка генерации: {str(e)}", reply_markup=kb_home_inline())
+            
+            return
+        
+        # Для остальных режимов - обычный флоу
         await q.message.edit_text("Выбери настройки аудио:", reply_markup=kb_audio_choice())
         return
     
