@@ -27,6 +27,7 @@ TARIFFS: Dict[str, Tariff] = {
     "pro": Tariff(price_rub=4990, coins=700, duration_days=30),
 }
 
+# Расширенная система ценообразования с метками фич для аудита
 FEATURE_COSTS = {
     "video_6s_mute": 14,     # 6 сек, без звука
     "video_8s_mute": 18,     # 8 сек, без звука
@@ -37,6 +38,39 @@ FEATURE_COSTS = {
     "video": 26,            # Общий для видео (по умолчанию 8с со звуком)
     "tryon": 3,             # Для виртуальной примерочной
     "json": 26,             # Для JSON генерации
+}
+
+# Детальные описания фич для аудита и отчетов
+FEATURE_DESCRIPTIONS = {
+    "video_6s_mute": "Veo 3 - 6 сек без звука",
+    "video_8s_mute": "Veo 3 - 8 сек без звука", 
+    "video_8s_audio": "Veo 3 - 8 сек со звуком",
+    "image_basic": "Фото-инструменты (базовые)",
+    "virtual_tryon": "Виртуальная примерочная (Try-On)",
+    "transform": "Трансформации изображений",
+    "video": "Видео генерация (общая)",
+    "tryon": "Виртуальная примерочная",
+    "json": "JSON генерация",
+    "subscription_lite": "Подписка Лайт",
+    "subscription_standard": "Подписка Стандарт", 
+    "subscription_pro": "Подписка Про",
+    "topup": "Пополнение монет",
+    "bonus_gift": "Бонусный подарок",
+    "admin_set_balance": "Админская установка баланса",
+    "manual_add": "Ручное добавление монет",
+    "manual_spend": "Ручное списание монет"
+}
+
+# Категории фич для группировки в отчетах
+FEATURE_CATEGORIES = {
+    "video_generation": ["video_6s_mute", "video_8s_mute", "video_8s_audio", "video"],
+    "photo_tools": ["image_basic", "transform"],
+    "virtual_tryon": ["virtual_tryon", "tryon"],
+    "subscriptions": ["subscription_lite", "subscription_standard", "subscription_pro"],
+    "topup": ["topup"],
+    "bonuses": ["bonus_gift"],
+    "admin": ["admin_set_balance", "manual_add", "manual_spend"],
+    "other": ["json"]
 }
 
 TOPUP_PACKS: List[TopupPack] = [

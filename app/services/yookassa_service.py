@@ -376,8 +376,14 @@ def process_successful_payment(payment_data: Dict[str, Any]) -> bool:
                         cur.execute("UPDATE users SET coins = ? WHERE user_id = ?", (new_balance, user_id))
                     conn.commit()
                 
-                # Записываем транзакцию
-                db.charge_feature(user_id, "topup", 0, f"Topup: +{coins} coins via payment {payment_id}")
+                # Записываем транзакцию через balance_manager
+                from app.services import balance_manager
+                balance_manager.add_coins(
+                    user_id=user_id,
+                    amount=coins,
+                    reason=f"Topup via payment {payment_id}",
+                    feature="topup"
+                )
                 
                 log.info(f"Topup processed for user {user_id}: +{coins} coins")
                 return True

@@ -51,27 +51,35 @@ def get_balance(user_id: int) -> int:
         return 100  # Заглушка при недоступности БД
 
 def add_coins(user_id: int, amount: int, description: str = None) -> bool:
-    """Добавить монеты пользователю"""
+    """Добавить монеты пользователю (DEPRECATED - используйте balance_manager.add_coins)"""
     try:
-        from app.db import db_subscriptions as db
-        return db.update_user_balance(user_id, amount, note=description or "add_coins")
+        from app.services import balance_manager
+        balance_manager.add_coins(
+            user_id=user_id,
+            amount=amount,
+            reason=description or "add_coins",
+            feature="manual_add"
+        )
+        return True
     except Exception as e:
         print(f"Error adding coins to user {user_id}: {e}")
         return False
 
 def charge_feature(user_id: int, feature_key: str) -> bool:
-    """Списать монеты за функцию"""
+    """Списать монеты за функцию (DEPRECATED - используйте balance_manager.spend_coins)"""
     try:
+        from app.services import balance_manager
         cost = feature_cost_coins(feature_key)
-        from app.db import db_subscriptions as db
         
-        # Проверяем баланс
-        current_balance = db.get_user_balance(user_id)
-        if current_balance < cost:
-            return False
-        
-        # Списываем монеты
-        return db.charge_feature(user_id, feature_key, cost, note=f"charge_feature_{feature_key}")
+        balance_manager.spend_coins(
+            user_id=user_id,
+            amount=cost,
+            reason=f"Feature usage: {feature_key}",
+            feature=feature_key
+        )
+        return True
+    except balance_manager.InsufficientFundsError:
+        return False
     except Exception:
         # В случае ошибки БД - разрешаем операцию (для тестирования)
         return True
