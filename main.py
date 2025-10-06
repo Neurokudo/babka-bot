@@ -3952,73 +3952,11 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     
-    # Новый обработчик тарифов (вместо старого show_plans)
-    if data == "show_tariffs":
-        log.info("CALLBACK show_tariffs uid=%s - STARTING", update.effective_user.id)
-        try:
-            from app.services.pricing import format_plans_list, format_feature_costs, get_available_tariffs
-            plans_text = format_plans_list()
-            costs_text = format_feature_costs()
-            log.info("CALLBACK show_tariffs uid=%s - GOT TEXTS", update.effective_user.id)
-            
-            # Получаем текущий тариф пользователя
-            subscription_data = check_subscription(uid)
-            current_plan = subscription_data.get("plan", "lite")
-            
-            # Создаем кнопки для покупки тарифов
-            keyboard = []
-            tariffs = get_available_tariffs()
-            for tariff in tariffs:
-                plan_id = tariff["name"]
-                plan_title = tariff["title"]
-                plan_price = tariff["price_rub"]
-                plan_coins = tariff["coins"]
-                
-                # Определяем статус кнопки
-                if plan_id == current_plan:
-                    label = f"✅ {plan_title} (текущий)"
-                else:
-                    # Проверяем, можно ли купить этот тариф
-                    plan_levels = {"start": 1, "lite": 2, "standard": 3, "pro": 4}
-                    current_level = plan_levels.get(current_plan, 1)
-                    target_level = plan_levels.get(plan_id, 1)
-                    
-                    if current_level >= target_level:
-                        label = f"❌ {plan_title} (недоступно)"
-                    else:
-                        label = f"⬆️ {plan_title} - Повысить"
-                
-                keyboard.append([InlineKeyboardButton(label, callback_data=f"buy_plan_{plan_id}")])
-            
-            keyboard.append([InlineKeyboardButton("⚡ Быстрые докупки", callback_data="show_topup")])
-            keyboard.append([InlineKeyboardButton("⬅️ Назад в профиль", callback_data="menu_profile")])
-            
-            # Добавляем информацию о текущем тарифе
-            current_tariff_info = ""
-            for tariff in tariffs:
-                if tariff["name"] == current_plan:
-                    current_tariff_info = f"📋 <b>Ваш текущий тариф:</b> {tariff['title']} ({tariff['coins']} монеток)\n\n"
-                    break
-            
-            full_text = f"{current_tariff_info}{plans_text}\n\n{costs_text}"
-            
-            # Логируем текст ответа
-            logging.debug(f"Editing message with text: {full_text[:120]}...")
-            
-            await q.message.edit_text(
-                full_text,
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            log.info("CALLBACK show_tariffs uid=%s - SUCCESS", update.effective_user.id)
-            return
-        except Exception as e:
-            log.error("CALLBACK show_tariffs uid=%s - ERROR: %s", update.effective_user.id, e)
-            await q.message.edit_text(
-                f"❌ Ошибка при загрузке тарифов: {e}",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")]])
-            )
-            return
+    # DEPRECATED: Старый обработчик show_tariffs удален
+    # Теперь используется новый хэндлер в app/handlers/router.py через legacy shim
+    # if data == "show_tariffs":
+    #     # Этот блок удален - теперь обрабатывается через legacy_show_tariffs в router.py
+    #     pass
     
     if data == "show_topup":
         from app.services.pricing import format_topup_packs, get_available_topup_packs
