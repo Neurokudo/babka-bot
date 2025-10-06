@@ -3524,6 +3524,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_profile":
         # Получаем актуальные данные только из pricing.py и БД
         from app.services.pricing import format_feature_costs, get_available_tariffs
+        from app.services.billing import check_subscription
         
         # Получаем данные о подписке из БД
         subscription_data = check_subscription(uid)
