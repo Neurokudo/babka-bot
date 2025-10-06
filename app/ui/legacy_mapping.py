@@ -90,6 +90,7 @@ OLD_CALLBACK_MAP = {
     
     # Платежи
     "show_plans": Actions.PAYMENT_PLANS,
+    "show_tariffs": Actions.PAYMENT_PLANS,  # Добавлено для обратной совместимости
     "show_topup": Actions.PAYMENT_TOPUP,
     "show_terms": Actions.PAYMENT_TERMS,
     "contact_support": Actions.PAYMENT_SUPPORT,

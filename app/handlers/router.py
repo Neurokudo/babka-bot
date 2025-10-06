@@ -591,7 +591,7 @@ async def handle_payment_plans(call: types.CallbackQuery, cb):
     import logging
     log = logging.getLogger(__name__)
 
-    log.info("CALLBACK show_tariffs uid=%s", call.from_user.id)
+    log.info("CALLBACK handle_payment_plans uid=%s", call.from_user.id)
 
     # Безопасная сборка текста
     try:
@@ -624,17 +624,7 @@ async def handle_payment_plans(call: types.CallbackQuery, cb):
 
     await call.message.edit_text(plans_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
 
-# --- LEGACY SHIM: старые коллбеки на тарифы ---
-@router.callback_query(lambda c: c.data in ("show_tariffs", "open_pricing"))
-async def legacy_show_tariffs(call: types.CallbackQuery):
-    """Legacy shim для старых коллбеков тарифов"""
-    log.info("⚡ LEGACY SHIM ACTIVATED for show_tariffs uid=%s data=%s", call.from_user.id, call.data)
-    # используем актуальную реализацию
-    try:
-        return await handle_payment_plans(call, cb=None)
-    except TypeError:
-        # если сигнатура другая, просто вызовем без cb
-        return await handle_payment_plans(call, None)
+# LEGACY SHIM удален - show_tariffs теперь маппится на Actions.PAYMENT_PLANS через legacy_mapping.py
 
 @on_action(Actions.PAYMENT_TOPUP)
 async def handle_payment_topup(call: types.CallbackQuery, cb):
