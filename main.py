@@ -43,7 +43,7 @@ from telegram.ext import (
 # Импорты для работы с базой данных и биллингом
 from app.db.queries import db_manager
 from app.db import queries as db
-from app.handlers.router import register_router
+from app.handlers.router_v2 import register_router
 
 # Лок на пользователя для предотвращения гонок состояний
 user_locks = defaultdict(asyncio.Lock)
