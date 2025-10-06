@@ -7,12 +7,12 @@ MENU = {
     "root": {
         "text_key": "menu.title",
         "buttons": [
-            {"text_key": "btn.generate", "to": "modes", "cb": (Actions.MODE_HELPER,)},
-            {"text_key": "btn.lego", "to": "lego_menu", "cb": (Actions.LEGO_SINGLE,)},
-            {"text_key": "btn.tryon", "to": "tryon_start", "cb": (Actions.TRYON_START,)},
-            {"text_key": "btn.transforms", "to": "transforms", "cb": (Actions.TRANSFORM_REMOVE_BG,)},
-            {"text_key": "btn.guides", "to": "guides", "cb": (Actions.MENU_GUIDES,)},
-            {"text_key": "btn.profile", "to": "profile", "cb": (Actions.MENU_PROFILE,)},
+            {"text_key": "btn.generate", "to": "modes", "cb": (Actions.NAV, "modes")},
+            {"text_key": "btn.lego", "to": "lego_menu", "cb": (Actions.NAV, "lego_menu")},
+            {"text_key": "btn.tryon", "to": "tryon_start", "cb": (Actions.NAV, "tryon_start")},
+            {"text_key": "btn.transforms", "to": "transforms", "cb": (Actions.NAV, "transforms")},
+            {"text_key": "btn.guides", "to": "guides", "cb": (Actions.NAV, "guides")},
+            {"text_key": "btn.profile", "to": "profile", "cb": (Actions.NAV, "profile")},
         ],
     },
 
