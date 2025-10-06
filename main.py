@@ -43,6 +43,7 @@ from telegram.ext import (
 # Импорты для работы с базой данных и биллингом
 from app.db.queries import db_manager
 from app.db import queries as db
+from app.handlers.router import register_router
 
 # Лок на пользователя для предотвращения гонок состояний
 user_locks = defaultdict(asyncio.Lock)
@@ -5868,7 +5869,8 @@ def create_app():
     app.add_handler(CommandHandler("add_bonus", cmd_add_bonus))  # команда для админских монеток
     app.add_handler(CommandHandler("reload_profile", cmd_reload_profile))  # перезагрузка профиля из БД
     app.add_handler(CommandHandler("reset_my_profile", cmd_reset_my_profile))  # сброс профиля админа
-    app.add_handler(CallbackQueryHandler(on_cb))
+    # app.add_handler(CallbackQueryHandler(on_cb))  # DEPRECATED: заменен на новый роутер
+    register_router(app)  # Новый роутер для обработки callback-ов
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))  # приём фото (примерочная)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     

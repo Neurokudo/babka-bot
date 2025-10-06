@@ -30,21 +30,24 @@ async def callback_entry(call: types.CallbackQuery):
         
         await call.answer()
         
+        log.info(f"🔍 ROUTER CALLBACK: '{call.data}' from uid={call.from_user.id}")
         cb = parse_cb(call.data or "")
         
         # Если новый формат не распарсился, пробуем старый
         if not cb:
+            log.info(f"Trying legacy conversion for callback: '{call.data}'")
             legacy_cb = convert_legacy_callback(call.data)
             if legacy_cb:
-                log.info(f"Converted legacy callback '{call.data}' to new format")
+                log.info(f"✅ Converted legacy callback '{call.data}' to new format: {legacy_cb}")
                 cb = legacy_cb
             else:
-                log.warning(f"Failed to parse callback data: '{call.data}'")
+                log.warning(f"❌ Failed to parse callback data: '{call.data}'")
                 await show_error_and_menu(call, "error.button_outdated")
                 return
         
         if cb.action not in HANDLERS:
             log.warning(f"Unknown action: '{cb.action}' for callback: '{call.data}'")
+            log.warning(f"Available handlers: {list(HANDLERS.keys())}")
             await show_error_and_menu(call, "error.button_outdated")
             return
         
@@ -899,10 +902,12 @@ async def handle_report_improve_cancel(call: types.CallbackQuery, cb):
     )
 
 # Функция для регистрации роутера в основном боте
-def register_router(dispatcher):
-    """Зарегистрировать роутер в диспетчере"""
-    dispatcher.add_handler(router)
-    log.info("Callback router registered")
+def register_router(app):
+    """Зарегистрировать роутер в приложении"""
+    app.add_handler(router)
+    log.info("✅ Callback router registered successfully")
+    log.info(f"📋 Registered handlers: {list(HANDLERS.keys())}")
+    print(f"🔧 ROUTER INIT: Registered {len(HANDLERS)} handlers")
 
 # Функция для получения списка зарегистрированных хэндлеров
 def get_registered_handlers():

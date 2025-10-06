@@ -139,11 +139,16 @@ def convert_legacy_callback(callback_data: str) -> Cb:
         mapping = OLD_CALLBACK_MAP[callback_data]
         if isinstance(mapping, tuple):
             # Действие с параметрами (action, id, extra)
-            return Cb(*mapping)
+            result = Cb(*mapping)
+            print(f"🔍 LEGACY CONVERSION: '{callback_data}' -> {result}")
+            return result
         else:
             # Простое действие
-            return Cb(mapping)
+            result = Cb(mapping)
+            print(f"🔍 LEGACY CONVERSION: '{callback_data}' -> {result}")
+            return result
     
+    print(f"❌ LEGACY CONVERSION FAILED: '{callback_data}' not found in mapping")
     return None
 
 def is_legacy_callback(callback_data: str) -> bool:
