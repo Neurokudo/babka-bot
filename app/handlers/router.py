@@ -625,10 +625,10 @@ async def handle_payment_plans(call: types.CallbackQuery, cb):
     await call.message.edit_text(plans_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
 
 # --- LEGACY SHIM: старые коллбеки на тарифы ---
-@dp.callback_query_handler(lambda c: c.data in ("show_tariffs", "open_pricing"))
+@router.callback_query(lambda c: c.data in ("show_tariffs", "open_pricing"))
 async def legacy_show_tariffs(call: types.CallbackQuery):
     """Legacy shim для старых коллбеков тарифов"""
-    log.info("CALLBACK legacy_show_tariffs uid=%s data=%s", call.from_user.id, call.data)
+    log.info("⚡ LEGACY SHIM ACTIVATED for show_tariffs uid=%s data=%s", call.from_user.id, call.data)
     # используем актуальную реализацию
     try:
         return await handle_payment_plans(call, cb=None)
