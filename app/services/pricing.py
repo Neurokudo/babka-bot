@@ -82,12 +82,33 @@ def calculate_coin_rate_rub_topup(coins: int) -> float:
 
 def format_plans_list() -> str:
     """Форматированный список тарифов для UI"""
-    plans = []
-    for tariff_data in get_available_tariffs():
-        plans.append(
-            f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']} ₽ → {tariff_data['coins']} монеток"
-        )
-    return "\n".join(plans)
+    try:
+        plans = []
+        
+        # Заголовок
+        plans.append("💰 <b>Тарифы на 30 дней</b>\n")
+        
+        for tariff_data in get_available_tariffs():
+            plans.append(f"{tariff_data['icon']} {tariff_data['title']} — {tariff_data['price_rub']:,} ₽ → {tariff_data['coins']} монет")
+            plans.append(f"Что это даёт:")
+            examples = calculate_tariff_examples(tariff_data['coins'])
+            plans.append(examples)
+            plans.append("")  # Пустая строка между тарифами
+        
+        # Добавляем информацию о стоимости функций
+        plans.append(format_feature_costs())
+        plans.append("")
+        plans.append("💡 Подсказка пользователю: без звука — дешевле, роликов выйдет больше. Звук можно включить по желанию.\n")
+        
+        # Добавляем разовый пакет
+        plans.append(format_special_packs())
+        
+        return "\n".join(plans)
+    except Exception as e:
+        import logging
+        log = logging.getLogger(__name__)
+        log.error("Failed to build plans list: %s", e, exc_info=True)
+        return "❌ Ошибка при загрузке тарифов. Попробуйте ещё раз."
 
 def calculate_tariff_examples(coins: int) -> str:
     """Рассчитать примеры использования для тарифа"""

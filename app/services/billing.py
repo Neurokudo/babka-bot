@@ -147,11 +147,12 @@ def hold_and_start(user_id: int, feature_type: str, quality: str = "basic") -> s
     
     # Сохраняем задачу
     user_jobs[job_id] = job_data
-    st["current_job_id"] = job_id
-    st["jobs"][job_id] = job_data
+    # st["current_job_id"] = job_id  # DEPRECATED: st не определен
+    # st["jobs"][job_id] = job_data  # DEPRECATED: st не определен
     
-    # Списываем монеты
-    st["coins"] -= cost
+    # Списываем монеты через новый слой
+    from app.db import db_subscriptions as db
+    db.charge_feature(user_id, feature, cost, note=f"job_{job_id}")
     
     log.info(f"Started job {job_id} for user {user_id}, cost: {cost} coins")
     return job_id
@@ -289,7 +290,8 @@ def add_coins(user_id: int, amount: int) -> bool:
             user = db_manager.create_user(user_id)
         
         # Добавляем монеты в базу данных
-        success = db_manager.add_coins(user_id, amount)
+        from app.db import db_subscriptions as db
+        success = db.update_user_balance(user_id, amount, note="manual_add_coins")
         
         if success:
             new_balance = user.balance + amount
@@ -319,7 +321,8 @@ def spend_coins(user_id: int, amount: int) -> bool:
             return False
         
         # Списываем монеты в базе данных
-        success = db_manager.spend_coins(user_id, amount, "manual_spend")
+        from app.db import db_subscriptions as db
+        success = db.charge_feature(user_id, "manual_spend", amount, note="manual_spend_coins")
         
         if success:
             new_balance = user.balance - amount

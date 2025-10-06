@@ -53,8 +53,8 @@ def get_balance(user_id: int) -> int:
 def add_coins(user_id: int, amount: int, description: str = None) -> bool:
     """Добавить монеты пользователю"""
     try:
-        from app.db.queries import db_manager
-        return db_manager.add_coins(user_id, amount)
+        from app.db import db_subscriptions as db
+        return db.update_user_balance(user_id, amount, note=description or "add_coins")
     except Exception as e:
         print(f"Error adding coins to user {user_id}: {e}")
         return False
@@ -63,16 +63,15 @@ def charge_feature(user_id: int, feature_key: str) -> bool:
     """Списать монеты за функцию"""
     try:
         cost = feature_cost_coins(feature_key)
-        from app.db.queries import db_manager
+        from app.db import db_subscriptions as db
         
-        user = db_manager.get_user(user_id)
-        if not user:
-            # Создаем пользователя если его нет
-            user = db_manager.create_user(user_id)
+        # Проверяем баланс
+        current_balance = db.get_user_balance(user_id)
+        if current_balance < cost:
+            return False
         
-        if user.balance >= cost:
-            return db_manager.spend_coins(user_id, cost, feature_key)
-        return False
+        # Списываем монеты
+        return db.charge_feature(user_id, feature_key, cost, note=f"charge_feature_{feature_key}")
     except Exception:
         # В случае ошибки БД - разрешаем операцию (для тестирования)
         return True

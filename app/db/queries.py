@@ -332,5 +332,7 @@ def save_user(user_id: int, user_data: dict) -> bool:
     return db_manager.save_user(user_id, user_data)
 
 def charge_feature(user_id: int, feature: str, cost: int, note: str = None) -> bool:
-    """Списать монеты за использование функции"""
-    return db_manager.charge_feature(user_id, feature, cost, note)
+    """Списать монеты за использование функции (DEPRECATED - используйте db_subscriptions.charge_feature)"""
+    # Перенаправляем на новый слой
+    from app.db import db_subscriptions as db
+    return db.charge_feature(user_id, feature, cost, note)

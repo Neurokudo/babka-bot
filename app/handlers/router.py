@@ -588,20 +588,37 @@ async def handle_payment_plans(call: types.CallbackQuery, cb):
     """Показать тарифы"""
     from app.services.pricing import format_plans_list, get_available_tariffs
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    import logging
+    log = logging.getLogger(__name__)
 
     log.info("CALLBACK show_tariffs uid=%s", call.from_user.id)
 
-    plans_text = format_plans_list()  # ВСЯ верстка отсюда
+    # Безопасная сборка текста
+    try:
+        plans_text = format_plans_list()
+    except Exception as e:
+        log.error("Failed to build plans list: %s", e, exc_info=True)
+        plans_text = "❌ Ошибка при загрузке тарифов. Попробуйте ещё раз."
 
-    # Добавляем диагностический маяк
-    from main import VERSION, PRICING_HASH
-    plans_text += f"\n\n🧩 version: {VERSION} • pricing: {PRICING_HASH}"
+    # Диагностический бейдж версии (оставить, если в проекте есть эти переменные)
+    try:
+        from main import VERSION, PRICING_HASH
+        plans_text += f"\n\n🧩 version: {VERSION} • pricing: {PRICING_HASH}"
+    except Exception:
+        pass
+
+    # Клавиатура на основе списка (не dict!)
     kb = []
-    tariffs = get_available_tariffs()
-    for key, info in tariffs.items():
-        title = info["title"] if isinstance(info, dict) else getattr(info, "title", key.title())
-        price = info["price"] if isinstance(info, dict) else getattr(info, "price", 0)
-        kb.append([InlineKeyboardButton(f"{title} — {price:,} ₽", callback_data=f"buy_plan_{key}")])
+    try:
+        tariffs = get_available_tariffs()  # ожидается list[dict]
+        for info in tariffs:
+            key = info["name"]
+            title = info["title"]
+            price = info["price_rub"]
+            kb.append([InlineKeyboardButton(f"{title} — {price:,} ₽", callback_data=f"buy_plan_{key}")])
+    except Exception as e:
+        log.error("Failed to build tariffs keyboard: %s", e, exc_info=True)
+
     kb.append([InlineKeyboardButton("➕ Пополнить монеты", callback_data="show_topup")])
     kb.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_home")])
 
